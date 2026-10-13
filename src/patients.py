@@ -18,8 +18,10 @@ def main():
         patients, month = sources.load_patients(sources.fetch(url))
         month = month or datetime.now(timezone.utc).strftime("%Y-%m")
         rows = [{"ods_code": c, "patients": n, "data_month": month} for c, n in patients.items()]
-        Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]).upsert("patient_counts", rows, "ods_code")
-        print(f"OK {len(rows)} practices for {month} from {url}")
+        rest = Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+        rest.upsert("patient_counts", rows, "ods_code")
+        updated = rest.rpc("apply_patient_counts")  # copy onto practices straight away so the dashboard refreshes
+        print(f"OK {len(rows)} practices for {month} from {url}; {updated} practices updated")
     except Exception as e:  # noqa: BLE001
         msg = f"Monthly patient-count load failed: {e}"
         if os.environ.get("RESEND_API_KEY"):

@@ -37,15 +37,21 @@ def test_patients_file():
         sources.load_patients(make_patients(n=100))
 
 
-def test_ods_api_pcn_and_icb():
-    def page(url, params):
-        o = int(params["Offset"]) - 1
-        assert int(params["Offset"]) >= 1  # ODS Offset is 1-based
-        return {"Organisations": [{"OrgId": f"A{i + 10000:05d}", "Name": f"S{i}", "PostCode": "X1"} for i in range(o, min(o + int(params["Limit"]), 5300))]}
-    act = sources.load_active_gp_practices(page)
-    assert len(act) == 5300 and act["A10000"]["name"] == "S0"
+@pytest.mark.parametrize("one_based", [False, True])
+def test_ods_api_paging(one_based):
+    codes = [f"A{i + 10000:05d}" for i in range(5301)]
+
+    def api(url, params):
+        assert params.get("Offset", 1) >= 1  # the real API rejects Offset=0
+        start = params["Offset"] - 1 if "Offset" in params and one_based else params.get("Offset", 0)
+        return {"Organisations": [{"OrgId": c, "Name": c, "PostCode": "X1"} for c in codes[start:start + int(params["Limit"])]]}
+    act = sources.load_active_gp_practices(api)
+    assert len(act) == 5301 and "A10000" in act and "A15300" in act  # first and last record both present
     with pytest.raises(ValueError):
         sources.load_active_gp_practices(lambda u, p: {"Organisations": []})
+
+
+def test_ods_pcn_and_icb():
     names = sources.load_pcn_names(b'"U00000","WEST NORWICH PCN","26A","NHS NORFOLK AND SUFFOLK ICB - 26A","20240401"\n"X","bad"\n')
     assert names == {"U00000": ("WEST NORWICH PCN", "NHS NORFOLK AND SUFFOLK ICB")}
     detail = {"Organisation": {"Rels": {"Rel": [

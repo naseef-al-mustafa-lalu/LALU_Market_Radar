@@ -33,9 +33,18 @@
   </nav>
 
   <main class="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <aside class="bg-white rounded-xl border border-slate-200 p-5 h-fit">
+    <aside class="space-y-6">
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <h2 class="font-bold mb-2">Patient counts</h2>
+      <p id="pc-status" class="text-sm text-slate-500">Checking…</p>
+      <button id="pc-run" class="mt-3 w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-semibold">Update from NHS now</button>
+      <p id="pc-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
+      <p class="mt-1 text-[11px] text-slate-400">Runs on the office PC (the runner must be online). NHS publishes new figures monthly.</p>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-5 h-fit">
       <h2 class="font-bold mb-3">Latest signals <span id="live-dot" class="ml-2 text-[11px] font-semibold text-slate-400">connecting…</span></h2>
       <div id="alerts" class="space-y-3 max-h-[600px] overflow-y-auto"><p class="text-sm italic text-slate-400">No signals yet.</p></div>
+    </div>
     </aside>
 
     <section class="lg:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -121,10 +130,51 @@ async function startApp() {
     const { data: run } = await db.from("ingest_runs").select("finished_at,stats").eq("status", "success").order("id", { ascending: false }).limit(1);
     $("refresh-badge").textContent = run && run[0] ? `Data refreshed ${new Date(run[0].finished_at).toLocaleDateString("en-GB")} (NHS data month ${run[0].stats.data_month || "?"})` : "No successful refresh yet";
     applyFilters();
+    refreshPatientStatus();
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signalCodes.add(p.new.ods_code); addAlert(p.new); })
       .subscribe(s => { $("live-dot").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); }
 }
+
+/* ---------- patient counts ---------- */
+let pcTimer = null;
+async function latestCounts() {
+  const { data } = await db.from("patient_counts").select("data_month,updated_at").order("updated_at", { ascending: false }).limit(1);
+  const withCounts = practices.filter(p => p.total_patients > 0).length;
+  return { row: data && data[0], withCounts };
+}
+async function refreshPatientStatus() {
+  const { row, withCounts } = await latestCounts();
+  $("pc-status").textContent = row
+    ? `Data for ${row.data_month || "?"}, loaded ${new Date(row.updated_at).toLocaleDateString("en-GB")}. ${withCounts.toLocaleString()} of ${practices.length.toLocaleString()} practices have counts.`
+    : "No patient counts loaded yet: practices show as Tier 3 until the first load.";
+  return row;
+}
+$("pc-run").addEventListener("click", async () => {
+  const btn = $("pc-run"), msg = $("pc-msg");
+  btn.disabled = true; msg.textContent = "Sending request…";
+  const before = (await latestCounts()).row;
+  const { data, error } = await db.functions.invoke("trigger-patient-load");
+  if (error || (data && data.error)) {
+    let detail = (data && data.error) || error.message;
+    try { const body = await error.context.json(); detail = body.error || detail; } catch (_) {}
+    msg.textContent = "Could not start: " + detail; btn.disabled = false; return;
+  }
+  msg.textContent = "Started. Waiting for the office PC runner… (this page updates when it finishes)";
+  const t0 = Date.now();
+  clearInterval(pcTimer);
+  pcTimer = setInterval(async () => {
+    const { row } = await latestCounts();
+    if (row && (!before || row.updated_at !== before.updated_at)) {
+      clearInterval(pcTimer);
+      practices = await fetchAll("gp_practices", "*", "ods_code"); applyFilters(); await refreshPatientStatus();
+      msg.textContent = "Done: patient counts updated."; btn.disabled = false;
+    } else if (Date.now() - t0 > 10 * 60 * 1000) {
+      clearInterval(pcTimer);
+      msg.textContent = "Still waiting after 10 minutes: is the office PC (runner) switched on? The request stays queued. Reload later."; btn.disabled = false;
+    }
+  }, 10000);
+});
 
 /* ---------- alerts ---------- */
 function addAlert(a) {

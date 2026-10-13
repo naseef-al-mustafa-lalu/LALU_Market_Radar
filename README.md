@@ -12,15 +12,24 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 4. **GitHub Pages**: Settings -> Pages -> deploy from `main` / root. (Private repos need a paid GitHub plan for Pages.)
 5. Run the **Daily market radar** workflow manually once. The first successful run is a silent *baseline*: it loads everything but raises no triggers and sends no email. From the second run, changes generate signals.
 
-## Monthly patient counts (self-hosted runner)
+## Monthly patient counts: the dashboard button + office runner
 NHS Digital (the only source of GP list sizes) blocks cloud datacentres, including GitHub-hosted runners. So the
-**Monthly patient counts** workflow runs on a *self-hosted runner* on any ordinary office/home computer (Windows, Mac or Linux,
-with Python available). It does not need to be on at a fixed time: runs queue until the runner is online.
-1. Repo -> Settings -> Actions -> Runners -> **New self-hosted runner**, pick the OS, and follow GitHub's commands on that machine.
-2. Start it (`./run.cmd` / `./run.sh`, or install as a service so it starts at login).
-3. Actions -> **Monthly patient counts** -> Run workflow (optionally paste a direct link to `gp-reg-pat-prac-all.csv`).
-Until the first successful run, practices load with 0 patients (all shown as Tier 3). No false growth alerts fire when counts arrive.
-Practices, PCNs, closures and contacts are fully automatic on GitHub-hosted runners via the NHS ODS API.
+**Monthly patient counts** workflow runs on a *self-hosted runner*: GitHub's small agent installed on an ordinary office computer.
+You start it from the dashboard's **Update from NHS now** button when you arrive at work.
+
+How the button works: dashboard -> Supabase function `trigger-patient-load` (checks you are signed in and on `allowed_users`)
+-> GitHub API starts the workflow -> the runner on your office PC downloads the NHS file and stores it in Supabase -> the dashboard refreshes.
+
+One-off setup:
+1. **GitHub token** (lets the Supabase function start the workflow, nothing else): GitHub -> your profile -> Settings -> Developer settings ->
+   Personal access tokens -> *Fine-grained tokens* -> Generate. Resource owner: you; Repository access: *Only select repositories* -> `LALU_Market_Radar`;
+   Permissions -> Repository -> **Actions: Read and write**. Copy the token (renew it before it expires).
+2. **Store it in Supabase**: Dashboard -> Edge Functions -> Secrets -> add `GITHUB_TOKEN` = the token.
+3. **Runner**: repo -> Settings -> Actions -> Runners -> **New self-hosted runner**, choose the office PC's OS, run GitHub's commands on that PC,
+   then start it (`./run.cmd` or `./run.sh`; or install as a service so it starts with the PC). Python is installed automatically by the workflow.
+4. Sign in to the dashboard and press **Update from NHS now**. If the PC is off the request waits (up to 24h) until the runner is online.
+The workflow also runs every Monday on its own while the runner is online, and can be started manually from the Actions tab.
+Until the first load, practices show 0 patients (Tier 3); no false growth alerts fire when counts arrive.
 
 ## Operating notes
 - NHS patient numbers are **monthly**, so list-size/closure signals move monthly; Oscar contact changes are picked up daily.

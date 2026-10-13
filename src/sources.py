@@ -133,12 +133,18 @@ def get_json(url, params=None):
 
 
 def load_active_gp_practices(getj=get_json, page=500):
-    """All active GP practices from the ODS API: {ods: {name, postcode}}."""
-    out, offset = {}, 1  # the ODS API's Offset is 1-based
+    """All active GP practices from the ODS API: {ods: {name, postcode}}.
+
+    The API rejects Offset=0 and its Offset=1 skips the first record, so page 1 is requested with no Offset and later
+    pages use Offset=<records so far>. That is exact if Offset is 0-based and merely overlaps by one record (removed by
+    de-duplication) if it is 1-based, so it is correct under either reading.
+    """
+    out, offset = {}, 0
     while True:
-        data = getj(f"{ODS_API}/organisations", {"PrimaryRoleId": "RO177", "NonPrimaryRoleId": "RO76",
-                                                 "Status": "Active", "Limit": page, "Offset": offset})
-        orgs = data.get("Organisations", [])
+        params = {"PrimaryRoleId": "RO177", "NonPrimaryRoleId": "RO76", "Status": "Active", "Limit": page}
+        if offset:
+            params["Offset"] = offset
+        orgs = getj(f"{ODS_API}/organisations", params).get("Organisations", [])
         before = len(out)
         for o in orgs:
             code = norm_ods(o.get("OrgId"))
@@ -146,7 +152,7 @@ def load_active_gp_practices(getj=get_json, page=500):
                 out[code] = {"name": o.get("Name", ""), "postcode": o.get("PostCode", "")}
         if len(orgs) < page or len(out) == before:  # last page, or the API ignored Offset
             break
-        offset += page
+        offset = len(out)
     if len(out) < 5000:
         raise ValueError(f"ODS API returned only {len(out)} active GP practices; refusing to continue")
     return out

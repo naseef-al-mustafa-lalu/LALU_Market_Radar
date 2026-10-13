@@ -98,6 +98,9 @@ class Rest:
         self._ok(self.s.patch(f"{self.base}/{table}", params=filters, json=values, timeout=60,
                               headers={"Prefer": "return=minimal"}))
 
+    def rpc(self, name, args=None):
+        return self._ok(self.s.post(f"{self.base}/rpc/{name}", json=args or {}, timeout=300)).json()
+
     def delete_in(self, table, column, values, chunk=200):
         for i in range(0, len(values), chunk):
             ids = ",".join(str(v) for v in values[i:i + chunk])
