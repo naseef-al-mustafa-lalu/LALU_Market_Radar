@@ -21,7 +21,7 @@ MONTHS = {m: i for i, m in enumerate(
 
 
 def fetch(url, timeout=120):
-    r = requests.get(url, headers=BROWSER_HEADERS, timeout=timeout)
+    r = requests.get(url, headers={"User-Agent": BROWSER_HEADERS["User-Agent"]}, timeout=timeout)
     r.raise_for_status()
     return r.content
 
@@ -115,12 +115,16 @@ ODS_API = "https://directory.spineservices.nhs.uk/ORD/2-0-0"
 ODS_EXPORT = "https://www.odsdatasearchandexport.nhs.uk/api/getReport?report="
 
 
+ODS_HEADERS = {"User-Agent": BROWSER_HEADERS["User-Agent"]}  # exactly what was verified against the ODS API from GitHub runners
+
+
 def get_json(url, params=None):
     last = None
     for attempt in range(3):
         try:
-            r = requests.get(url, params=params, headers={**BROWSER_HEADERS, "Accept": "application/json"}, timeout=60)
-            r.raise_for_status()
+            r = requests.get(url, params=params, headers=ODS_HEADERS, timeout=60)
+            if not r.ok:
+                raise RuntimeError(f"{r.status_code} for {r.url}: {r.text[:300]}")
             return r.json()
         except Exception as e:  # noqa: BLE001
             last = e
@@ -128,7 +132,7 @@ def get_json(url, params=None):
     raise last
 
 
-def load_active_gp_practices(getj=get_json, page=1000):
+def load_active_gp_practices(getj=get_json, page=500):
     """All active GP practices from the ODS API: {ods: {name, postcode}}."""
     out, offset = {}, 0
     while True:

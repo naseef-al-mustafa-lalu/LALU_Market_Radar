@@ -40,7 +40,7 @@ def test_patients_file():
 def test_ods_api_pcn_and_icb():
     def page(url, params):
         o = int(params["Offset"])
-        return {"Organisations": [{"OrgId": f"A{i + 10000:05d}", "Name": f"S{i}", "PostCode": "X1"} for i in range(o, min(o + 1000, 5300))]}
+        return {"Organisations": [{"OrgId": f"A{i + 10000:05d}", "Name": f"S{i}", "PostCode": "X1"} for i in range(o, min(o + int(params["Limit"]), 5300))]}
     act = sources.load_active_gp_practices(page)
     assert len(act) == 5300 and act["A10000"]["name"] == "S0"
     with pytest.raises(ValueError):
