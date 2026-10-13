@@ -119,7 +119,7 @@ def get_json(url, params=None):
     last = None
     for attempt in range(3):
         try:
-            r = requests.get(url, params=params, headers=BROWSER_HEADERS, timeout=60)
+            r = requests.get(url, params=params, headers={**BROWSER_HEADERS, "Accept": "application/json"}, timeout=60)
             r.raise_for_status()
             return r.json()
         except Exception as e:  # noqa: BLE001
