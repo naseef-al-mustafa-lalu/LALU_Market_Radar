@@ -14,7 +14,9 @@ import requests
 from .common import norm_ods
 
 BASE = "https://api.service.cqc.org.uk/public/v1"
-FIELDS = ["cqc_location_id", "cqc_provider_id", "cqc_status", "cqc_rating", "cqc_last_inspection", "cqc_manager_absent_date"]
+FIELDS = ["cqc_location_id", "cqc_provider_id", "cqc_status", "cqc_rating", "cqc_last_inspection", "cqc_manager_absent_date", "cqc_brand_name"]
+GROUP_FIELDS = ["group_name", "group_size"]
+PROVIDER_NAME_CAP = 300
 BACKFILL_BUDGET_SECONDS = 25 * 60
 
 
@@ -49,7 +51,8 @@ def summarise(detail):
     return {"cqc_location_id": detail.get("locationId"), "cqc_provider_id": detail.get("providerId"),
             "cqc_status": detail.get("registrationStatus"), "cqc_rating": overall.get("rating"),
             "cqc_last_inspection": _date((detail.get("lastInspection") or {}).get("date")),
-            "cqc_manager_absent_date": _date(detail.get("registeredManagerAbsentDate"))}
+            "cqc_manager_absent_date": _date(detail.get("registeredManagerAbsentDate")),
+            "cqc_brand_name": (detail.get("brandName") or "").removeprefix("BRAND ").strip() or None}
 
 
 def paged(getj, path, key, params=None, per_page=1000):
@@ -126,10 +129,42 @@ def sync(rest, practices, getj, now, budget=BACKFILL_BUDGET_SECONDS):
         found.update(match(fetch_details(getj, ids), codes))
         _kv_set(rest, "cqc_last_sync", now.isoformat())
         stats.update(cqc_mode="changes", cqc_changed_locations=len(ids))
+    return build_rows(rest, practices, found, getj, now, stats)
+
+
+def group_assignments(view, names):
+    """{ods: (group_name, group_size)}: a group is a CQC provider running 2+ of our active practices."""
+    members = {}
+    for ods, p in view.items():
+        if p.get("status", "Active") == "Active" and p.get("cqc_provider_id"):
+            members.setdefault(p["cqc_provider_id"], []).append(ods)
+    out = {}
+    for pid, codes in members.items():
+        for c in codes:
+            out[c] = (names.get(pid), len(codes)) if len(codes) >= 2 else (None, None)
+    return out, {pid: codes for pid, codes in members.items() if len(codes) >= 2}
+
+
+def build_rows(rest, practices, found, getj, now, stats):
+    view = {c: {**p, **found.get(c, {})} for c, p in practices.items()}
+    names = _kv_get(rest, "cqc_provider_names", {}) or {}
+    _, groups = group_assignments(view, names)
+    need = [pid for pid in groups if pid not in names][:PROVIDER_NAME_CAP]
+    for pid in need:
+        d = getj(f"/providers/{pid}") or {}
+        names[pid] = d.get("name") or d.get("providerName") or ""
+    if need:
+        _kv_set(rest, "cqc_provider_names", names)
+    assigned, groups = group_assignments(view, names)
     rows = []
-    for ods, s in found.items():
-        old = practices[ods]
-        if any(s[k] != old.get(k) for k in FIELDS):
-            rows.append({"ods_code": ods, "practice_name": old["practice_name"], **s, "cqc_checked_at": now.isoformat()})
-    stats["cqc_matched"], stats["cqc_updated"] = len(found), len(rows)
+    for ods, old in practices.items():
+        new = {**{k: old.get(k) for k in FIELDS}, **found.get(ods, {})}
+        grp = dict(zip(GROUP_FIELDS, assigned.get(ods, (None, None))))
+        if grp["group_name"] == "":
+            grp["group_name"] = None
+        changed = any(new[k] != old.get(k) for k in FIELDS) or any(grp[k] != old.get(k) for k in GROUP_FIELDS)
+        if changed:  # every row carries the same keys so the bulk upsert never blanks a column
+            rows.append({"ods_code": ods, "practice_name": old["practice_name"], **new, **grp,
+                         "cqc_checked_at": now.isoformat() if ods in found else old.get("cqc_checked_at")})
+    stats.update(cqc_matched=len(found), cqc_updated=len(rows), cqc_groups=len(groups), cqc_provider_names_fetched=len(need))
     return rows, stats

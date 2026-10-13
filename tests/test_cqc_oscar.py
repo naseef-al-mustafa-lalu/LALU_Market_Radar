@@ -43,6 +43,8 @@ class FakeCqc:
             return {"totalPages": 1, "locations": [{"locationId": i, "postalCode": self.pc[i]} for i in ids]}
         if path == "/changes/location":
             return {"totalPages": 1, "changes": self.changes}
+        if path.startswith("/providers/"):
+            return {"name": "Group " + path.rsplit("/", 1)[1]}
         return self.details.get(path.rsplit("/", 1)[1])
 
 
@@ -69,3 +71,26 @@ def test_cqc_backfill_then_changes():
     rows2, stats2 = cqc.sync(rest, practices, api, datetime(2026, 10, 15, tzinfo=timezone.utc))
     assert stats2["cqc_mode"] == "changes" and len(rows2) == 1
     assert rows2[0]["cqc_rating"] == "Inadequate" and rows2[0]["cqc_manager_absent_date"] == "2026-10-01" and rows2[0]["cqc_last_inspection"] == "2026-10-13"
+
+
+def test_cqc_groups_and_takeover_inputs():
+    from src.cqc import build_rows
+    api = FakeCqc()
+    rest = FakeRest(); rest.t["kv_state"] = {}
+    practices = {c: {"practice_name": c, "status": "Active", "cqc_provider_id": "PG", "cqc_location_id": f"1-{i}", "cqc_status": "Registered"}
+                 for i, c in enumerate(["A10000", "A10001", "A10002"])}
+    practices["A10003"] = {"practice_name": "solo", "status": "Active", "cqc_provider_id": "PX", "cqc_location_id": "1-9", "cqc_status": "Registered"}
+    rest.select_all = lambda table, columns="*", order="id", params=None, page=1000: (
+        [{"key": "cqc_provider_names", "value": rest.t["kv_state"]["cqc_provider_names"]["value"]}] if "cqc_provider_names" in rest.t["kv_state"] else [])
+    now = datetime(2026, 10, 14, tzinfo=timezone.utc)
+    rows, stats = build_rows(rest, practices, {}, api, now, {})
+    by = {r["ods_code"]: r for r in rows}
+    assert stats["cqc_groups"] == 1 and stats["cqc_provider_names_fetched"] == 1
+    assert by["A10000"]["group_name"] == "Group PG" and by["A10000"]["group_size"] == 3 and "A10003" not in by  # solo practice is not a group
+    assert all(set(r) == set(rows[0]) for r in rows)  # uniform keys
+    # takeover: A10002 moves to another provider -> remaining group shrinks to 2 and the mover shows its new operator
+    practices2 = {**practices, **{c: {**p, **by[c]} for c, p in practices.items() if c in by}}
+    rest.t["kv_state"]["cqc_provider_names"] = {"value": {"PG": "Group PG"}}
+    rows2, stats2 = build_rows(rest, practices2, {"A10002": {"cqc_provider_id": "PX", "cqc_location_id": "1-2", "cqc_status": "Registered"}}, api, now, {})
+    by2 = {r["ods_code"]: r for r in rows2}
+    assert by2["A10000"]["group_size"] == 2 and by2["A10002"]["cqc_provider_id"] == "PX" and by2["A10002"]["group_size"] == 2

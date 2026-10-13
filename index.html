@@ -50,6 +50,10 @@
       </ol>
       <p id="pc-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
     </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <h2 class="font-bold mb-2">Largest groups</h2>
+      <div id="groups" class="space-y-1 text-sm max-h-72 overflow-y-auto"><p class="text-xs italic text-slate-400">Groups appear once CQC data has loaded.</p></div>
+    </div>
     <div class="bg-white rounded-xl border border-slate-200 p-5 h-fit">
       <h2 class="font-bold mb-3">Latest signals <span id="live-dot" class="ml-2 text-[11px] font-semibold text-slate-400">connecting…</span></h2>
       <div id="alerts" class="space-y-3 max-h-[600px] overflow-y-auto"><p class="text-sm italic text-slate-400">No signals yet.</p></div>
@@ -67,7 +71,7 @@
           <select id="f-icb" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm max-w-[200px]"><option value="">All ICBs</option></select>
         </div>
         <div class="flex items-center justify-between text-sm">
-          <label class="flex items-center gap-2"><input id="f-sig" type="checkbox"> Only practices with recent signals</label>
+          <span class="flex items-center gap-4"><label class="flex items-center gap-2"><input id="f-sig" type="checkbox"> Recent signals only</label><label class="flex items-center gap-2"><input id="f-grp" type="checkbox"> Group-run only</label></span>
           <span><span id="count" class="text-slate-500"></span>
             <button id="btn-export" class="ml-3 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-semibold">Export CSV</button></span>
         </div>
@@ -140,6 +144,7 @@ async function startApp() {
     const { data: run } = await db.from("ingest_runs").select("finished_at").eq("status", "success").order("id", { ascending: false }).limit(1);
     lastRunDate = run && run[0] ? new Date(run[0].finished_at).toLocaleDateString("en-GB") : null;
     applyFilters();
+    renderGroups();
     refreshPatientStatus();
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signalCodes.add(p.new.ods_code); addAlert(p.new); })
       .subscribe(s => { $("live-dot").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
@@ -275,14 +280,33 @@ function addAlert(a) {
   rail.prepend(el);
 }
 
+/* ---------- groups ---------- */
+function renderGroups() {
+  const g = new Map();
+  for (const p of practices) {
+    if (p.status !== "Active" || !p.group_size || !p.cqc_provider_id) continue;
+    const e = g.get(p.cqc_provider_id) || { name: p.group_name || "Unnamed group", n: 0, pts: 0 };
+    e.n++; e.pts += p.total_patients || 0; g.set(p.cqc_provider_id, e);
+  }
+  const top = [...g.values()].sort((a, b) => b.n - a.n || b.pts - a.pts).slice(0, 15);
+  $("groups").innerHTML = top.length ? "" : '<p class="text-xs italic text-slate-400">Groups appear once CQC data has loaded.</p>';
+  for (const e of top) {
+    const row = document.createElement("button");
+    row.className = "w-full text-left flex justify-between gap-2 hover:bg-slate-50 rounded px-1 py-0.5";
+    row.innerHTML = `<span class="truncate">${esc(e.name)}</span><span class="text-xs text-slate-500 whitespace-nowrap">${e.n} · ${e.pts ? e.pts.toLocaleString() : "–"} pts</span>`;
+    row.onclick = () => { $("f-search").value = e.name; applyFilters(); };
+    $("groups").appendChild(row);
+  }
+}
+
 /* ---------- table ---------- */
 function applyFilters() {
   const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value,
-        lead = $("f-lead").value, cqcf = $("f-cqc").value, icb = $("f-icb").value, sig = $("f-sig").checked;
+        lead = $("f-lead").value, cqcf = $("f-cqc").value, icb = $("f-icb").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
   filtered = practices.filter(p =>
     p.status === "Active" && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!lead || p.lead_status === lead) && (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) &&
-    (!icb || p.icb_name === icb) && (!sig || signalCodes.has(p.ods_code)) &&
-    (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode].some(v => (v || "").toLowerCase().includes(q))))
+    (!icb || p.icb_name === icb) && (!sig || signalCodes.has(p.ods_code)) && (!grp || p.group_size > 1) &&
+    (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation].some(v => (v || "").toLowerCase().includes(q))))
     .sort((a, b) => b.total_patients - a.total_patients);
   shown = 0; $("rows").innerHTML = ""; renderMore();
   $("count").textContent = `${filtered.length.toLocaleString()} practices`;
@@ -294,7 +318,7 @@ function renderMore() {
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 cursor-pointer align-top";
     const email = p.manager_email ? (p.manager_email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : esc(p.manager_email)) : "";
-    tr.innerHTML = `<td class="p-3"><div class="font-semibold">${esc(p.practice_name)}</div><div class="text-[11px] font-mono text-slate-400">${esc(p.ods_code)} · ${p.total_patients > 0 ? esc(tier(p)) : (p.ods_code[0] === "W" ? "Wales" : "No list size")} · ${esc(p.clinical_software)}${p.cqc_rating ? " · CQC " + esc(p.cqc_rating) : ""}${signalCodes.has(p.ods_code) ? ' · <span class="text-purple-700 font-semibold">signal</span>' : ""}</div></td>
+    tr.innerHTML = `<td class="p-3"><div class="font-semibold">${esc(p.practice_name)}</div><div class="text-[11px] font-mono text-slate-400">${esc(p.ods_code)} · ${p.total_patients > 0 ? esc(tier(p)) : (p.ods_code[0] === "W" ? "Wales" : "No list size")} · ${esc(p.clinical_software)}${p.cqc_rating ? " · CQC " + esc(p.cqc_rating) : ""}${p.group_size ? " · <span class=\"text-indigo-700 font-semibold\">" + esc(p.group_name || "Group") + " (" + p.group_size + " practices)</span>" : ""}${signalCodes.has(p.ods_code) ? ' · <span class="text-purple-700 font-semibold">signal</span>' : ""}</div></td>
       <td class="p-3"><div>${esc(p.pcn_name)}</div><div class="text-xs text-slate-400">${esc(p.icb_name)}</div></td>
       <td class="p-3 text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : '<span class="text-slate-300" title="No NHS England patient count (Welsh or non-standard practice, or not yet published)">–</span>'}</td>
       <td class="p-3"><div class="font-medium">${p.manager_name ? esc(p.manager_name) : '<span class="italic text-amber-600">No contact</span>'}</div><div class="text-xs text-slate-500">${esc(p.manager_title)}</div><div class="text-xs text-slate-400">${email}</div><div class="text-[11px] text-blue-600 font-mono">${esc(p.manager_phone)}</div></td>`;
@@ -343,7 +367,7 @@ $("btn-export").addEventListener("click", () => {
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 });
 
-["f-search", "f-tier", "f-sw", "f-lead", "f-cqc", "f-icb", "f-sig"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
+["f-search", "f-tier", "f-sw", "f-lead", "f-cqc", "f-icb", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
 $("more").addEventListener("click", renderMore);
 boot();
 </script>

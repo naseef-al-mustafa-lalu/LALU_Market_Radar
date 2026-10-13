@@ -38,10 +38,11 @@ Until counts are loaded practices show 0 patients (Tier 3); no false growth aler
 | NHS Digital patient register | Patient counts (tiers, growth) | Monthly, upload in the dashboard (or runner) |
 | Oscar Research file | Contacts (name, title, dept, email/phone, opt-outs) and practice details (address, federation, GP numbers, employees, spend, notes, Oscar IDs) | Daily, when `OSCAR_API_URL` is set |
 | CQC public API | Registration status, overall rating, last inspection, registered-manager absence | Daily via the changes feed (first run backfills over one or more days) |
+| CQC providers | Group name and size (e.g. Modality) for providers running 2+ practices | Daily |
 | Practice websites | Cautious clinical-system hint | Daily, capped |
 
 Signals: new practice, practice closed (merger), rapid growth, PCN move, new manager, plus CQC: registration ended, rating changed,
-new inspection, registered manager absent. CQC signals only fire after a first CQC value is stored, so the initial load is silent.
+new inspection, registered manager absent, practice changed operator (likely takeover). CQC signals only fire after a first CQC value is stored, so the initial load is silent.
 Requires the `CQC_API_KEY` secret (free key from the CQC API portal).
 
 ## Operating notes
