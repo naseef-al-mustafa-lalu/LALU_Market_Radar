@@ -82,7 +82,7 @@ class Rest:
         for i in range(0, len(rows), batch):
             self._ok(self.s.post(
                 f"{self.base}/{table}", params={"on_conflict": on_conflict}, json=rows[i:i + batch], timeout=120,
-                headers={"Prefer": "resolution=merge-duplicates,return=minimal"}))
+                headers={"Prefer": "resolution=merge-duplicates,missing=default,return=minimal"}))
 
     def insert(self, table, rows, batch=500, returning=False):
         out = []

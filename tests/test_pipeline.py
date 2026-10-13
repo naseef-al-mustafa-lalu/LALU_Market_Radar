@@ -7,11 +7,14 @@ from tests.conftest import make_oscar, make_patients
 
 class FakeRest:
     def __init__(self):
-        self.t = {"gp_practices": {}, "contacts": {}, "patient_counts": {}, "ingest_runs": [], "ingest_rejects": []}
+        self.t = {"gp_practices": {}, "contacts": {}, "patient_counts": {}, "kv_state": {}, "ingest_runs": [], "ingest_rejects": []}
 
     def select_all(self, table, columns="*", order="id", params=None, page=1000):
         rows = self.t[table]
         rows = list(rows.values()) if isinstance(rows, dict) else rows
+        if table == "kv_state" and params and "key" in params:
+            k = params["key"].split(".", 1)[1]
+            return [dict(self.t[table][k])] if k in self.t[table] else []
         if params and "status" in params:
             rows = [r for r in rows if r["status"] == params["status"].split(".")[1]]
         return [dict(r) for r in rows]
@@ -95,3 +98,18 @@ def test_oscar_failure_keeps_existing_managers(monkeypatch, oscar_rows):
     patch_sources(monkeypatch, b"garbage", rest=rest)
     stats = ingest.sync(rest, 2)
     assert "oscar_error" in stats and rest.t["gp_practices"]["A10000"]["manager_name"] == "Casper Fons"
+
+
+def test_cqc_wired_into_daily_run(monkeypatch, oscar_rows):
+    from tests.test_cqc_oscar import FakeCqc
+    rest = FakeRest()
+    patch_sources(monkeypatch, make_oscar(oscar_rows), rest=rest)
+    api = FakeCqc()
+    api.pc = {"1-1": "AB1 2CD", "1-2": "ZZ9 9ZZ", "1-3": "AB1 2CD", "1-4": "AB1 2CD"}
+    monkeypatch.setattr(ingest.cqc, "make_client", lambda key: api)
+    monkeypatch.setenv("CQC_API_KEY", "x")
+    stats = ingest.sync(rest, 1)
+    db = rest.t["gp_practices"]
+    assert "cqc_error" not in stats and stats["cqc_matched"] == 2
+    assert db["A10000"]["cqc_rating"] == "Good" and db["A10000"]["cqc_location_id"] == "1-1" and db["A10000"]["practice_name"] == "Test Surgery 0"
+    assert db["A10001"]["cqc_rating"] == "Requires improvement"

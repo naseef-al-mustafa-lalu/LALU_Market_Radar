@@ -4,13 +4,14 @@ import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
 
-from . import oscar, software, sources
+from . import cqc, oscar, software, sources
 from .common import Rest, need_env, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
            "status", "clinical_software", "software_source", "manager_name", "manager_title", "manager_email",
-           "manager_phone", "manager_email_opt_out", "data_month"]
-CONTACT_FIELDS = ["ods_code", "full_name", "job_title", "seniority", "email", "phone", "email_opt_out", "is_primary"]
+           "manager_phone", "manager_email_opt_out", "data_month"] + oscar.ORG_KEYS
+CONTACT_FIELDS = ["ods_code", "full_name", "job_title", "seniority", "email", "phone", "email_opt_out", "is_primary",
+                  "org_urn", "title", "first_name", "last_name", "quals", "dept", "categories", "data_types", "main_site"]
 SOFTWARE_DAILY_CAP = 400
 SOFTWARE_RECHECK = timedelta(days=90)
 
@@ -27,7 +28,8 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
                                    "clinical_software": "Unknown", "software_source": None,
                                    "software_checked_at": None, "website": None, "total_patients": 0,
                                    "manager_name": None, "manager_title": None, "manager_email": None,
-                                   "manager_phone": None, "manager_email_opt_out": False}
+                                   "manager_phone": None, "manager_email_opt_out": False,
+                                   **dict.fromkeys(oscar.ORG_KEYS), "main_email_opt_out": False}
         r.update(ods_code=code, practice_name=title_case(o["name"]), postcode=o["postcode"] or r.get("postcode"),
                  status=o["status"], data_month=month or r.get("data_month"))
         if o["status"] == "Active" and code in patients:
@@ -46,6 +48,9 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
                      manager_email=p["email"] if p else None, manager_phone=p["phone"] if p else None,
                      manager_email_opt_out=bool(p and p["email_opt_out"]))
             if info:
+                for k, v in info["org"].items():
+                    if v not in (None, ""):
+                        r[k] = v
                 r["website"] = info["website"] or r.get("website")
                 if not r.get("pcn_code"):  # practices in a PCN keep the ODS-derived ICB name
                     r["icb_name"] = info["icb"] or r["icb_name"]
@@ -149,6 +154,17 @@ def sync(rest, run_id):
     records, checked = build_records(ods, patients, month, existing, pcn_map, oscar_info, software.check_many, pcn_checked)
     stats.update(practices_changed=len(records), software_checked=checked)
     rest.upsert("gp_practices", records, "ods_code")
+
+    if env.get("CQC_API_KEY"):
+        try:
+            merged = dict(existing)
+            for r in records:
+                merged[r["ods_code"]] = {**existing.get(r["ods_code"], {}), **r}
+            cqc_rows, cstats = cqc.sync(rest, merged, cqc.make_client(env["CQC_API_KEY"]), now)
+            rest.upsert("gp_practices", cqc_rows, "ods_code")
+            stats.update(cstats)
+        except Exception as e:  # noqa: BLE001  CQC is enrichment: never block the main load
+            stats["cqc_error"] = str(e)[:300]
 
     if oscar_info is not None:
         known = set(existing) | {r["ods_code"] for r in records}

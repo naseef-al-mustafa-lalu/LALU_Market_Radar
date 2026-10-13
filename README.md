@@ -31,6 +31,19 @@ One-off setup:
    if installs are allowed) and make sure `python --version` works in PowerShell.
 Until counts are loaded practices show 0 patients (Tier 3); no false growth alerts fire when counts arrive.
 
+## Data sources (what feeds the central database)
+| Source | Gives | Cadence |
+|---|---|---|
+| NHS ODS API + ODS export | Active GP practices, names, postcodes, closures, PCN and ICB | Daily, automatic |
+| NHS Digital patient register | Patient counts (tiers, growth) | Monthly, upload in the dashboard (or runner) |
+| Oscar Research file | Contacts (name, title, dept, email/phone, opt-outs) and practice details (address, federation, GP numbers, employees, spend, notes, Oscar IDs) | Daily, when `OSCAR_API_URL` is set |
+| CQC public API | Registration status, overall rating, last inspection, registered-manager absence | Daily via the changes feed (first run backfills over one or more days) |
+| Practice websites | Cautious clinical-system hint | Daily, capped |
+
+Signals: new practice, practice closed (merger), rapid growth, PCN move, new manager, plus CQC: registration ended, rating changed,
+new inspection, registered manager absent. CQC signals only fire after a first CQC value is stored, so the initial load is silent.
+Requires the `CQC_API_KEY` secret (free key from the CQC API portal).
+
 ## Operating notes
 - NHS patient numbers are **monthly**, so list-size/closure signals move monthly; Oscar contact changes are picked up daily.
 - A failed run emails `DIGEST_TO` and is recorded in `ingest_runs`. Rejected rows (bad ODS codes etc.) go to `ingest_rejects`.

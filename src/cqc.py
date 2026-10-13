@@ -1,0 +1,135 @@
+"""CQC public API: registration status, overall rating and inspection dates for GP practices, matched by ODS code.
+
+The API cannot filter by ODS code or service type, so the first run (spread over as many days as needed) lists all
+locations, keeps those whose postcode matches a practice, and confirms by ODS code. After that, the daily changes feed
+tells us which locations changed and only those are fetched.
+"""
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+
+import requests
+
+from .common import norm_ods
+
+BASE = "https://api.service.cqc.org.uk/public/v1"
+FIELDS = ["cqc_location_id", "cqc_provider_id", "cqc_status", "cqc_rating", "cqc_last_inspection", "cqc_manager_absent_date"]
+BACKFILL_BUDGET_SECONDS = 25 * 60
+
+
+def make_client(key):
+    s = requests.Session()
+    s.headers.update({"Ocp-Apim-Subscription-Key": key, "User-Agent": "LaluMarketRadar/1.0", "Accept": "application/json"})
+
+    def getj(path, params=None):
+        for attempt in range(6):
+            r = s.get(BASE + path, params=params, timeout=60)
+            if r.status_code == 429 or r.status_code >= 500:
+                time.sleep(min(60, float(r.headers.get("Retry-After", 2 * (attempt + 1)))))
+                continue
+            if r.status_code == 404:
+                return None
+            r.raise_for_status()
+            return r.json()
+        raise RuntimeError(f"CQC API kept failing for {path}")
+    return getj
+
+
+def norm_postcode(pc):
+    return re.sub(r"\s+", "", str(pc or "")).upper()
+
+
+def _date(v):
+    return str(v)[:10] if v else None
+
+
+def summarise(detail):
+    overall = (detail.get("currentRatings") or {}).get("overall") or {}
+    return {"cqc_location_id": detail.get("locationId"), "cqc_provider_id": detail.get("providerId"),
+            "cqc_status": detail.get("registrationStatus"), "cqc_rating": overall.get("rating"),
+            "cqc_last_inspection": _date((detail.get("lastInspection") or {}).get("date")),
+            "cqc_manager_absent_date": _date(detail.get("registeredManagerAbsentDate"))}
+
+
+def paged(getj, path, key, params=None, per_page=1000):
+    page = 1
+    while True:
+        data = getj(path, {**(params or {}), "page": page, "perPage": per_page}) or {}
+        yield from data.get(key, [])
+        if page >= int(data.get("totalPages") or 0):
+            return
+        page += 1
+
+
+def candidate_ids(getj, postcodes):
+    return sorted({loc["locationId"] for loc in paged(getj, "/locations", "locations")
+                   if norm_postcode(loc.get("postalCode")) in postcodes})
+
+
+def changed_ids(getj, since, until):
+    stamp = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    return sorted(set(paged(getj, "/changes/location", "changes", {"startTimestamp": stamp(since), "endTimestamp": stamp(until)})))
+
+
+def fetch_details(getj, ids, workers=8):
+    with ThreadPoolExecutor(workers) as ex:
+        return [d for d in ex.map(lambda i: getj(f"/locations/{i}"), ids) if d]
+
+
+def match(details, codes):
+    """{ods: summary} for details whose ODS code is one of ours; a Registered location beats a Deregistered one."""
+    out = {}
+    for d in details:
+        ods = norm_ods(d.get("odsCode"))
+        if ods in codes:
+            s = summarise(d)
+            if ods not in out or (out[ods]["cqc_status"] != "Registered" and s["cqc_status"] == "Registered"):
+                out[ods] = s
+    return out
+
+
+def _kv_get(rest, key, default=None):
+    rows = rest.select_all("kv_state", "key,value", order="key", params={"key": f"eq.{key}"})
+    return rows[0]["value"] if rows else default
+
+
+def _kv_set(rest, key, value):
+    rest.upsert("kv_state", [{"key": key, "value": value}], "key")
+
+
+def sync(rest, practices, getj, now, budget=BACKFILL_BUDGET_SECONDS):
+    """Returns (rows to upsert into gp_practices, stats). `practices` is {ods: practice row}."""
+    codes, stats, found = set(practices), {}, {}
+    started = time.monotonic()
+    if _kv_get(rest, "cqc_last_sync") is None:
+        _kv_set(rest, "cqc_last_sync", now.isoformat())  # the changes feed covers everything after this moment
+    if not _kv_get(rest, "cqc_backfill_complete", False):
+        postcodes = {norm_postcode(p.get("postcode")) for p in practices.values() if p.get("postcode")}
+        cands = candidate_ids(getj, postcodes)
+        done = set(_kv_get(rest, "cqc_backfill_done", []))
+        todo = [i for i in cands if i not in done]
+        for i in range(0, len(todo), 200):
+            if time.monotonic() - started > budget:
+                break
+            chunk = todo[i:i + 200]
+            found.update(match(fetch_details(getj, chunk), codes))
+            done.update(chunk)
+        _kv_set(rest, "cqc_backfill_done", sorted(done))
+        complete = all(i in done for i in cands)
+        _kv_set(rest, "cqc_backfill_complete", complete)
+        stats.update(cqc_mode="backfill", cqc_candidates=len(cands), cqc_done=len(done), cqc_backfill_complete=complete)
+    else:
+        from datetime import datetime
+        since = datetime.fromisoformat(_kv_get(rest, "cqc_last_sync"))
+        ids = changed_ids(getj, since - timedelta(minutes=5), now)
+        found.update(match(fetch_details(getj, ids), codes))
+        _kv_set(rest, "cqc_last_sync", now.isoformat())
+        stats.update(cqc_mode="changes", cqc_changed_locations=len(ids))
+    rows = []
+    for ods, s in found.items():
+        old = practices[ods]
+        if any(s[k] != old.get(k) for k in FIELDS):
+            rows.append({"ods_code": ods, "practice_name": old["practice_name"], **s, "cqc_checked_at": now.isoformat()})
+    stats["cqc_matched"], stats["cqc_updated"] = len(found), len(rows)
+    return rows, stats
