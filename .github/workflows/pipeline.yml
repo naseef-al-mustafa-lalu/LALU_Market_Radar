@@ -22,6 +22,7 @@ jobs:
           OSCAR_API_URL: ${{ secrets.OSCAR_API_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           DIGEST_TO: ${{ vars.DIGEST_TO }}
+          DIGEST_FROM: ${{ vars.DIGEST_FROM }}
         run: python -m src.ingest
       - name: Send digest
         env:
@@ -30,6 +31,7 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
           DIGEST_TO: ${{ vars.DIGEST_TO }}
+          DIGEST_FROM: ${{ vars.DIGEST_FROM }}
           EMAIL_MODE: ${{ vars.EMAIL_MODE || 'DIGEST' }}          # DIGEST or DISABLED
           MIN_TIER_ALERT: ${{ vars.MIN_TIER_ALERT || 'Tier 2' }}  # Tier 1 | Tier 2 | Tier 3
         run: python -m src.digest

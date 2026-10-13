@@ -134,7 +134,7 @@ def get_json(url, params=None):
 
 def load_active_gp_practices(getj=get_json, page=500):
     """All active GP practices from the ODS API: {ods: {name, postcode}}."""
-    out, offset = {}, 0
+    out, offset = {}, 1  # the ODS API's Offset is 1-based
     while True:
         data = getj(f"{ODS_API}/organisations", {"PrimaryRoleId": "RO177", "NonPrimaryRoleId": "RO76",
                                                  "Status": "Active", "Limit": page, "Offset": offset})

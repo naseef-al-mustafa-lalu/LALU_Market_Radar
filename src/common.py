@@ -108,7 +108,7 @@ def send_email(subject, html_body, to):
     r = requests.post(
         "https://api.resend.com/emails", timeout=30,
         headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}"},
-        json={"from": os.environ.get("DIGEST_FROM", "Lalu Market Radar <radar@lalu.co.uk>"),
+        json={"from": os.environ.get("DIGEST_FROM") or "Lalu Market Radar <radar@lalu.co.uk>",
               "to": to, "subject": subject, "html": html_body})
     if r.status_code not in (200, 201, 202):
         raise RuntimeError(f"Resend rejected email: {r.status_code} {r.text[:300]}")
