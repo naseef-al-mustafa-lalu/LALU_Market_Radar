@@ -12,24 +12,24 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 4. **GitHub Pages**: Settings -> Pages -> deploy from `main` / root. (Private repos need a paid GitHub plan for Pages.)
 5. Run the **Daily market radar** workflow manually once. The first successful run is a silent *baseline*: it loads everything but raises no triggers and sends no email. From the second run, changes generate signals.
 
-## Monthly patient counts: the dashboard button + office runner
-NHS Digital (the only source of GP list sizes) blocks cloud datacentres, including GitHub-hosted runners. So the
-**Monthly patient counts** workflow runs on a *self-hosted runner*: GitHub's small agent installed on an ordinary office computer.
-You start it from the dashboard's **Update from NHS now** button when you arrive at work.
+## Monthly patient counts (two ways, both in the dashboard's "Patient counts" card)
+NHS Digital (the only source of GP list sizes) blocks cloud datacentres, so GitHub's servers cannot fetch it.
 
-How the button works: dashboard -> Supabase function `trigger-patient-load` (checks you are signed in and on `allowed_users`)
--> GitHub API starts the workflow -> the runner on your office PC downloads the NHS file and stores it in Supabase -> the dashboard refreshes.
+**Option B: upload (works anywhere, nothing to install).** Open the NHS "Patients Registered at a GP Practice" page in your browser,
+open the latest month, download `gp-reg-pat-prac-all.csv`, choose it in the dashboard card and press **Load**. The page reads the file
+in your browser and stores the counts in Supabase (function `load_patient_counts`; allowlisted users only). Do this once a month.
 
+**Option A: automatic button (needs an office PC with Python and the GitHub runner).** **Update from NHS now** starts the
+*Monthly patient counts* workflow on a self-hosted runner on an ordinary office PC, which downloads the file itself.
+Flow: dashboard -> Supabase function `trigger-patient-load` (checks you are signed in and on `allowed_users`) -> GitHub API -> runner.
 One-off setup:
-1. **GitHub token** (lets the Supabase function start the workflow, nothing else): GitHub -> your profile -> Settings -> Developer settings ->
-   Personal access tokens -> *Fine-grained tokens* -> Generate. Resource owner: you; Repository access: *Only select repositories* -> `LALU_Market_Radar`;
-   Permissions -> Repository -> **Actions: Read and write**. Copy the token (renew it before it expires).
-2. **Store it in Supabase**: Dashboard -> Edge Functions -> Secrets -> add `GITHUB_TOKEN` = the token.
-3. **Runner**: repo -> Settings -> Actions -> Runners -> **New self-hosted runner**, choose the office PC's OS, run GitHub's commands on that PC,
-   then start it (`./run.cmd` or `./run.sh`; or install as a service so it starts with the PC). Install Python 3.12 on that PC once, *for the current user only* and tick "Add python.exe to PATH" (no admin rights needed).
-4. Sign in to the dashboard and press **Update from NHS now**. If the PC is off the request waits (up to 24h) until the runner is online.
-The workflow also runs every Monday on its own while the runner is online, and can be started manually from the Actions tab.
-Until the first load, practices show 0 patients (Tier 3); no false growth alerts fire when counts arrive.
+1. **GitHub token**: profile -> Settings -> Developer settings -> Personal access tokens -> *Fine-grained tokens*. Only this repo; under
+   Repository permissions set **Actions** to *Read and write* (leave everything else *No access*).
+2. **Save it in Supabase**: Edge Functions -> Secrets -> `GITHUB_TOKEN`.
+3. **Runner**: repo -> Settings -> Actions -> Runners -> New self-hosted runner (Windows: follow GitHub's steps in `C:\actions-runner`,
+   then `.\run.cmd`). Install Python 3.12 on that PC for the current user (Microsoft Store or python.org "Install Now"; no admin needed
+   if installs are allowed) and make sure `python --version` works in PowerShell.
+Until counts are loaded practices show 0 patients (Tier 3); no false growth alerts fire when counts arrive.
 
 ## Operating notes
 - NHS patient numbers are **monthly**, so list-size/closure signals move monthly; Oscar contact changes are picked up daily.

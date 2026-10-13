@@ -37,9 +37,18 @@
     <div class="bg-white rounded-xl border border-slate-200 p-5">
       <h2 class="font-bold mb-2">Patient counts</h2>
       <p id="pc-status" class="text-sm text-slate-500">Checking…</p>
-      <button id="pc-run" class="mt-3 w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-semibold">Update from NHS now</button>
+      <div class="mt-3 border-t border-slate-100 pt-3">
+        <div class="text-xs font-semibold text-slate-600 mb-1">Option A: automatic (needs the office PC runner)</div>
+        <button id="pc-run" class="w-full bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg py-1.5 text-xs font-semibold">Update from NHS now</button>
+        <p id="pc-run-msg" class="mt-1 text-xs text-slate-500 min-h-[1rem]"></p>
+      </div>
+      <div class="mt-3 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600">Option B: upload the file yourself</div>
+      <ol class="mt-2 space-y-2 text-sm text-slate-700 list-decimal list-inside">
+        <li><a class="text-blue-600 underline" target="_blank" rel="noopener" href="https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice">Open the NHS page</a>, click the latest month, and download <b>gp-reg-pat-prac-all.csv</b>.</li>
+        <li>Choose that file: <input id="pc-file" type="file" accept=".csv,text/csv" class="block mt-1 text-xs"></li>
+        <li>Month <input id="pc-month" type="month" class="border border-slate-300 rounded px-2 py-1 text-xs"> <button id="pc-load" disabled class="ml-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></li>
+      </ol>
       <p id="pc-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
-      <p class="mt-1 text-[11px] text-slate-400">Runs on the office PC (the runner must be online). NHS publishes new figures monthly.</p>
     </div>
     <div class="bg-white rounded-xl border border-slate-200 p-5 h-fit">
       <h2 class="font-bold mb-3">Latest signals <span id="live-dot" class="ml-2 text-[11px] font-semibold text-slate-400">connecting…</span></h2>
@@ -136,42 +145,115 @@ async function startApp() {
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); }
 }
 
-/* ---------- patient counts ---------- */
-let pcTimer = null;
-async function latestCounts() {
-  const { data } = await db.from("patient_counts").select("data_month,updated_at").order("updated_at", { ascending: false }).limit(1);
-  const withCounts = practices.filter(p => p.total_patients > 0).length;
-  return { row: data && data[0], withCounts };
+/* ---------- patient counts (upload) ---------- */
+/* parser:start */
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+function parseCsv(text) {
+  const rows = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true;
+    else if (c === ",") { row.push(f); f = ""; }
+    else if (c === "\n") { row.push(f); rows.push(row); row = []; f = ""; }
+    else if (c !== "\r") f += c;
+  }
+  if (f !== "" || row.length) { row.push(f); rows.push(row); }
+  return rows;
 }
+function monthFromText(t) {
+  const m = /(\d{1,2})\s*([A-Za-z]{3})[A-Za-z]*\s*(\d{4})/.exec(t || "");
+  if (m && MONTHS[m[2].toLowerCase()]) return `${m[3]}-${String(MONTHS[m[2].toLowerCase()]).padStart(2, "0")}`;
+  const iso = /(\d{4})-(\d{2})-\d{2}/.exec(t || "");
+  return iso ? `${iso[1]}-${iso[2]}` : null;
+}
+function readPatientFile(text) {
+  const rows = parseCsv(text.replace(/^\uFEFF/, ""));
+  const head = (rows[0] || []).map(h => h.trim().toUpperCase());
+  const col = n => head.indexOf(n);
+  const iCode = col("CODE"), iN = col("NUMBER_OF_PATIENTS"), iType = col("TYPE"), iSex = col("SEX"), iAge = col("AGE"), iDate = col("EXTRACT_DATE");
+  if (iCode < 0 || iN < 0) throw new Error("This does not look like gp-reg-pat-prac-all.csv (no CODE / NUMBER_OF_PATIENTS columns).");
+  const totals = new Map(); let month = null;
+  for (let r = 1; r < rows.length; r++) {
+    const x = rows[r];
+    if (x.length <= Math.max(iCode, iN)) continue;
+    if (iType >= 0 && x[iType].trim().toUpperCase() !== "GP") continue;
+    if (iSex >= 0 && x[iSex].trim().toUpperCase() !== "ALL") continue;
+    if (iAge >= 0 && x[iAge].trim().toUpperCase() !== "ALL") continue;
+    const code = x[iCode].trim().toUpperCase(), n = parseInt(x[iN], 10);
+    if (!/^[A-Z][0-9]{5}$/.test(code) || !Number.isFinite(n) || n < 0) continue;
+    totals.set(code, (totals.get(code) || 0) + n);
+    if (!month && iDate >= 0) month = monthFromText(x[iDate]);
+  }
+  if (totals.size < 5000) throw new Error(`Only ${totals.size} practices found: wrong file? Use the practice totals file, gp-reg-pat-prac-all.csv.`);
+  return { totals, month };
+}
+/* parser:end */
+
+let pcParsed = null;
 async function refreshPatientStatus() {
-  const { row, withCounts } = await latestCounts();
+  const { data } = await db.from("patient_counts").select("data_month,updated_at").order("updated_at", { ascending: false }).limit(1);
+  const withCounts = practices.filter(p => p.total_patients > 0).length, row = data && data[0];
   $("pc-status").textContent = row
     ? `Data for ${row.data_month || "?"}, loaded ${new Date(row.updated_at).toLocaleDateString("en-GB")}. ${withCounts.toLocaleString()} of ${practices.length.toLocaleString()} practices have counts.`
-    : "No patient counts loaded yet: practices show as Tier 3 until the first load.";
-  return row;
+    : "No patient counts loaded yet: practices show as Tier 3 until you load the NHS file.";
+}
+$("pc-file").addEventListener("change", async e => {
+  const f = e.target.files[0], msg = $("pc-msg"); pcParsed = null; $("pc-load").disabled = true;
+  if (!f) return;
+  if (f.size > 60 * 1024 * 1024) { msg.textContent = "That file is too large: you want the practice totals file, gp-reg-pat-prac-all.csv."; return; }
+  try {
+    pcParsed = readPatientFile(await f.text());
+    $("pc-month").value = pcParsed.month || new Date().toISOString().slice(0, 7);
+    msg.textContent = `Read ${pcParsed.totals.size.toLocaleString()} practices${pcParsed.month ? "" : " (month not found in the file: check the month box)"}. Press Load.`;
+    $("pc-load").disabled = false;
+  } catch (err) { msg.textContent = err.message; }
+});
+$("pc-load").addEventListener("click", async () => {
+  const btn = $("pc-load"), msg = $("pc-msg"), month = $("pc-month").value;
+  if (!pcParsed || !/^\d{4}-\d{2}$/.test(month)) { msg.textContent = "Choose a file and a month first."; return; }
+  btn.disabled = true;
+  const rows = [...pcParsed.totals].map(([code, n]) => ({ code, n })); let stored = 0, updated = 0;
+  try {
+    for (let i = 0; i < rows.length; i += 1000) {
+      msg.textContent = `Loading ${Math.min(i + 1000, rows.length).toLocaleString()} of ${rows.length.toLocaleString()}…`;
+      const { data, error } = await db.rpc("load_patient_counts", { p_month: month, p_rows: rows.slice(i, i + 1000) });
+      if (error) throw error;
+      stored += data.stored; updated += data.practices_updated;
+    }
+    practices = await fetchAll("gp_practices", "*", "ods_code"); applyFilters(); await refreshPatientStatus();
+    msg.textContent = `Done: ${stored.toLocaleString()} counts stored, ${updated.toLocaleString()} practices updated.`;
+    $("pc-file").value = ""; pcParsed = null;
+  } catch (err) { msg.textContent = "Load failed: " + (err.message || err); btn.disabled = false; }
+});
+
+let pcTimer = null;
+async function latestCountRow() {
+  const { data } = await db.from("patient_counts").select("data_month,updated_at").order("updated_at", { ascending: false }).limit(1);
+  return data && data[0];
 }
 $("pc-run").addEventListener("click", async () => {
-  const btn = $("pc-run"), msg = $("pc-msg");
+  const btn = $("pc-run"), msg = $("pc-run-msg");
   btn.disabled = true; msg.textContent = "Sending request…";
-  const before = (await latestCounts()).row;
+  const before = await latestCountRow();
   const { data, error } = await db.functions.invoke("trigger-patient-load");
   if (error || (data && data.error)) {
     let detail = (data && data.error) || error.message;
     try { const body = await error.context.json(); detail = body.error || detail; } catch (_) {}
-    msg.textContent = "Could not start: " + detail; btn.disabled = false; return;
+    msg.textContent = "Could not start: " + detail + " (use Option B instead)"; btn.disabled = false; return;
   }
-  msg.textContent = "Started. Waiting for the office PC runner… (this page updates when it finishes)";
+  msg.textContent = "Started. Waiting for the office PC runner… this updates when it finishes.";
   const t0 = Date.now();
   clearInterval(pcTimer);
   pcTimer = setInterval(async () => {
-    const { row } = await latestCounts();
+    const row = await latestCountRow();
     if (row && (!before || row.updated_at !== before.updated_at)) {
       clearInterval(pcTimer);
       practices = await fetchAll("gp_practices", "*", "ods_code"); applyFilters(); await refreshPatientStatus();
       msg.textContent = "Done: patient counts updated."; btn.disabled = false;
     } else if (Date.now() - t0 > 10 * 60 * 1000) {
       clearInterval(pcTimer);
-      msg.textContent = "Still waiting after 10 minutes: is the office PC (runner) switched on? The request stays queued. Reload later."; btn.disabled = false;
+      msg.textContent = "Still waiting after 10 minutes: is the runner on? The request stays queued. Or use Option B."; btn.disabled = false;
     }
   }, 10000);
 });
