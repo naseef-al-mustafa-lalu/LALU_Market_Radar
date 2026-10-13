@@ -1,11 +1,13 @@
-"""End-to-end ingest with an in-memory fake of the Supabase REST client."""
+"""End-to-end ingest with in-memory fakes of the Supabase REST client and NHS sources."""
+import pytest
+
 from src import ingest, sources
-from tests.conftest import make_epraccur, make_oscar, make_patients, zipped
+from tests.conftest import make_oscar, make_patients
 
 
 class FakeRest:
     def __init__(self):
-        self.t = {"gp_practices": {}, "contacts": {}, "ingest_runs": [], "ingest_rejects": []}
+        self.t = {"gp_practices": {}, "contacts": {}, "patient_counts": {}, "ingest_runs": [], "ingest_rejects": []}
 
     def select_all(self, table, columns="*", order="id", params=None, page=1000):
         rows = self.t[table]
@@ -35,70 +37,61 @@ class FakeRest:
             self.t[table].pop(v)
 
 
-def patch_sources(monkeypatch, patients, oscar_bytes, ods=None):
-    ods = ods or make_epraccur()
-    store = {"epraccur.zip": zipped("epraccur.csv", ods), "epcmem.zip": b"A10000,U11111,20240101\n",
-             "epcn.zip": b"U11111,PCN ONE\n", "gp": patients, "oscar": oscar_bytes}
-    def fetch(url, timeout=0):
-        return store["gp"] if url == "http://gp" else store["oscar"] if "oscar" in url else store[url.rsplit("/", 1)[-1]]
-    monkeypatch.setattr(sources, "fetch", fetch)
-    monkeypatch.setenv("GP_REG_URL", "http://gp")
-    monkeypatch.setenv("OSCAR_API_URL", "http://oscar")
+def patch_sources(monkeypatch, oscar_bytes, n=5200, with_counts=True, rest=None):
+    active = {f"A{i + 10000:05d}": {"name": f"TEST SURGERY {i}", "postcode": "AB1 2CD"} for i in range(n)}
+    monkeypatch.setattr(sources, "load_active_gp_practices", lambda: active)
+    monkeypatch.setattr(sources, "fetch", lambda url, timeout=0: b'"U11111","PCN ONE","X","NHS TEST ICB - 99Z","2024"\n' if "epcn" in url else oscar_bytes)
+    monkeypatch.setattr(sources, "fetch_pcn_codes", lambda codes: {c: ("U11111" if c == "A10000" else "") for c in codes})
     monkeypatch.setattr(ingest.software, "check_many", lambda d: {k: "Unknown" for k in d})
+    monkeypatch.setenv("OSCAR_API_URL", "http://oscar")
+    if rest is not None and with_counts:
+        pats, month = sources.load_patients(make_patients(n))
+        rest.t["patient_counts"] = {c: {"ods_code": c, "patients": v, "data_month": "2099-01"} for c, v in pats.items()}
+    return active
 
 
-def test_full_run_baseline_then_changes(monkeypatch, oscar_rows):
+def test_full_run_then_idempotent(monkeypatch, oscar_rows):
     rest = FakeRest()
-    patch_sources(monkeypatch, make_patients(), make_oscar(oscar_rows))
+    patch_sources(monkeypatch, make_oscar(oscar_rows), rest=rest)
     stats = ingest.sync(rest, 1)
     db = rest.t["gp_practices"]
-    assert len(db) == 5199  # historic closed practice never loaded
-    assert db["A10000"]["manager_name"] == "Casper Fons" and db["A10000"]["pcn_name"] == "PCN ONE"
-    assert db["A10001"]["manager_email_opt_out"] is True
-    assert len(rest.t["contacts"]) == 3 and stats["oscar_suppressed"] == 1
-    assert len(rest.t["ingest_rejects"]) == 2  # bad URN, bad ODS code
-
-    # unchanged second run writes nothing
-    rest.t["ingest_runs"].append({"status": "success"})
-    before = {k: dict(v) for k, v in db.items()}
-    recs, _ = ingest.build_records(sources.load_ods_practices(zipped("e.csv", make_epraccur()), set()),
-                                   sources.load_patients(make_patients())[0], "2026-10", db, {}, None, None)
-    assert recs == [] and before == db
+    assert len(db) == 5200 and db["A10000"]["practice_name"] == "Test Surgery 0" and db["A10000"]["total_patients"] == 5000
+    assert db["A10000"]["manager_name"] == "Casper Fons" and db["A10000"]["pcn_code"] == "U11111" and db["A10000"]["pcn_name"] == "PCN One"
+    assert db["A10000"]["icb_name"] == "NHS Test ICB" and db["A10001"]["pcn_name"] == "Unallocated PCN"
+    assert db["A10001"]["manager_email_opt_out"] is True and len(rest.t["contacts"]) == 3
+    assert stats["oscar_suppressed"] == 1 and len(rest.t["ingest_rejects"]) == 2 and stats["pcn_mapped"] == 1
+    # second run: nothing changed except lookups already recorded -> no practice writes
+    stats2 = ingest.sync(rest, 2)
+    assert stats2["practices_changed"] == 0 and stats2["contacts_changed"] == 0
 
 
-def test_guards(monkeypatch, oscar_rows):
-    import pytest
-    patch_sources(monkeypatch, make_patients(n=2000), make_oscar(oscar_rows))
-    with pytest.raises(ValueError):
-        ingest.sync(FakeRest(), 1)  # too few patient rows
+def test_runs_without_patient_counts_or_oscar(monkeypatch):
+    rest = FakeRest()
+    patch_sources(monkeypatch, b"", rest=rest, with_counts=False)
+    monkeypatch.delenv("OSCAR_API_URL")
+    stats = ingest.sync(rest, 1)
+    assert stats["patients_missing"] and "OSCAR_API_URL not set" in stats["oscar_error"]
+    assert len(rest.t["gp_practices"]) == 5200 and rest.t["gp_practices"]["A10000"]["total_patients"] == 0
+
+
+def test_closure_detected_and_mass_closure_guard(monkeypatch, oscar_rows):
+    rest = FakeRest()
+    active = patch_sources(monkeypatch, make_oscar(oscar_rows), rest=rest)
+    ingest.sync(rest, 1)
+    gone = dict(active); gone.pop("A10005")
+    monkeypatch.setattr(sources, "load_active_gp_practices", lambda: gone)
+    ingest.sync(rest, 2)
+    assert rest.t["gp_practices"]["A10005"]["status"] == "Closed"
+    few = {k: v for i, (k, v) in enumerate(active.items()) if i < 5100}
+    monkeypatch.setattr(sources, "load_active_gp_practices", lambda: few)
+    with pytest.raises(RuntimeError, match="feed error"):
+        ingest.sync(rest, 3)
 
 
 def test_oscar_failure_keeps_existing_managers(monkeypatch, oscar_rows):
     rest = FakeRest()
-    patch_sources(monkeypatch, make_patients(), make_oscar(oscar_rows))
+    patch_sources(monkeypatch, make_oscar(oscar_rows), rest=rest)
     ingest.sync(rest, 1)
-    patch_sources(monkeypatch, make_patients(), b"garbage")
+    patch_sources(monkeypatch, b"garbage", rest=rest)
     stats = ingest.sync(rest, 2)
     assert "oscar_error" in stats and rest.t["gp_practices"]["A10000"]["manager_name"] == "Casper Fons"
-
-
-def test_runs_without_oscar_url(monkeypatch):
-    rest = FakeRest()
-    patch_sources(monkeypatch, make_patients(), b"")
-    monkeypatch.delenv("OSCAR_API_URL")
-    stats = ingest.sync(rest, 1)
-    assert "OSCAR_API_URL not set" in stats["oscar_error"] and len(rest.t["gp_practices"]) == 5199
-    assert rest.t["contacts"] == {}
-
-
-def test_patient_feed_blocked_reuses_counts(monkeypatch, oscar_rows):
-    import pytest
-    rest = FakeRest()
-    patch_sources(monkeypatch, make_patients(), make_oscar(oscar_rows))
-    ingest.sync(rest, 1)
-    monkeypatch.delenv("GP_REG_URL")
-    monkeypatch.setattr(sources, "http_text", lambda u: (_ for _ in ()).throw(RuntimeError("403")))
-    stats = ingest.sync(rest, 2)
-    assert "403" in stats["patients_error"] and rest.t["gp_practices"]["A10000"]["total_patients"] == 5000
-    with pytest.raises(ValueError):  # empty database: must not guess counts
-        ingest.sync(FakeRest(), 3)

@@ -1,0 +1,29 @@
+name: Monthly patient counts
+# Runs on a SELF-HOSTED runner (office/home network): NHS Digital blocks cloud datacentres.
+# If the machine is off, the run waits (up to 24h) until the runner comes online.
+on:
+  schedule:
+    - cron: '0 9 * * 1'   # every Monday; safe to repeat, picks up each new monthly publication
+  workflow_dispatch:
+    inputs:
+      gp_reg_url:
+        description: 'Optional direct link to gp-reg-pat-prac-all.csv (overrides auto-discovery)'
+        required: false
+
+jobs:
+  load:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m pip install -r requirements.txt
+      - name: Load patient counts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_TO: ${{ vars.DIGEST_TO }}
+          GP_REG_URL: ${{ github.event.inputs.gp_reg_url || vars.GP_REG_URL }}
+        run: python -m src.patients

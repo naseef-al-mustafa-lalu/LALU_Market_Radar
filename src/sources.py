@@ -1,7 +1,9 @@
 """Public NHS data sources: ODS practice list, PCN membership, registered patient counts."""
 import io
 import re
+import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import pandas as pd
@@ -9,7 +11,6 @@ import requests
 
 from .common import ODS_RE, norm_ods
 
-ODS_BASE = "https://files.digital.nhs.uk/assets/ods/current"
 GP_REG_PAGE = "https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice"
 UA = {"User-Agent": "LaluMarketRadar/1.0 (+https://lalu.co.uk)"}
 BROWSER_HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -40,29 +41,6 @@ def _csv(data, **kw):
         except UnicodeDecodeError:
             continue
     raise ValueError("Could not decode CSV")
-
-
-def load_ods_practices(data, patient_codes=None):
-    """epraccur.csv (headerless). Returns {ods: {name, postcode, status}} for GP practices.
-
-    Col 0 code, 1 name, 9 postcode, 12 status (A/C/D/P), 25 prescribing setting (4 = GP practice).
-    """
-    df = _csv(unzip_first(data), header=None)
-    if df.shape[1] < 13:
-        raise ValueError(f"epraccur format changed: only {df.shape[1]} columns")
-    is_gp = (df[25] == "4") if df.shape[1] > 25 else pd.Series(False, index=df.index)
-    if is_gp.sum() < 1000:  # setting column missing or moved: fall back to presence in the GP register
-        if not patient_codes:
-            raise ValueError("epraccur: cannot identify GP practices (setting column 25 empty)")
-        is_gp = df[0].str.upper().isin(patient_codes)
-    out = {}
-    for _, r in df[is_gp].iterrows():
-        code, status = norm_ods(r[0]), {"A": "Active", "C": "Closed"}.get(r[12].strip().upper())
-        if code and status:
-            out[code] = {"name": r[1], "postcode": r[9] if df.shape[1] > 9 else "", "status": status}
-    if sum(v["status"] == "Active" for v in out.values()) < 5000:
-        raise ValueError(f"epraccur yielded only {len(out)} practices; refusing to continue")
-    return out
 
 
 def load_patients(data):
@@ -133,32 +111,81 @@ def discover_gp_reg_url(get_text, today=None):
                      + " | ".join(notes[:8]))
 
 
-def _scan_rows(data):
-    df = _csv(unzip_first(data), header=None)
-    return df.values.tolist()
+ODS_API = "https://directory.spineservices.nhs.uk/ORD/2-0-0"
+ODS_EXPORT = "https://www.odsdatasearchandexport.nhs.uk/api/getReport?report="
 
 
-def load_pcn_map(members_data, names_data):
-    """Best-effort PCN mapping, tolerant of column layout: finds Uxxxxx PCN codes and practice codes in each row.
+def get_json(url, params=None):
+    last = None
+    for attempt in range(3):
+        try:
+            r = requests.get(url, params=params, headers=BROWSER_HEADERS, timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:  # noqa: BLE001
+            last = e
+            time.sleep(1.5 * (attempt + 1))
+    raise last
 
-    Returns {ods: (pcn_code, pcn_name)}. Where a practice has several rows the row with the latest date wins.
-    """
-    names = {}
-    for row in _scan_rows(names_data):
-        if re.match(r"^U\d{5}$", str(row[0]).strip().upper()):
-            names[str(row[0]).strip().upper()] = str(row[1]).strip()
-    best = {}
-    for row in _scan_rows(members_data):
-        cells = [str(c).strip().upper() for c in row]
-        pcn = next((c for c in cells if re.match(r"^U\d{5}$", c)), None)
-        prac = next((c for c in cells if ODS_RE.match(c)), None)
-        if not (pcn and prac):
+
+def load_active_gp_practices(getj=get_json, page=1000):
+    """All active GP practices from the ODS API: {ods: {name, postcode}}."""
+    out, offset = {}, 0
+    while True:
+        data = getj(f"{ODS_API}/organisations", {"PrimaryRoleId": "RO177", "NonPrimaryRoleId": "RO76",
+                                                 "Status": "Active", "Limit": page, "Offset": offset})
+        orgs = data.get("Organisations", [])
+        before = len(out)
+        for o in orgs:
+            code = norm_ods(o.get("OrgId"))
+            if code:
+                out[code] = {"name": o.get("Name", ""), "postcode": o.get("PostCode", "")}
+        if len(orgs) < page or len(out) == before:  # last page, or the API ignored Offset
+            break
+        offset += page
+    if len(out) < 5000:
+        raise ValueError(f"ODS API returned only {len(out)} active GP practices; refusing to continue")
+    return out
+
+
+def clean_icb(name):
+    return re.sub(r"\s*-\s*[0-9A-Z]{3}$", "", str(name or "")).strip()
+
+
+def load_pcn_names(data):
+    """epcn export (headerless): col 0 PCN code, 1 name, 3 ICB name. Returns {pcn: (name, icb)}."""
+    out = {}
+    for row in _csv(data, header=None).values.tolist():
+        code = str(row[0]).strip().upper()
+        if re.match(r"^U\d{5}$", code):
+            out[code] = (str(row[1]).strip(), clean_icb(row[3]) if len(row) > 3 else "")
+    return out
+
+
+def pcn_for_practice(detail):
+    """Active PCN relationship (role RO272) from an ODS organisation record, newest first. None if absent."""
+    rels = (detail.get("Organisation", {}).get("Rels") or {}).get("Rel") or []
+    best = None
+    for rel in rels:
+        t = rel.get("Target", {})
+        if rel.get("Status") != "Active" or t.get("PrimaryRoleId", {}).get("id") != "RO272":
             continue
-        dates = [c for c in cells if re.match(r"^20\d{6}$", c)]
-        key = max(dates) if dates else "0"
-        if prac not in best or key >= best[prac][0]:
-            best[prac] = (key, pcn)
-    return {p: (pcn, names.get(pcn, pcn)) for p, (_, pcn) in best.items()}
+        start = max((d.get("Start", "") for d in rel.get("Date", [])), default="")
+        code = str(t.get("OrgId", {}).get("extension", "")).upper()
+        if re.match(r"^U\d{5}$", code) and (best is None or start >= best[0]):
+            best = (start, code)
+    return best[1] if best else None
+
+
+def fetch_pcn_codes(codes, getj=get_json, workers=12):
+    """{ods: pcn_code or ''} for each practice looked up; practices whose lookup failed are omitted."""
+    def one(code):
+        try:
+            return code, pcn_for_practice(getj(f"{ODS_API}/organisations/{code}")) or ""
+        except Exception:  # noqa: BLE001  retried on a later run
+            return code, None
+    with ThreadPoolExecutor(workers) as ex:
+        return {c: v for c, v in ex.map(one, codes) if v is not None}
 
 
 def today_iso():

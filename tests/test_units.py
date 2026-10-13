@@ -30,17 +30,30 @@ def test_oscar_missing_columns():
         oscar.parse(b"A,B\n1,2")
 
 
-def test_ods_patients_pcn():
+def test_patients_file():
     patients, month = sources.load_patients(make_patients())
     assert len(patients) == 5200 and patients["A10000"] == 5000 and month == "2026-10"  # MALE rows ignored
-    ods = sources.load_ods_practices(zipped("epraccur.csv", make_epraccur()), set(patients))
-    assert ods["A10000"]["status"] == "Active" and ods["A15199"]["status"] == "Closed"
     with pytest.raises(ValueError):
-        sources.load_ods_practices(make_epraccur(100), set())
-    members = b"A10000,x,U12345,20200101,\nA10000,x,U99999,20240101,\nA10001,x,U12345,20200101,\n"
-    names = b"U12345,PCN ONE\nU99999,PCN TWO\n"
-    m = sources.load_pcn_map(members, names)
-    assert m["A10000"] == ("U99999", "PCN TWO") and m["A10001"][0] == "U12345"
+        sources.load_patients(make_patients(n=100))
+
+
+def test_ods_api_pcn_and_icb():
+    def page(url, params):
+        o = int(params["Offset"])
+        return {"Organisations": [{"OrgId": f"A{i + 10000:05d}", "Name": f"S{i}", "PostCode": "X1"} for i in range(o, min(o + 1000, 5300))]}
+    act = sources.load_active_gp_practices(page)
+    assert len(act) == 5300 and act["A10000"]["name"] == "S0"
+    with pytest.raises(ValueError):
+        sources.load_active_gp_practices(lambda u, p: {"Organisations": []})
+    names = sources.load_pcn_names(b'"U00000","WEST NORWICH PCN","26A","NHS NORFOLK AND SUFFOLK ICB - 26A","20240401"\n"X","bad"\n')
+    assert names == {"U00000": ("WEST NORWICH PCN", "NHS NORFOLK AND SUFFOLK ICB")}
+    detail = {"Organisation": {"Rels": {"Rel": [
+        {"Status": "Inactive", "Date": [{"Start": "2020"}], "Target": {"OrgId": {"extension": "U11111"}, "PrimaryRoleId": {"id": "RO272"}}},
+        {"Status": "Active", "Date": [{"Start": "2022"}], "Target": {"OrgId": {"extension": "U00000"}, "PrimaryRoleId": {"id": "RO272"}}},
+        {"Status": "Active", "Date": [{"Start": "2023"}], "Target": {"OrgId": {"extension": "16C"}, "PrimaryRoleId": {"id": "RO98"}}}]}}}
+    assert sources.pcn_for_practice(detail) == "U00000" and sources.pcn_for_practice({"Organisation": {}}) is None
+    got = sources.fetch_pcn_codes(["A10000", "A10001"], lambda u: detail if u.endswith("A10000") else (_ for _ in ()).throw(RuntimeError("x")))
+    assert got == {"A10000": "U00000"}  # failed lookups omitted so they are retried later
 
 
 def test_discover_url():

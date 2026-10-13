@@ -12,6 +12,16 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 4. **GitHub Pages**: Settings -> Pages -> deploy from `main` / root. (Private repos need a paid GitHub plan for Pages.)
 5. Run the **Daily market radar** workflow manually once. The first successful run is a silent *baseline*: it loads everything but raises no triggers and sends no email. From the second run, changes generate signals.
 
+## Monthly patient counts (self-hosted runner)
+NHS Digital (the only source of GP list sizes) blocks cloud datacentres, including GitHub-hosted runners. So the
+**Monthly patient counts** workflow runs on a *self-hosted runner* on any ordinary office/home computer (Windows, Mac or Linux,
+with Python available). It does not need to be on at a fixed time: runs queue until the runner is online.
+1. Repo -> Settings -> Actions -> Runners -> **New self-hosted runner**, pick the OS, and follow GitHub's commands on that machine.
+2. Start it (`./run.cmd` / `./run.sh`, or install as a service so it starts at login).
+3. Actions -> **Monthly patient counts** -> Run workflow (optionally paste a direct link to `gp-reg-pat-prac-all.csv`).
+Until the first successful run, practices load with 0 patients (all shown as Tier 3). No false growth alerts fire when counts arrive.
+Practices, PCNs, closures and contacts are fully automatic on GitHub-hosted runners via the NHS ODS API.
+
 ## Operating notes
 - NHS patient numbers are **monthly**, so list-size/closure signals move monthly; Oscar contact changes are picked up daily.
 - A failed run emails `DIGEST_TO` and is recorded in `ingest_runs`. Rejected rows (bad ODS codes etc.) go to `ingest_rejects`.
@@ -25,7 +35,7 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 | Log triggers in a BEFORE INSERT trigger | FK violation (parent row not yet inserted); generated `sales_segment` is NULL in BEFORE | Cleaning stays BEFORE; logging is a separate AFTER trigger |
 | First run | ~6,500 NEW_PRACTICE alerts + giant email | Baseline mode: triggers suppressed until one run has succeeded |
 | `initcap()` on names | "St Mary'S", "Nhs" | Python title-casing with acronym handling |
-| Mock NHS URL / invented columns | Would fail on day one | Real ODS (`epraccur`, `epcmem`, `epcn`) + GP registration file, with schema validation |
+| Mock NHS URL / invented columns | Would fail on day one | Practices + PCNs from the NHS ODS API; patient counts from the NHS GP registration file via a self-hosted runner (NHS blocks cloud IPs) |
 | One manager per practice from Oscar | Oscar is one row per *contact*; opt-outs/Suppress ignored | `contacts` table, deterministic primary-contact choice, Suppress excluded, opt-out emails masked/exported blank |
 | Per-row upsert, 6,500 HTTP calls | Slow, noisy writes | Diffed, batched upserts: only changed rows written |
 | `"emis" in html` scraping | Matches "pr**emis**es" | Vendor-domain markers only, conflict -> Unknown, capped 400/day, rechecked every 90 days |
@@ -37,6 +47,7 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 | "Merger" = PCN change | Misleading | Closure of an active practice = MERGER_DETECTED; PCN moves are a separate PCN_CHANGE |
 | Silent failures | Nobody knows pipeline is down | Run log, failure email, sanity guards (feed size, patient coverage, >50 closures) |
 
-## Known limits (please verify on first real run)
-- I could not reach NHS hosts from the build sandbox, so parsers for `epraccur`, `epcmem`/`epcn` and the GP registration file follow the published formats and are tested on synthetic fixtures only. Check `ingest_runs.stats` after the first run (`pcn_mapped`, `ods_practices`, `oscar_practices`). PCN mapping is best-effort and degrades gracefully; the ingest fails loudly if core files change shape.
+## Known limits
+- Verified from GitHub runners: ODS API and ODS export respond; digital.nhs.uk and OpenPrescribing are blocked by Cloudflare.
+- The GP registration file parser and the practice->PCN lookup (ODS `Rels`, role RO272) follow the published formats but have only been tested on fixtures. Check `ingest_runs.stats` after the first run (`ods_active`, `pcn_mapped`, `pcn_error`); PCN failures degrade gracefully.
 - Oscar has no clinical-system field, so EMIS/SystmOne/Vision is a website-based hint only and mostly "Unknown".

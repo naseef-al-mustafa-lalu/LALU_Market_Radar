@@ -2,7 +2,7 @@
 import os
 import sys
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from . import oscar, software, sources
 from .common import Rest, need_env, send_alert, title_case
@@ -15,7 +15,7 @@ SOFTWARE_DAILY_CAP = 400
 SOFTWARE_RECHECK = timedelta(days=90)
 
 
-def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software):
+def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software, pcn_checked=frozenset()):
     """Merge sources into upsert rows (only rows that changed). Pure function: no I/O except software checks."""
     now = datetime.now(timezone.utc)
     recs = {}
@@ -32,8 +32,13 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
                  status=o["status"], data_month=month or r.get("data_month"))
         if o["status"] == "Active" and code in patients:
             r["total_patients"] = patients[code]
-        if pcn_map and code in pcn_map:
-            r["pcn_code"], r["pcn_name"] = pcn_map[code]
+        pcn_icb = None
+        if code in pcn_checked:
+            r["pcn_checked_at"] = now.isoformat()
+            r["pcn_code"], r["pcn_name"] = pcn_map[code][:2] if code in pcn_map else (None, "Unallocated PCN")
+            pcn_icb = pcn_map[code][2] if code in pcn_map else None
+        elif code in pcn_map:
+            r["pcn_code"], r["pcn_name"], pcn_icb = pcn_map[code]
         if oscar_info is not None:
             info = oscar_info.get(code)
             p = info["primary"] if info else None
@@ -42,7 +47,10 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
                      manager_email_opt_out=bool(p and p["email_opt_out"]))
             if info:
                 r["website"] = info["website"] or r.get("website")
-                r["icb_name"] = info["icb"] or r["icb_name"]
+                if not r.get("pcn_code"):  # practices in a PCN keep the ODS-derived ICB name
+                    r["icb_name"] = info["icb"] or r["icb_name"]
+        if pcn_icb:  # ODS-derived ICB names are consistent across practices, so they win over Oscar's wording
+            r["icb_name"] = pcn_icb
         recs[code] = r
 
     # software hint: only unknown, active, has website, not checked recently; capped per run
@@ -63,38 +71,64 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
     changed = []
     for code, r in recs.items():
         old = existing.get(code)
-        if not old or any(r.get(k) != old.get(k) for k in TRACKED) or r.get("software_checked_at") != old.get("software_checked_at"):
+        if not old or any(r.get(k) != old.get(k) for k in TRACKED) or r.get("software_checked_at") != old.get("software_checked_at") or r.get("pcn_checked_at") != old.get("pcn_checked_at"):
             changed.append({k: v for k, v in r.items() if k not in ("lead_status", "first_seen", "last_updated", "sales_segment")})
     return changed, len(due)
+
+
+PCN_REFRESH = timedelta(days=30)
+PCN_DAILY_CAP = 600
+
+
+def pcn_due(active_codes, existing, now):
+    """Practices whose PCN we have never looked up (all of them, first run) or last checked > 30 days ago (capped)."""
+    never, stale = [], []
+    for c in sorted(active_codes):
+        checked = (existing.get(c) or {}).get("pcn_checked_at")
+        if not checked:
+            never.append(c)
+        elif datetime.fromisoformat(checked.replace("Z", "+00:00")) < now - PCN_REFRESH:
+            stale.append(c)
+    return never + stale[:PCN_DAILY_CAP]
 
 
 def sync(rest, run_id):
     stats, rejects = {}, []
     env = os.environ
+    now = datetime.now(timezone.utc)
 
+    active = sources.load_active_gp_practices()
     existing = {r["ods_code"]: r for r in rest.select_all("gp_practices", order="ods_code")}
-    try:
-        reg_url = env.get("GP_REG_URL") or sources.discover_gp_reg_url(sources.http_text)
-        patients, month = sources.load_patients(sources.fetch(reg_url))
-        stats["gp_reg_url"] = reg_url
-    except Exception as e:  # noqa: BLE001  NHS web pages can block automated clients
-        if sum(1 for r in existing.values() if r["total_patients"] > 0) < 5000:
-            raise  # first load needs real patient counts: otherwise every practice would look like Tier 3
-        patients = {c: r["total_patients"] for c, r in existing.items() if r["status"] == "Active"}
-        month, stats["patients_error"] = None, str(e)[:400]
-    ods = sources.load_ods_practices(sources.fetch(f"{sources.ODS_BASE}/epraccur.zip"), set(patients))
-    stats.update(ods_practices=len(ods), patients_rows=len(patients), data_month=month)
+    ods = {c: {"name": v["name"], "postcode": v["postcode"], "status": "Active"} for c, v in active.items()}
+    closed = [c for c, r in existing.items() if r["status"] == "Active" and c not in active]
+    for c in closed:
+        ods[c] = {"name": existing[c]["practice_name"], "postcode": existing[c].get("postcode"), "status": "Closed"}
+    stats.update(ods_active=len(active), closures=len(closed))
+    if len(closed) > 50 and env.get("ALLOW_MASS_CHANGE") != "1":
+        raise RuntimeError(f"{len(closed)} practices closing in one run looks like a feed error; set ALLOW_MASS_CHANGE=1 to override")
 
-    active = [c for c, v in ods.items() if v["status"] == "Active"]
-    coverage = sum(c in patients for c in active) / len(active)
-    if coverage < 0.90:
-        raise RuntimeError(f"Only {coverage:.0%} of active ODS practices have a patient count: feed mismatch, aborting")
+    # patient counts are loaded monthly by src.patients (needs a non-datacentre network) and read from Supabase
+    counts = rest.select_all("patient_counts", "ods_code,patients,data_month", order="ods_code")
+    patients = {r["ods_code"]: r["patients"] for r in counts}
+    month = max((r["data_month"] for r in counts if r["data_month"]), default=None)
+    stats.update(patients_rows=len(patients), data_month=month)
+    if not patients:
+        stats["patients_missing"] = True
+    elif month and (now.date() - date.fromisoformat(month + "-01")).days > 75:
+        stats["patients_stale"] = month
 
     try:
-        pcn_map = sources.load_pcn_map(sources.fetch(f"{sources.ODS_BASE}/epcmem.zip"), sources.fetch(f"{sources.ODS_BASE}/epcn.zip"))
-        stats["pcn_mapped"] = len(pcn_map)
+        pcn_names = sources.load_pcn_names(sources.fetch(sources.ODS_EXPORT + "epcn"))
+        looked_up = sources.fetch_pcn_codes(pcn_due(active, existing, now))
+        pcn_map = {}
+        for c, pcn in looked_up.items():
+            if pcn:
+                name, icb = pcn_names.get(pcn, (pcn, ""))
+                pcn_map[c] = (pcn, title_case(name), title_case(icb))
+        pcn_checked = frozenset(looked_up)
+        stats.update(pcn_lookups=len(looked_up), pcn_mapped=len(pcn_map))
     except Exception as e:  # noqa: BLE001  PCN is enrichment, not critical
-        pcn_map, stats["pcn_error"] = {}, str(e)[:200]
+        pcn_map, pcn_checked, stats["pcn_error"] = {}, frozenset(), str(e)[:200]
 
     try:
         if not env.get("OSCAR_API_URL"):
@@ -102,7 +136,7 @@ def sync(rest, run_id):
         contacts, oscar_info, o_rejects, suppressed = oscar.parse(sources.fetch(env["OSCAR_API_URL"], timeout=180))
         rejects += o_rejects
         stats.update(oscar_contacts=len(contacts), oscar_practices=len(oscar_info), oscar_suppressed=suppressed)
-        if not set(oscar_info) & set(ods):
+        if not set(oscar_info) & set(active):
             raise ValueError("Oscar file matched zero NHS practices: wrong file?")
     except Exception as e:  # noqa: BLE001  keep existing contact data if Oscar is unavailable
         contacts, oscar_info, stats["oscar_error"] = [], None, str(e)[:200]
@@ -112,7 +146,7 @@ def sync(rest, run_id):
     if closing > 50 and env.get("ALLOW_MASS_CHANGE") != "1":
         raise RuntimeError(f"{closing} practices closing in one run looks like a feed error; set ALLOW_MASS_CHANGE=1 to override")
 
-    records, checked = build_records(ods, patients, month, existing, pcn_map, oscar_info, software.check_many)
+    records, checked = build_records(ods, patients, month, existing, pcn_map, oscar_info, software.check_many, pcn_checked)
     stats.update(practices_changed=len(records), software_checked=checked)
     rest.upsert("gp_practices", records, "ods_code")
 
@@ -148,10 +182,10 @@ def main():
         rest.patch("ingest_runs", {"id": f"eq.{run_id}"},
                    {"status": "success", "finished_at": datetime.now(timezone.utc).isoformat(), "stats": stats})
         print("OK", stats)
-        if stats.get("patients_error"):
+        if stats.get("patients_stale"):
             send_alert("Lalu Market Radar: patient counts are stale",
-                       "Could not fetch the NHS GP registration file, so last month's counts were reused.\n"
-                       f"Set the GP_REG_URL variable to a direct link if this persists.\n\n{stats['patients_error']}")
+                       "Patient counts come from the 'Monthly patient counts' workflow (self-hosted runner). "
+                       f"The latest data loaded is for {stats['patients_stale']}; check that the runner is online.")
     except Exception as e:  # noqa: BLE001
         msg = f"{e}\n\n{traceback.format_exc()}"
         rest.patch("ingest_runs", {"id": f"eq.{run_id}"},
