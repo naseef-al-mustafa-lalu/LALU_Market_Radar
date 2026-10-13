@@ -294,9 +294,9 @@ function renderMore() {
     const tr = document.createElement("tr");
     tr.className = "hover:bg-slate-50 cursor-pointer align-top";
     const email = p.manager_email ? (p.manager_email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : esc(p.manager_email)) : "";
-    tr.innerHTML = `<td class="p-3"><div class="font-semibold">${esc(p.practice_name)}</div><div class="text-[11px] font-mono text-slate-400">${esc(p.ods_code)} · ${esc(tier(p))} · ${esc(p.clinical_software)}${p.cqc_rating ? " · CQC " + esc(p.cqc_rating) : ""}${signalCodes.has(p.ods_code) ? ' · <span class="text-purple-700 font-semibold">signal</span>' : ""}</div></td>
+    tr.innerHTML = `<td class="p-3"><div class="font-semibold">${esc(p.practice_name)}</div><div class="text-[11px] font-mono text-slate-400">${esc(p.ods_code)} · ${p.total_patients > 0 ? esc(tier(p)) : (p.ods_code[0] === "W" ? "Wales" : "No list size")} · ${esc(p.clinical_software)}${p.cqc_rating ? " · CQC " + esc(p.cqc_rating) : ""}${signalCodes.has(p.ods_code) ? ' · <span class="text-purple-700 font-semibold">signal</span>' : ""}</div></td>
       <td class="p-3"><div>${esc(p.pcn_name)}</div><div class="text-xs text-slate-400">${esc(p.icb_name)}</div></td>
-      <td class="p-3 text-right font-mono">${p.total_patients.toLocaleString()}</td>
+      <td class="p-3 text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : '<span class="text-slate-300" title="No NHS England patient count (Welsh or non-standard practice, or not yet published)">–</span>'}</td>
       <td class="p-3"><div class="font-medium">${p.manager_name ? esc(p.manager_name) : '<span class="italic text-amber-600">No contact</span>'}</div><div class="text-xs text-slate-500">${esc(p.manager_title)}</div><div class="text-xs text-slate-400">${email}</div><div class="text-[11px] text-blue-600 font-mono">${esc(p.manager_phone)}</div></td>`;
     tr.onclick = () => toggleDetail(tr, p);
     frag.appendChild(tr);

@@ -31,7 +31,7 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
                                    "manager_phone": None, "manager_email_opt_out": False,
                                    **dict.fromkeys(oscar.ORG_KEYS), "main_email_opt_out": False}
         r.update(ods_code=code, practice_name=title_case(o["name"]), postcode=o["postcode"] or r.get("postcode"),
-                 status=o["status"], data_month=month or r.get("data_month"))
+                 status=o["status"], data_month=month if code in patients else r.get("data_month"))
         if o["status"] == "Active" and code in patients:
             r["total_patients"] = patients[code]
         pcn_icb = None
