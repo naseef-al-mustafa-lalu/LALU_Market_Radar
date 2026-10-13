@@ -26,7 +26,7 @@ One-off setup:
    Permissions -> Repository -> **Actions: Read and write**. Copy the token (renew it before it expires).
 2. **Store it in Supabase**: Dashboard -> Edge Functions -> Secrets -> add `GITHUB_TOKEN` = the token.
 3. **Runner**: repo -> Settings -> Actions -> Runners -> **New self-hosted runner**, choose the office PC's OS, run GitHub's commands on that PC,
-   then start it (`./run.cmd` or `./run.sh`; or install as a service so it starts with the PC). Python is installed automatically by the workflow.
+   then start it (`./run.cmd` or `./run.sh`; or install as a service so it starts with the PC). Install Python 3.12 on that PC once, *for the current user only* and tick "Add python.exe to PATH" (no admin rights needed).
 4. Sign in to the dashboard and press **Update from NHS now**. If the PC is off the request waits (up to 24h) until the runner is online.
 The workflow also runs every Monday on its own while the runner is online, and can be started manually from the Actions tab.
 Until the first load, practices show 0 patients (Tier 3); no false growth alerts fire when counts arrive.
