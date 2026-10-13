@@ -4,8 +4,6 @@ import sys
 import traceback
 from datetime import datetime, timedelta, timezone
 
-import requests
-
 from . import oscar, software, sources
 from .common import Rest, need_env, send_alert, title_case
 
@@ -74,7 +72,7 @@ def sync(rest, run_id):
     stats, rejects = {}, []
     env = os.environ
 
-    reg_url = env.get("GP_REG_URL") or sources.discover_gp_reg_url(lambda u: requests.get(u, headers=sources.UA, timeout=60).text)
+    reg_url = env.get("GP_REG_URL") or sources.discover_gp_reg_url(sources.http_text)
     patients, month = sources.load_patients(sources.fetch(reg_url))
     ods = sources.load_ods_practices(sources.fetch(f"{sources.ODS_BASE}/epraccur.zip"), set(patients))
     stats.update(ods_practices=len(ods), patients_rows=len(patients), data_month=month, gp_reg_url=reg_url)

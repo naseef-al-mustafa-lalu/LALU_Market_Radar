@@ -44,13 +44,23 @@ def test_ods_patients_pcn():
 
 
 def test_discover_url():
+    from datetime import date
     pages = {
-        sources.GP_REG_PAGE: '<a href="/data/patients-registered-at-a-gp-practice/september-2026">x</a>'
-                             '<a href="/data/patients-registered-at-a-gp-practice/october-2026">y</a>'
-                             '<a href="/data/patients-registered-at-a-gp-practice/december-2025">z</a>',
-        "https://digital.nhs.uk/data/patients-registered-at-a-gp-practice/october-2026":
-            '<a href="https://files.digital.nhs.uk/ab/CD/gp-reg-pat-prac-all.csv">csv</a>'}
-    assert sources.discover_gp_reg_url(pages.__getitem__).endswith("/ab/CD/gp-reg-pat-prac-all.csv")
+        sources.GP_REG_PAGE: "<a href='/data/patients-registered-at-a-gp-practice/september-2026/'>x</a>",
+        "https://digital.nhs.uk/data/patients-registered-at-a-gp-practice/september-2026/": "nothing here",
+        sources.GP_REG_PAGE + "/october-2026":
+            "<a href='https://files.digital.nhs.uk/ab/CD/gp-reg-pat-prac-all.csv'>csv</a>"}
+
+    def get(url):
+        if url not in pages:
+            raise RuntimeError("404")
+        return pages[url]
+    assert sources.discover_gp_reg_url(get, date(2026, 10, 13)).endswith("/ab/CD/gp-reg-pat-prac-all.csv")
+    # landing page unavailable: constructed month URLs still work
+    pages.pop(sources.GP_REG_PAGE)
+    assert sources.discover_gp_reg_url(get, date(2026, 10, 13)).endswith(".csv")
+    with pytest.raises(ValueError, match="GP_REG_URL"):
+        sources.discover_gp_reg_url(lambda u: (_ for _ in ()).throw(RuntimeError("403")), date(2026, 10, 13))
 
 
 def test_software_classify():
