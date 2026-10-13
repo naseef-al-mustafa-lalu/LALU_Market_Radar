@@ -80,3 +80,12 @@ def test_oscar_failure_keeps_existing_managers(monkeypatch, oscar_rows):
     patch_sources(monkeypatch, make_patients(), b"garbage")
     stats = ingest.sync(rest, 2)
     assert "oscar_error" in stats and rest.t["gp_practices"]["A10000"]["manager_name"] == "Casper Fons"
+
+
+def test_runs_without_oscar_url(monkeypatch):
+    rest = FakeRest()
+    patch_sources(monkeypatch, make_patients(), b"")
+    monkeypatch.delenv("OSCAR_API_URL")
+    stats = ingest.sync(rest, 1)
+    assert "OSCAR_API_URL not set" in stats["oscar_error"] and len(rest.t["gp_practices"]) == 5199
+    assert rest.t["contacts"] == {}

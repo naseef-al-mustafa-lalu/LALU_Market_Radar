@@ -91,6 +91,8 @@ def sync(rest, run_id):
         pcn_map, stats["pcn_error"] = {}, str(e)[:200]
 
     try:
+        if not env.get("OSCAR_API_URL"):
+            raise ValueError("OSCAR_API_URL not set: running without contact data")
         contacts, oscar_info, o_rejects, suppressed = oscar.parse(sources.fetch(env["OSCAR_API_URL"], timeout=180))
         rejects += o_rejects
         stats.update(oscar_contacts=len(contacts), oscar_practices=len(oscar_info), oscar_suppressed=suppressed)
@@ -131,7 +133,7 @@ def sync(rest, run_id):
 
 
 def main():
-    need_env("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OSCAR_API_URL", "RESEND_API_KEY")
+    need_env("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "RESEND_API_KEY")
     rest = Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
     first = not rest.select_all("ingest_runs", "id", order="id", params={"status": "eq.success"})
     run_id = rest.insert("ingest_runs", [{}], returning=True)[0]["id"]

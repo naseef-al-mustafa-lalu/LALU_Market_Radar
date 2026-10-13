@@ -7,7 +7,7 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
    - Dashboard -> Authentication -> Providers -> Email: **disable "Allow new users to sign up"**.
    - Authentication -> Users -> **Add user** (email + password) for each person. Then add their email (lower-case) to `allowed_users` via SQL editor: `insert into allowed_users values ('name@lalu.co.uk');`. Access needs both an account and an allowlist row.
 2. **GitHub secrets** (Settings -> Secrets and variables -> Actions): `SUPABASE_URL` (https://qvdnpvouqecfsinsvvwf.supabase.co), `SUPABASE_SERVICE_ROLE_KEY` (Supabase -> Settings -> API; never put this in the repo or index.html), `OSCAR_API_URL`, `RESEND_API_KEY`.
-   **Variables**: `DASHBOARD_URL`, `DIGEST_TO` (comma-separated), optional `EMAIL_MODE` (DIGEST|DISABLED), `MIN_TIER_ALERT` (Tier 1|2|3).
+   (`OSCAR_API_URL` is optional: without it practices load with no contact data; add it later and the next run fills contacts in.) **Variables**: `DASHBOARD_URL`, `DIGEST_TO` (comma-separated), optional `EMAIL_MODE` (DIGEST|DISABLED), `MIN_TIER_ALERT` (Tier 1|2|3).
 3. **Resend**: verify the `lalu.co.uk` sending domain (SPF/DKIM), or set `DIGEST_FROM` to a verified sender.
 4. **GitHub Pages**: Settings -> Pages -> deploy from `main` / root. (Private repos need a paid GitHub plan for Pages.)
 5. Run the **Daily market radar** workflow manually once. The first successful run is a silent *baseline*: it loads everything but raises no triggers and sends no email. From the second run, changes generate signals.
