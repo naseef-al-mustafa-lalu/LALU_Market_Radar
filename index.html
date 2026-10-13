@@ -89,7 +89,7 @@ const SUPABASE_KEY = "sb_publishable_LpkAFZSZ977KX590OHJcXw_MMhtKxUy"; // publis
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = id => document.getElementById(id);
 const PAGE = 100;
-let practices = [], filtered = [], shown = 0, signalCodes = new Set(), channel = null;
+let practices = [], filtered = [], shown = 0, signalCodes = new Set(), channel = null, lastRunDate = null;
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const tier = p => (p.sales_segment || "").slice(0, 6);
@@ -136,8 +136,8 @@ async function startApp() {
     signalCodes = new Set((sigs || []).map(s => s.ods_code));
     $("alerts").innerHTML = ""; (sigs || []).slice(0, 30).reverse().forEach(addAlert);
     if (!(sigs || []).length) $("alerts").innerHTML = '<p class="text-sm italic text-slate-400">No signals yet.</p>';
-    const { data: run } = await db.from("ingest_runs").select("finished_at,stats").eq("status", "success").order("id", { ascending: false }).limit(1);
-    $("refresh-badge").textContent = run && run[0] ? `Data refreshed ${new Date(run[0].finished_at).toLocaleDateString("en-GB")} (NHS data month ${run[0].stats.data_month || "?"})` : "No successful refresh yet";
+    const { data: run } = await db.from("ingest_runs").select("finished_at").eq("status", "success").order("id", { ascending: false }).limit(1);
+    lastRunDate = run && run[0] ? new Date(run[0].finished_at).toLocaleDateString("en-GB") : null;
     applyFilters();
     refreshPatientStatus();
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signalCodes.add(p.new.ods_code); addAlert(p.new); })
@@ -194,6 +194,7 @@ let pcParsed = null;
 async function refreshPatientStatus() {
   const { data } = await db.from("patient_counts").select("data_month,updated_at").order("updated_at", { ascending: false }).limit(1);
   const withCounts = practices.filter(p => p.total_patients > 0).length, row = data && data[0];
+  $("refresh-badge").textContent = `Practices refreshed ${lastRunDate || "never"} · Patient counts: ${row ? "NHS " + (row.data_month || "?") : "not loaded"}`;
   $("pc-status").textContent = row
     ? `Data for ${row.data_month || "?"}, loaded ${new Date(row.updated_at).toLocaleDateString("en-GB")}. ${withCounts.toLocaleString()} of ${practices.length.toLocaleString()} practices have counts.`
     : "No patient counts loaded yet: practices show as Tier 3 until you load the NHS file.";
