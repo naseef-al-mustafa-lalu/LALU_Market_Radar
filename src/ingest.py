@@ -72,10 +72,18 @@ def sync(rest, run_id):
     stats, rejects = {}, []
     env = os.environ
 
-    reg_url = env.get("GP_REG_URL") or sources.discover_gp_reg_url(sources.http_text)
-    patients, month = sources.load_patients(sources.fetch(reg_url))
+    existing = {r["ods_code"]: r for r in rest.select_all("gp_practices", order="ods_code")}
+    try:
+        reg_url = env.get("GP_REG_URL") or sources.discover_gp_reg_url(sources.http_text)
+        patients, month = sources.load_patients(sources.fetch(reg_url))
+        stats["gp_reg_url"] = reg_url
+    except Exception as e:  # noqa: BLE001  NHS web pages can block automated clients
+        if sum(1 for r in existing.values() if r["total_patients"] > 0) < 5000:
+            raise  # first load needs real patient counts: otherwise every practice would look like Tier 3
+        patients = {c: r["total_patients"] for c, r in existing.items() if r["status"] == "Active"}
+        month, stats["patients_error"] = None, str(e)[:400]
     ods = sources.load_ods_practices(sources.fetch(f"{sources.ODS_BASE}/epraccur.zip"), set(patients))
-    stats.update(ods_practices=len(ods), patients_rows=len(patients), data_month=month, gp_reg_url=reg_url)
+    stats.update(ods_practices=len(ods), patients_rows=len(patients), data_month=month)
 
     active = [c for c, v in ods.items() if v["status"] == "Active"]
     coverage = sum(c in patients for c in active) / len(active)
@@ -99,7 +107,6 @@ def sync(rest, run_id):
     except Exception as e:  # noqa: BLE001  keep existing contact data if Oscar is unavailable
         contacts, oscar_info, stats["oscar_error"] = [], None, str(e)[:200]
 
-    existing = {r["ods_code"]: r for r in rest.select_all("gp_practices", order="ods_code")}
     closing = sum(1 for c, v in ods.items() if v["status"] == "Closed" and existing.get(c, {}).get("status") == "Active")
     stats["closures"] = closing
     if closing > 50 and env.get("ALLOW_MASS_CHANGE") != "1":
@@ -141,6 +148,10 @@ def main():
         rest.patch("ingest_runs", {"id": f"eq.{run_id}"},
                    {"status": "success", "finished_at": datetime.now(timezone.utc).isoformat(), "stats": stats})
         print("OK", stats)
+        if stats.get("patients_error"):
+            send_alert("Lalu Market Radar: patient counts are stale",
+                       "Could not fetch the NHS GP registration file, so last month's counts were reused.\n"
+                       f"Set the GP_REG_URL variable to a direct link if this persists.\n\n{stats['patients_error']}")
     except Exception as e:  # noqa: BLE001
         msg = f"{e}\n\n{traceback.format_exc()}"
         rest.patch("ingest_runs", {"id": f"eq.{run_id}"},

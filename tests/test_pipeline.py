@@ -89,3 +89,16 @@ def test_runs_without_oscar_url(monkeypatch):
     stats = ingest.sync(rest, 1)
     assert "OSCAR_API_URL not set" in stats["oscar_error"] and len(rest.t["gp_practices"]) == 5199
     assert rest.t["contacts"] == {}
+
+
+def test_patient_feed_blocked_reuses_counts(monkeypatch, oscar_rows):
+    import pytest
+    rest = FakeRest()
+    patch_sources(monkeypatch, make_patients(), make_oscar(oscar_rows))
+    ingest.sync(rest, 1)
+    monkeypatch.delenv("GP_REG_URL")
+    monkeypatch.setattr(sources, "http_text", lambda u: (_ for _ in ()).throw(RuntimeError("403")))
+    stats = ingest.sync(rest, 2)
+    assert "403" in stats["patients_error"] and rest.t["gp_practices"]["A10000"]["total_patients"] == 5000
+    with pytest.raises(ValueError):  # empty database: must not guess counts
+        ingest.sync(FakeRest(), 3)
