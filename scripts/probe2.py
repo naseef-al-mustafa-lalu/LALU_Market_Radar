@@ -1,50 +1,38 @@
-"""Round 2: find patient counts + ODS API shape from sources reachable from GitHub runners."""
-import json
+"""Round 3: any reachable source of practice list size? ODS export report names?"""
+import re
 import requests
 
 H = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
 
 
-def get(u, **kw):
+def get(u):
     try:
-        return requests.get(u, headers=H, timeout=60, **kw)
+        return requests.get(u, headers=H, timeout=90)
     except Exception as e:  # noqa: BLE001
         print("ERR", u, e)
 
 
-print("== data.gov.uk datasets ==")
-r = get("https://data.gov.uk/api/action/package_search?q=registered+patients+gp+practice&rows=15")
+print("== Fingertips indicators mentioning list size / registered / population ==")
+r = get("https://fingertips.phe.org.uk/api/indicator_names")
 if r is not None and r.ok:
-    for d in r.json()["result"]["results"]:
-        print("-", d["title"][:80], "|", d.get("organization", {}).get("title", "")[:30])
-        for x in d.get("resources", [])[:6]:
-            print("     ", x.get("format"), x.get("url")[:150])
+    names = r.json()
+    hits = [(k, v) for k, v in names.items() if re.search(r"list size|registered patients|patients registered|practice population|number of patients", v, re.I)]
+    print(len(names), "indicators;", len(hits), "hits")
+    for k, v in hits[:25]:
+        print(" ", k, v[:110])
 
-print("== NHSBSA datasets matching list/practice/patient ==")
-r = get("https://opendata.nhsbsa.net/api/3/action/package_list")
-if r is not None and r.ok:
-    names = r.json()["result"]
-    print([n for n in names if any(k in n for k in ("list", "practice", "patient", "gp", "demograph", "population"))])
-
-print("== ODS API ==")
-for u in ["https://directory.spineservices.nhs.uk/ORD/2-0-0/organisations?PrimaryRoleId=RO177&NonPrimaryRoleId=RO76&Status=Active&Limit=2",
-          "https://directory.spineservices.nhs.uk/ORD/2-0-0/organisations?PrimaryRoleId=RO98&Status=Active&Limit=2",
-          "https://directory.spineservices.nhs.uk/ORD/2-0-0/organisations?PrimaryRoleId=RO272&Status=Active&Limit=2",
-          "https://directory.spineservices.nhs.uk/ORD/2-0-0/roles"]:
+print("== ODS export reports ==")
+for rep in ["epraccur", "epcn", "epcmem", "epcnmem", "egpcur", "ePCN", "ecsmem"]:
+    r = get(f"https://www.odsdatasearchandexport.nhs.uk/api/getReport?report={rep}")
+    if r is not None:
+        print(rep, r.status_code, len(r.content), r.headers.get("content-type", "")[:25], "|", r.text[:160].replace("\n", " ").replace("\r", " "))
+for u in ["https://www.odsdatasearchandexport.nhs.uk/api/getReports", "https://www.odsdatasearchandexport.nhs.uk/api/getReportList"]:
     r = get(u)
     if r is not None:
-        print(r.status_code, r.headers.get("X-Total-Count"), u[-110:])
-        print("    ", r.text[:300].replace("\n", " "))
-r = get("https://directory.spineservices.nhs.uk/ORD/2-0-0/organisations/A81001")
-if r is not None and r.ok:
-    o = r.json()["Organisation"]
-    print("A81001 keys:", list(o), "| Rels:", json.dumps(o.get("Rels"))[:500], "| Roles:", json.dumps(o.get("Roles"))[:300])
+        print(r.status_code, len(r.content), u, r.text[:300].replace("\n", " "))
 
-print("== other hosts ==")
-for u in ["https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=epraccur",
-          "https://fingertips.phe.org.uk/api/area_types",
-          "https://api.cqc.org.uk/public/v1/providers?perPage=1",
-          "https://www.nhs.uk/"]:
+print("== misc ==")
+for u in ["https://raw.githubusercontent.com/ebmdatalab/openprescribing/main/README.md"]:
     r = get(u)
     if r is not None:
-        print(r.status_code, len(r.content), r.headers.get("content-type", "")[:30], u)
+        print(r.status_code, len(r.content), u)
