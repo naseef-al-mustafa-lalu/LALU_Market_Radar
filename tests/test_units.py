@@ -54,6 +54,7 @@ def test_ods_api_paging(one_based):
 def test_ods_pcn_and_icb():
     names = sources.load_pcn_names(b'"U00000","WEST NORWICH PCN","26A","NHS NORFOLK AND SUFFOLK ICB - 26A","20240401"\n"X","bad"\n')
     assert names == {"U00000": ("WEST NORWICH PCN", "NHS NORFOLK AND SUFFOLK ICB")}
+    assert sources.clean_icb("NHS WEST AND NORTH LONDON ICB - W2U3Z") == "NHS WEST AND NORTH LONDON ICB"  # 5-character codes too
     detail = {"Organisation": {"Rels": {"Rel": [
         {"Status": "Inactive", "Date": [{"Start": "2020"}], "Target": {"OrgId": {"extension": "U11111"}, "PrimaryRoleId": {"id": "RO272"}}},
         {"Status": "Active", "Date": [{"Start": "2022"}], "Target": {"OrgId": {"extension": "U00000"}, "PrimaryRoleId": {"id": "RO272"}}},
@@ -90,6 +91,9 @@ def test_software_classify():
     assert software.normalise_url("javascript:alert(1)") is None and software.normalise_url("a.co.uk") == "https://a.co.uk"
 
 
+TIERS = [{"tier": 1, "threshold": 20000}, {"tier": 2, "threshold": 15000}, {"tier": 3, "threshold": 10000}, {"tier": 4, "threshold": 5000}, {"tier": 5, "threshold": 0}]
+
+
 def test_digest_select_and_escape():
     def trig(i, seg, n, lead="Cold", name="<script>x</script>"):
         return {"id": i, "trigger_type": "NEW_PRACTICE", "headline": "H", "description": "D",
@@ -97,9 +101,8 @@ def test_digest_select_and_escape():
                                  "total_patients": n, "sales_segment": seg, "clinical_software": "Unknown",
                                  "manager_name": None, "manager_title": None, "manager_email": "a@b.c",
                                  "manager_phone": None, "manager_email_opt_out": True, "lead_status": lead, "status": "Active"}}
-    ts = [trig("1", "Tier 3 (Small Practice)", 100), trig("2", "Tier 1 (Enterprise / Super-Partnership)", 20000),
-          trig("3", "Tier 2 (Mid-Market)", 8000, lead="Do-Not-Contact")]
-    send, skip = digest.select(ts, "Tier 2")
+    ts = [trig("1", "", 100), trig("2", "", 21000), trig("3", "", 16000, lead="Do-Not-Contact")]
+    send, skip = digest.select(ts, "Tier 2", TIERS)
     assert [t["id"] for t in send] == ["2"] and {t["id"] for t in skip} == {"1", "3"}
-    out = digest.render(send, "https://x")
+    out = digest.render(send, "https://x", TIERS)
     assert "<script>" not in out and "&lt;script&gt;" in out and "a@b.c" not in out and "opt-out" in out

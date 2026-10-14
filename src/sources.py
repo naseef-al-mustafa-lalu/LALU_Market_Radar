@@ -159,7 +159,7 @@ def load_active_gp_practices(getj=get_json, page=500):
 
 
 def clean_icb(name):
-    return re.sub(r"\s*-\s*[0-9A-Z]{3}$", "", str(name or "")).strip()
+    return re.sub(r"\s*-\s*[0-9A-Z]{3,6}$", "", str(name or "").upper()).strip()
 
 
 def load_pcn_names(data):

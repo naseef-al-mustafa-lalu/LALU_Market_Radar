@@ -34,5 +34,5 @@ jobs:
           DIGEST_TO: ${{ vars.DIGEST_TO }}
           DIGEST_FROM: ${{ vars.DIGEST_FROM }}
           EMAIL_MODE: ${{ vars.EMAIL_MODE || 'DIGEST' }}          # DIGEST or DISABLED
-          MIN_TIER_ALERT: ${{ vars.MIN_TIER_ALERT || 'Tier 2' }}  # Tier 1 | Tier 2 | Tier 3
+          MIN_TIER_ALERT: ${{ vars.MIN_TIER_ALERT || 'Tier 3' }}  # Tier 1..5 (1 = 20,000+ patients, 3 = 10,000+, 5 = all)
         run: python -m src.digest

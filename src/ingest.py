@@ -77,7 +77,7 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
     for code, r in recs.items():
         old = existing.get(code)
         if not old or any(r.get(k) != old.get(k) for k in TRACKED) or r.get("software_checked_at") != old.get("software_checked_at") or r.get("pcn_checked_at") != old.get("pcn_checked_at"):
-            changed.append({k: v for k, v in r.items() if k not in ("lead_status", "first_seen", "last_updated", "sales_segment")})
+            changed.append({k: v for k, v in r.items() if k not in ("lead_status", "first_seen", "last_updated", "sales_segment", "price_tier", "base_price", "est_arr")})
     return changed, len(due)
 
 

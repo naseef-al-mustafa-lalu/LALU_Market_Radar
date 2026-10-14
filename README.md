@@ -45,6 +45,16 @@ Signals: new practice, practice closed (merger), rapid growth, PCN move, new man
 new inspection, registered manager absent, practice changed operator (likely takeover). CQC signals only fire after a first CQC value is stored, so the initial load is silent.
 Requires the `CQC_API_KEY` secret (free key from the CQC API portal).
 
+## Pricing, tiers and estimated ARR
+Tiers and ARR follow Lalu's pricing model (the "Patient Size Threshold Analysis For Discounts" sheet) and are driven by two editable tables
+in Supabase, so nothing is hard-coded:
+- `pricing_tiers`: per route (`practice`, `pcn`, `icb`; `group` / `federation` allowed when you define them) the patient threshold, size discount and year-1 speed discount for tiers 1-5.
+- `pricing_settings`: list price per patient, discount caps, prepayment/indexation ranges, margin floor, minimum term.
+Price per patient = list price x (1 - size discount); year-1 price also subtracts the speed discount. Est. ARR = patients x price.
+The views `practice_pricing` and `org_pricing` calculate it live, so editing a row (Supabase -> Table Editor) updates the dashboard immediately.
+The dashboard shows it per practice, per network (Networks tab) and in the **Revenue** tab (route totals, tier breakdown, pipeline by lead status, rate card).
+The three routes are alternative ways to sell to the same patients: do not add them together. `MIN_TIER_ALERT` (Tier 1-5) uses the single-practice tiers.
+
 ## Data model
 `gp_practices` holds one row per practice with everything collected about it. `organisations` + `org_relationships` form a graph
 (practice -> PCN / ICB / provider group / federation) where every link records its source (ods, cqc, oscar), a confidence and whether
