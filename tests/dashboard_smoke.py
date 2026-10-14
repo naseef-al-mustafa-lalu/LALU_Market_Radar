@@ -97,18 +97,22 @@ with sync_playwright() as p:
         "".join(f'{10000+i},Practice {i},{5000+i},x,Liff Road,MUIRHEAD,,DD2 5NH,01,GMS,S08000030,s,d,Dundee {i%4}\n' for i in range(600)))
     open(wl, "w").write("Period,PsuPracticeCode,PracticeId,Locality,Street,Area,Posttown,County,Postcode,ClusterID\n" +
         "".join(f"202607,6{i},W{93000+i},,ST. LUKE'S SURGERY {i},a,CARDIFF,GWENT,NP11 5GX,601{i%5:02d}\n" for i in range(400)) + "202607,,7A3,HB,1 Talbot Gateway,a,Baglan,,SA12 7BR,\n")
-    pg.set_input_files("#dv-file", sc); pg.wait_for_function("!document.querySelector('#dv-load').disabled")
-    assert "Scotland: read 600" in pg.inner_text("#dv-msg"), pg.inner_text("#dv-msg")
-    pg.click("#dv-load"); pg.wait_for_function("document.querySelector('#dv-msg').textContent.startsWith('Done')")
-    pg.set_input_files("#dv-file", wl); pg.wait_for_function("!document.querySelector('#dv-load').disabled")
-    assert "Wales: read 400" in pg.inner_text("#dv-msg"), pg.inner_text("#dv-msg")
-    pg.click("#dv-load"); pg.wait_for_function("document.querySelector('#dv-msg').textContent.startsWith('Done')")
+    def up(box, path, expect):
+        pg.set_input_files(f"#up-{box} .up-file", path)
+        pg.wait_for_function("(b) => document.querySelector('#up-' + b + ' .up-msg').textContent.length > 0", arg=box)
+        msg = pg.inner_text(f"#up-{box} .up-msg"); assert expect in msg, msg
+        return msg
+    up("sco", sc, "Read 600"); pg.click("#up-sco .up-load"); pg.wait_for_function("document.querySelector('#up-sco .up-msg').textContent.startsWith('Done')")
+    up("walc", wl, "Read 400"); pg.click("#up-walc .up-load"); pg.wait_for_function("document.querySelector('#up-walc .up-msg').textContent.startsWith('Done')")
+    up("walc", sc, "use that box instead")           # wrong box is explained, not loaded
+    assert pg.is_disabled("#up-walc .up-load")
     calls = pg.evaluate("window.__rpc.filter(c => c[0] === 'load_devolved')")
     assert [c[1]["p_country"] for c in calls] == ["Scotland", "Wales"], calls
     r0 = calls[0][1]["p_rows"][0]; assert r0["code"] == "S10000" and r0["icb"] == "NHS Tayside" and r0["net_code"] == "SC-dundee-0" and r0["patients"] == 5000 and r0["town"] == "Muirhead", r0
-    w0 = calls[1][1]["p_rows"][0]; assert w0["code"] == "W93000" and w0["net_code"] == "WC60100" and w0["name"] == "St. Luke'S Surgery 0" or w0["name"].startswith("St. Luke"), w0
-    pg.set_input_files("#dv-file", os.path.join(td, "scotland_20260701_opendata.csv")); open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
-    pg.set_input_files("#dv-file", os.path.join(td, "bad.csv")); pg.wait_for_function("document.querySelector('#dv-msg').textContent.startsWith('Not recognised')")
+    w0 = calls[1][1]["p_rows"][0]; assert w0["code"] == "W93000" and w0["net_code"] == "WC60100", w0
+    assert "In the database" in pg.inner_text("#up-eng .up-status")
+    open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
+    up("walp", os.path.join(td, "bad.csv"), "Not recognised")
     pg.screenshot(path="/tmp/claude-0/data.png", full_page=True)
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

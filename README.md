@@ -22,7 +22,7 @@ Five tabs: **Practices** (search, tier and HubSpot filters, "More filters", remo
 Upload the Public Health Scotland *practice contact details* CSV or the NHS Wales practice data CSV in the Data tab ("Scotland and Wales"); the type is detected from the columns.
 Scotland rows are stored as `S` + the 5-digit practice code with list sizes, GP cluster (PCN equivalent) and health board (ICB equivalent). Wales rows match the ODS
 `W` codes, add the cluster, and have **no list sizes** in this file, so they carry no ARR until Welsh counts are supplied. Uploaded groupings are locked (`network_locked`) so the daily sync keeps them,
-and bulk loads do not raise NEW_PRACTICE signals. Clicking a network row opens its profile: price build-up, discounts, and each linked practice priced singly vs in the network.
+and bulk loads do not raise NEW_PRACTICE signals. Each file has its own box in the Data tab; to support another file add an entry to the `UPLOADS` registry in `index.html` (title, source link, `parse`, `load`, `status`) plus a database load function if needed. Clicking a network row opens its profile: price build-up, discounts, and each linked practice priced singly vs in the network.
  (two ways, both in the dashboard's "Patient counts" card)
 NHS Digital (the only source of GP list sizes) blocks cloud datacentres, so GitHub's servers cannot fetch it.
 

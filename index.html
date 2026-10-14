@@ -159,28 +159,14 @@
         <h2 class="font-bold">Patient counts</h2>
         <p id="pc-status" class="text-sm text-slate-500 mt-1">Checking…</p>
         <div class="mt-3 border-t border-slate-100 pt-3">
-          <div class="text-xs font-semibold text-slate-600 mb-1">Option A: automatic (needs the office PC runner)</div>
+          <div class="text-xs font-semibold text-slate-600 mb-1">England: automatic update (needs the office PC runner; otherwise upload below)</div>
           <button id="pc-run" class="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg px-4 py-1.5 text-xs font-semibold">Update from NHS now</button>
           <p id="pc-run-msg" class="mt-1 text-xs text-slate-500 min-h-[1rem]"></p>
         </div>
-        <div class="mt-2 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600">Option B: upload the file yourself</div>
-        <ol class="mt-2 space-y-2 text-sm text-slate-700 list-decimal list-inside">
-          <li><a class="text-blue-600 underline" target="_blank" rel="noopener" href="https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice">Open the NHS page</a>, click the latest month, download <b>gp-reg-pat-prac-all.csv</b>.</li>
-          <li>Choose it: <input id="pc-file" type="file" accept=".csv,text/csv" class="block mt-1 text-xs"></li>
-          <li>Month <input id="pc-month" type="month" class="border border-slate-300 rounded px-2 py-1 text-xs"> <button id="pc-load" disabled class="ml-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></li>
-        </ol>
-        <p id="pc-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
-      <div class="bg-white rounded-xl border border-slate-200 p-4">
-        <h2 class="font-bold">Scotland and Wales</h2>
-        <p id="dv-status" class="text-sm text-slate-500 mt-1">Checking…</p>
-        <p class="text-xs text-slate-500 mt-2">Upload the practice file from <b>Public Health Scotland</b> (<i>practice contact details</i> open data CSV: has list sizes and GP clusters) or <b>NHS Wales</b> (the practice data CSV: has clusters but no list sizes). The file type is detected automatically; clusters are treated as the PCN equivalent and Scottish health boards as the ICB equivalent. Practices keep these groupings when the daily NHS England sync runs.</p>
-        <div class="mt-3 flex flex-wrap items-center gap-2">
-          <input id="dv-file" type="file" accept=".csv,text/csv" class="text-xs">
-          <input id="dv-month" type="month" class="border border-slate-300 rounded px-2 py-1 text-xs">
-          <button id="dv-load" disabled class="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button>
-        </div>
-        <p id="dv-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
+      <div class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
+        <h2 class="font-bold">Upload data files <span class="text-xs font-normal text-slate-400">(one box per source: download the file, choose it, check the month, press Load)</span></h2>
+        <div id="uploads" class="mt-3 grid gap-3 md:grid-cols-2"></div>
       </div>
       <div class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
         <h2 class="font-bold">Rate card and settings <span class="text-xs font-normal text-slate-400">(read-only here: edit the <code>pricing_tiers</code> and <code>pricing_settings</code> tables in Supabase)</span></h2>
@@ -609,8 +595,7 @@ $("s-more").addEventListener("click", renderMoreSignals);
 /* ---------- data tab ---------- */
 async function renderData() {
   const row = await latestCountRow(), withCounts = practices.filter(p => p.total_patients > 0).length, withCqc = practices.filter(p => p.cqc_location_id).length;
-  { const dv = ["Scotland", "Wales"].map(c => { const l = practices.filter(p => p.country === c); return l.length ? `${c}: ${l.length.toLocaleString()} practices, ${l.filter(p => p.total_patients > 0).length.toLocaleString()} with list sizes` : `${c}: none loaded`; });
-    $("dv-status").textContent = dv.join(" · "); }
+  renderUploads();
   $("pc-status").textContent = row ? `Data for ${row.data_month || "?"}, loaded ${fmtDate(row.updated_at)}. ${withCounts.toLocaleString()} of ${practices.length.toLocaleString()} practices have counts.` : "No patient counts loaded yet: practices show no list size or ARR until you load the NHS file.";
   $("d-fresh").innerHTML = [["Practices last refreshed", lastRunDate || "never"], ["Patient counts", row ? "NHS " + (row.data_month || "?") + ", loaded " + fmtDate(row.updated_at) : "not loaded"],
     ["Practices with a CQC match", withCqc.toLocaleString() + " of " + practices.length.toLocaleString()], ["Practices with a contact", practices.filter(p => p.manager_name).length.toLocaleString()],
@@ -670,40 +655,12 @@ function readPatientFile(text) {
 }
 /* parser:end */
 
-let pcParsed = null, pcTimer = null;
+let pcTimer = null;
 async function latestCountRow() {
   const { data } = await db.from("patient_counts").select("data_month,updated_at").order("updated_at", { ascending: false }).limit(1);
   return data && data[0];
 }
 async function reloadAfterCounts() { await loadPractices(); applyFilters(); loadNetworks(); renderData(); }
-$("pc-file").addEventListener("change", async e => {
-  const f = e.target.files[0], msg = $("pc-msg"); pcParsed = null; $("pc-load").disabled = true;
-  if (!f) return;
-  if (f.size > 60 * 1024 * 1024) { msg.textContent = "That file is too large: you want the practice totals file, gp-reg-pat-prac-all.csv."; return; }
-  try {
-    pcParsed = readPatientFile(await f.text());
-    $("pc-month").value = pcParsed.month || new Date().toISOString().slice(0, 7);
-    msg.textContent = `Read ${pcParsed.totals.size.toLocaleString()} practices${pcParsed.month ? "" : " (month not found in the file: check the month box)"}. Press Load.`;
-    $("pc-load").disabled = false;
-  } catch (err) { msg.textContent = err.message; }
-});
-$("pc-load").addEventListener("click", async () => {
-  const btn = $("pc-load"), msg = $("pc-msg"), month = $("pc-month").value;
-  if (!pcParsed || !/^\d{4}-\d{2}$/.test(month)) { msg.textContent = "Choose a file and a month first."; return; }
-  btn.disabled = true;
-  const rows = [...pcParsed.totals].map(([code, n]) => ({ code, n })); let stored = 0, updated = 0;
-  try {
-    for (let i = 0; i < rows.length; i += 1000) {
-      msg.textContent = `Loading ${Math.min(i + 1000, rows.length).toLocaleString()} of ${rows.length.toLocaleString()}…`;
-      const { data, error } = await db.rpc("load_patient_counts", { p_month: month, p_rows: rows.slice(i, i + 1000) });
-      if (error) throw error;
-      stored += data.stored; updated += data.practices_updated;
-    }
-    await reloadAfterCounts();
-    msg.textContent = `Done: ${stored.toLocaleString()} counts stored, ${updated.toLocaleString()} practices updated.`;
-    $("pc-file").value = ""; pcParsed = null;
-  } catch (err) { msg.textContent = "Load failed: " + (err.message || err); btn.disabled = false; }
-});
 /* devolved nations */
 const SCOT_HB = { S08000015: "NHS Ayrshire and Arran", S08000016: "NHS Borders", S08000017: "NHS Dumfries and Galloway", S08000019: "NHS Forth Valley", S08000020: "NHS Grampian",
   S08000022: "NHS Highland", S08000024: "NHS Lothian", S08000025: "NHS Orkney", S08000026: "NHS Shetland", S08000028: "NHS Western Isles", S08000029: "NHS Fife",
@@ -725,7 +682,7 @@ function readDevolvedFile(text, fileName) {
     }
     const m = /(20\d{2})(\d{2})\d{2}/.exec(fileName || "");
     if (out.length < 500) throw new Error(`Only ${out.length} Scottish practices found: wrong file?`);
-    return { country: "Scotland", rows: out, month: m ? `${m[1]}-${m[2]}` : null };
+    return { kind: "scotland", country: "Scotland", rows: out, month: m ? `${m[1]}-${m[2]}` : null };
   }
   if (ix("Practice_reference") >= 0 && ix("Data values_sort") >= 0 && ix("Residence_reference") >= 0) {   // StatsWales: patients by practice (rows for totals, nations and health boards are skipped)
     const [pr, pn, ph, rr, v, dt, ds] = ["Practice_reference", "Practice", "Practice_hierarchy", "Residence_reference", "Data values_sort", "Date", "Date_sort"].map(ix);
@@ -740,7 +697,7 @@ function readDevolvedFile(text, fileName) {
     const q = per.get(latest) || [], m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(q[0] ? q[0].date : "");
     for (const r of q) if (!seen.has(r.code)) { seen.add(r.code); out.push({ code: r.code, name: titleCase(r.name), postcode: "", town: "", patients: r.n, net_code: null, net_name: null, icb: boards.get(r.hb) || null }); }
     if (out.length < 300) throw new Error(`Only ${out.length} Welsh practices found in the latest quarter: wrong file?`);
-    return { country: "Wales", rows: out, month: m ? `${m[3]}-${m[2]}` : null, sizes: true };
+    return { kind: "wales-sizes", country: "Wales", rows: out, month: m ? `${m[3]}-${m[2]}` : null };
   }
   if (ix("PracticeId") >= 0 && ix("ClusterID") >= 0) {
     const [id, st, tn, pc, cl, per] = ["PracticeId", "Street", "Posttown", "Postcode", "ClusterID", "Period"].map(ix); let month = null;
@@ -752,37 +709,91 @@ function readDevolvedFile(text, fileName) {
       if (!month && /^\d{6}$/.test(cell(x, per))) month = cell(x, per).slice(0, 4) + "-" + cell(x, per).slice(4);
     }
     if (out.length < 300) throw new Error(`Only ${out.length} Welsh practices found: wrong file?`);
-    return { country: "Wales", rows: out, month };
+    return { kind: "wales-clusters", country: "Wales", rows: out, month };
   }
-  throw new Error("Not recognised. Expected the Scotland practice contact details CSV (PracticeCode, GPPracticeName…) or the Wales practice data CSV (PracticeId, ClusterID…).");
+  throw new Error("Not recognised. Expected the Scotland practice contact details CSV (PracticeCode, GPPracticeName…) , the Wales practice data CSV (PracticeId, ClusterID…) or the StatsWales patients-by-practice CSV.");
 }
-let dvParsed = null;
-$("dv-file").addEventListener("change", async e => {
-  const f = e.target.files[0], msg = $("dv-msg"); dvParsed = null; $("dv-load").disabled = true;
-  if (!f) return;
-  if (f.size > 20 * 1024 * 1024) { msg.textContent = "That file is too large for a practice list."; return; }
-  try {
-    dvParsed = readDevolvedFile(await f.text(), f.name);
-    $("dv-month").value = dvParsed.month || new Date().toISOString().slice(0, 7);
-    msg.textContent = `${dvParsed.country}: read ${dvParsed.rows.length.toLocaleString()} practices${dvParsed.country === "Wales" && !dvParsed.sizes ? " (this file has clusters but no list sizes: also load the StatsWales patients file)" : ""}${dvParsed.sizes ? " with list sizes and health boards" : ""}. Press Load.`;
-    $("dv-load").disabled = false;
-  } catch (err) { msg.textContent = err.message; }
-});
-$("dv-load").addEventListener("click", async () => {
-  const btn = $("dv-load"), msg = $("dv-msg"), month = $("dv-month").value;
-  if (!dvParsed || !/^\d{4}-\d{2}$/.test(month)) { msg.textContent = "Choose a file and a month first."; return; }
-  btn.disabled = true; let stored = 0, added = 0;
-  try {
-    for (let i = 0; i < dvParsed.rows.length; i += 1000) {
-      msg.textContent = `Loading ${Math.min(i + 1000, dvParsed.rows.length).toLocaleString()} of ${dvParsed.rows.length.toLocaleString()}…`;
-      const { data, error } = await db.rpc("load_devolved", { p_country: dvParsed.country, p_month: month, p_rows: dvParsed.rows.slice(i, i + 1000) });
-      if (error) throw error; stored += data.stored; added += data.new;
+function readDevolved(text, name, expect) {
+  const r = readDevolvedFile(text, name);
+  if (r.kind !== expect) throw new Error(`This is the ${UPLOAD_KIND[r.kind]} file: use that box instead.`);
+  return r;
+}
+
+/* ---------- data file uploads ----------
+   One entry per source file. To support a new file: add an entry here (and, if needed, a parser above and a database load function).
+   parse(text, fileName) -> { count, month, payload }   throws a readable Error if the file is the wrong one
+   load(payload, month, say) -> summary text            say(text) shows progress
+   status() -> text shown under the box (what is currently in the database) */
+const UPLOAD_KIND = { scotland: "Scotland practices", "wales-clusters": "Wales practices and clusters", "wales-sizes": "Wales patient numbers (StatsWales)" };
+const latestMonth = list => list.map(p => p.data_month).filter(Boolean).sort().pop() || "?";
+async function loadDevolvedRows(country, rows, month, say) {
+  let stored = 0, added = 0;
+  for (let i = 0; i < rows.length; i += 1000) {
+    say(`Loading ${Math.min(i + 1000, rows.length).toLocaleString()} of ${rows.length.toLocaleString()}…`);
+    const { data, error } = await db.rpc("load_devolved", { p_country: country, p_month: month, p_rows: rows.slice(i, i + 1000) });
+    if (error) throw error; stored += data.stored; added += data.new;
+  }
+  return `${stored.toLocaleString()} practices processed (${added.toLocaleString()} new)`;
+}
+const UPLOADS = [
+  { id: "eng", title: "England: patient counts", gives: "List size for every English practice, which drives tiers and ARR", file: "gp-reg-pat-prac-all.csv", cadence: "monthly",
+    href: "https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice", link: "NHS Digital: Patients registered at a GP practice (latest month)",
+    parse: t => { const r = readPatientFile(t); return { count: r.totals.size, month: r.month, payload: r }; },
+    load: async (r, month, say) => {
+      const rows = [...r.totals].map(([code, n]) => ({ code, n })); let stored = 0, updated = 0;
+      for (let i = 0; i < rows.length; i += 1000) {
+        say(`Loading ${Math.min(i + 1000, rows.length).toLocaleString()} of ${rows.length.toLocaleString()}…`);
+        const { data, error } = await db.rpc("load_patient_counts", { p_month: month, p_rows: rows.slice(i, i + 1000) });
+        if (error) throw error; stored += data.stored; updated += data.practices_updated;
+      }
+      return `${stored.toLocaleString()} counts stored, ${updated.toLocaleString()} practices updated`;
+    },
+    status: () => { const l = practices.filter(p => (p.country || "England") === "England" && p.total_patients > 0); return `${l.length.toLocaleString()} English practices have list sizes (data month ${latestMonth(l)})`; } },
+  { id: "sco", title: "Scotland: practices, list sizes, GP clusters", gives: "Practices, list sizes, GP clusters (PCN equivalent) and health boards (ICB equivalent)", file: "…practice_contact_details_YYYYMMDD_opendata.csv", cadence: "quarterly",
+    href: "https://www.opendata.nhs.scot/dataset/gp-practice-contact-details-and-list-sizes", link: "Public Health Scotland open data: GP practice contact details and list sizes",
+    parse: (t, n) => { const r = readDevolved(t, n, "scotland"); return { count: r.rows.length, month: r.month, payload: r }; },
+    load: (r, month, say) => loadDevolvedRows("Scotland", r.rows, month, say),
+    status: () => { const l = practices.filter(p => p.country === "Scotland"); return l.length ? `${l.length.toLocaleString()} Scottish practices loaded (data month ${latestMonth(l)})` : "Nothing loaded yet"; } },
+  { id: "walc", title: "Wales: practices and clusters", gives: "Welsh clusters (PCN equivalent) for each practice. No list sizes", file: "Wales_practice_data_….csv (PracticeId, ClusterID)", cadence: "when clusters change",
+    href: "https://nwssp.nhs.wales/ourservices/primary-care-services/general-information/data-and-publications/gp-practice-analysis/", link: "NWSSP: GP practice analysis",
+    parse: (t, n) => { const r = readDevolved(t, n, "wales-clusters"); return { count: r.rows.length, month: r.month, payload: r }; },
+    load: (r, month, say) => loadDevolvedRows("Wales", r.rows, month, say),
+    status: () => { const l = practices.filter(p => p.country === "Wales" && p.network_locked); return l.length ? `${l.length.toLocaleString()} Welsh practices have a cluster` : "Nothing loaded yet"; } },
+  { id: "walp", title: "Wales: patient numbers and health boards", gives: "List size and health board for each Welsh practice (latest quarter only)", file: "patients-registered-to-general-practices-in-wales-…-v4-en-gb.csv", cadence: "quarterly",
+    href: "https://stats.gov.wales/en-GB/75dcbf1e-9b43-4d9a-90b1-f02affe80bc2", link: "StatsWales: Patients registered to general practices in Wales (download as CSV)",
+    parse: (t, n) => { const r = readDevolved(t, n, "wales-sizes"); return { count: r.rows.length, month: r.month, payload: r }; },
+    load: (r, month, say) => loadDevolvedRows("Wales", r.rows, month, say),
+    status: () => { const l = practices.filter(p => p.country === "Wales" && p.total_patients > 0); return l.length ? `${l.length.toLocaleString()} Welsh practices have list sizes (data month ${latestMonth(l)})` : "Nothing loaded yet"; } },
+];
+function renderUploads() {
+  const box = $("uploads");
+  if (!box.children.length) {
+    box.innerHTML = UPLOADS.map(u => `<div class="border border-slate-200 rounded-lg p-3" id="up-${u.id}">
+      <div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${esc(u.title)}</h3><span class="text-[11px] text-slate-400 whitespace-nowrap">${esc(u.cadence)}</span></div>
+      <p class="text-xs text-slate-500">${esc(u.gives)}</p>
+      <p class="text-xs mt-1"><a class="text-blue-600 underline" target="_blank" rel="noopener" href="${esc(u.href)}">${esc(u.link)}</a><br><span class="text-slate-400">File: ${esc(u.file)}</span></p>
+      <div class="mt-2 flex flex-wrap items-center gap-2"><input type="file" accept=".csv,text/csv" class="up-file text-xs max-w-[15rem]"><input type="month" class="up-month border border-slate-300 rounded px-2 py-1 text-xs"><button disabled class="up-load bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></div>
+      <p class="up-msg mt-1 text-xs text-slate-600 min-h-[1rem]"></p><p class="up-status mt-1 text-[11px] text-slate-400"></p></div>`).join("");
+    for (const u of UPLOADS) {
+      const el = $("up-" + u.id), q = c => el.querySelector(c), say = t => { q(".up-msg").textContent = t; }; let parsed = null;
+      q(".up-file").addEventListener("change", async e => {
+        const f = e.target.files[0]; parsed = null; q(".up-load").disabled = true; if (!f) return;
+        if (f.size > 60 * 1024 * 1024) { say("That file is too large: check you have the right one."); return; }
+        try { parsed = u.parse(await f.text(), f.name); q(".up-month").value = parsed.month || new Date().toISOString().slice(0, 7);
+          say(`Read ${parsed.count.toLocaleString()} practices${parsed.month ? "" : " (month not found in the file: check the month box)"}. Press Load.`); q(".up-load").disabled = false; }
+        catch (err) { say(err.message); }
+      });
+      q(".up-load").addEventListener("click", async () => {
+        const month = q(".up-month").value;
+        if (!parsed || !/^\d{4}-\d{2}$/.test(month)) { say("Choose a file and a month first."); return; }
+        q(".up-load").disabled = true;
+        try { const summary = await u.load(parsed.payload, month, say); parsed = null; q(".up-file").value = ""; await reloadAfterCounts(); say("Done: " + summary + "."); }
+        catch (err) { say("Load failed: " + (err.message || err)); q(".up-load").disabled = false; }
+      });
     }
-    const c = dvParsed.country; dvParsed = null; $("dv-file").value = "";
-    await reloadAfterCounts();
-    msg.textContent = `Done: ${c} loaded, ${stored.toLocaleString()} practices (${added.toLocaleString()} new).`;
-  } catch (err) { msg.textContent = "Load failed: " + (err.message || err); btn.disabled = false; }
-});
+  }
+  for (const u of UPLOADS) $("up-" + u.id).querySelector(".up-status").textContent = "In the database: " + u.status();
+}
 $("pc-run").addEventListener("click", async () => {
   const btn = $("pc-run"), msg = $("pc-run-msg");
   btn.disabled = true; msg.textContent = "Sending request…";
@@ -791,14 +802,14 @@ $("pc-run").addEventListener("click", async () => {
   if (error || (data && data.error)) {
     let detail = (data && data.error) || error.message;
     try { const body = await error.context.json(); detail = body.error || detail; } catch (_) {}
-    msg.textContent = "Could not start: " + detail + " (use Option B instead)"; btn.disabled = false; return;
+    msg.textContent = "Could not start: " + detail + " (use the England upload box instead)"; btn.disabled = false; return;
   }
   msg.textContent = "Started. Waiting for the office PC runner… this updates when it finishes.";
   const t0 = Date.now(); clearInterval(pcTimer);
   pcTimer = setInterval(async () => {
     const row = await latestCountRow();
     if (row && (!before || row.updated_at !== before.updated_at)) { clearInterval(pcTimer); await reloadAfterCounts(); msg.textContent = "Done: patient counts updated."; btn.disabled = false; }
-    else if (Date.now() - t0 > 10 * 60 * 1000) { clearInterval(pcTimer); msg.textContent = "Still waiting after 10 minutes: is the runner on? The request stays queued. Or use Option B."; btn.disabled = false; }
+    else if (Date.now() - t0 > 10 * 60 * 1000) { clearInterval(pcTimer); msg.textContent = "Still waiting after 10 minutes: is the runner on? The request stays queued. Or use the England upload box."; btn.disabled = false; }
   }, 10000);
 });
 
