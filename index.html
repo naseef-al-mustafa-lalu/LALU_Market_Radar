@@ -727,6 +727,21 @@ function readDevolvedFile(text, fileName) {
     if (out.length < 500) throw new Error(`Only ${out.length} Scottish practices found: wrong file?`);
     return { country: "Scotland", rows: out, month: m ? `${m[1]}-${m[2]}` : null };
   }
+  if (ix("Practice_reference") >= 0 && ix("Data values_sort") >= 0 && ix("Residence_reference") >= 0) {   // StatsWales: patients by practice (rows for totals, nations and health boards are skipped)
+    const [pr, pn, ph, rr, v, dt, ds] = ["Practice_reference", "Practice", "Practice_hierarchy", "Residence_reference", "Data values_sort", "Date", "Date_sort"].map(ix);
+    const boards = new Map(), per = new Map(); let latest = -1;
+    for (const x of rows.slice(1)) {
+      const ref = cell(x, pr).toUpperCase();
+      if (/^7A\d$/.test(ref)) boards.set(ref, cell(x, pn));
+      if (cell(x, rr) !== "P" || !/^W[0-9]{5}$/.test(ref)) continue;   // "All residence" only; real practice codes only
+      const t = Number(cell(x, ds)), n = parseInt(cell(x, v), 10); if (!Number.isFinite(t) || !Number.isFinite(n)) continue;
+      latest = Math.max(latest, t); (per.get(t) || per.set(t, []).get(t)).push({ code: ref, name: cell(x, pn), hb: cell(x, ph), n, date: cell(x, dt) });
+    }
+    const q = per.get(latest) || [], m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(q[0] ? q[0].date : "");
+    for (const r of q) if (!seen.has(r.code)) { seen.add(r.code); out.push({ code: r.code, name: titleCase(r.name), postcode: "", town: "", patients: r.n, net_code: null, net_name: null, icb: boards.get(r.hb) || null }); }
+    if (out.length < 300) throw new Error(`Only ${out.length} Welsh practices found in the latest quarter: wrong file?`);
+    return { country: "Wales", rows: out, month: m ? `${m[3]}-${m[2]}` : null, sizes: true };
+  }
   if (ix("PracticeId") >= 0 && ix("ClusterID") >= 0) {
     const [id, st, tn, pc, cl, per] = ["PracticeId", "Street", "Posttown", "Postcode", "ClusterID", "Period"].map(ix); let month = null;
     for (const x of rows.slice(1)) {
@@ -749,7 +764,7 @@ $("dv-file").addEventListener("change", async e => {
   try {
     dvParsed = readDevolvedFile(await f.text(), f.name);
     $("dv-month").value = dvParsed.month || new Date().toISOString().slice(0, 7);
-    msg.textContent = `${dvParsed.country}: read ${dvParsed.rows.length.toLocaleString()} practices${dvParsed.country === "Wales" ? " (no list sizes in this file, so no ARR until Welsh counts are loaded)" : ""}. Press Load.`;
+    msg.textContent = `${dvParsed.country}: read ${dvParsed.rows.length.toLocaleString()} practices${dvParsed.country === "Wales" && !dvParsed.sizes ? " (this file has clusters but no list sizes: also load the StatsWales patients file)" : ""}${dvParsed.sizes ? " with list sizes and health boards" : ""}. Press Load.`;
     $("dv-load").disabled = false;
   } catch (err) { msg.textContent = err.message; }
 });
