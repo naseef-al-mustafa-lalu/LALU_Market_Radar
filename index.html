@@ -75,7 +75,7 @@
           <input id="f-search" placeholder="Search practice, ODS code, PCN, group, contact…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[220px]">
           <select id="f-tier" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All tiers</option></select>
           <select id="f-sw" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any system</option><option>EMIS Web</option><option>SystmOne</option><option>Vision</option><option>Unknown</option></select>
-          <select id="f-lead" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any status</option><option>Cold</option><option>In-Progress</option><option>Contacted</option><option>Do-Not-Contact</option></select>
+          <select id="f-hs" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any HubSpot status</option><option value="customer">Customers</option><option value="engaged">Engaged (not customer)</option><option value="imported">Contact imported only</option><option value="none">Not in HubSpot</option></select>
           <select id="f-cqc" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any CQC rating</option><option>Outstanding</option><option>Good</option><option>Requires improvement</option><option>Inadequate</option><option value="None">Not rated / unknown</option></select>
           <select id="f-icb" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm max-w-[200px]"><option value="">All ICBs</option></select>
         </div>
@@ -97,8 +97,8 @@
             <th class="p-3 whitespace-nowrap text-right min-w-[5.5rem]">Est. ARR</th>
             <th class="p-3 whitespace-nowrap min-w-[12rem]">Network</th>
             <th class="p-3 whitespace-nowrap min-w-[8.5rem]">CQC · system</th>
-            <th class="p-3 whitespace-nowrap min-w-[11rem]">Key contact</th>
-            <th class="p-3 whitespace-nowrap min-w-[6rem]">Status</th></tr></thead>
+            <th class="p-3 whitespace-nowrap min-w-[10rem]">Key contact</th>
+            <th class="p-3 whitespace-nowrap min-w-[9rem]">HubSpot</th></tr></thead>
           <tbody id="rows" class="divide-y divide-slate-100"></tbody>
         </table>
       </div>
@@ -108,7 +108,7 @@
     <!-- Networks tab -->
     <section id="view-networks" class="hidden bg-white rounded-xl border border-slate-200 overflow-hidden min-w-0">
       <div class="p-4 border-b border-slate-200 space-y-3">
-        <p class="text-sm text-slate-600">Sign several practices at once: PCNs, provider groups and federations ranked by how many practices you have not yet engaged.</p>
+        <p class="text-sm text-slate-600">Sign several practices at once: PCNs, provider groups, federations and ICBs ranked by how many linked practices are not yet engaged. Engaged and customer counts come from HubSpot.</p>
         <div class="flex flex-wrap gap-2 items-center">
           <div id="net-kinds" class="flex gap-1 bg-slate-100 rounded-lg p-1 text-sm font-semibold"></div>
           <input id="n-search" placeholder="Search networks…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[200px]">
@@ -120,13 +120,14 @@
       <div class="overflow-x-auto max-h-[78vh]">
         <table class="w-full text-left text-sm">
           <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
-            <th class="p-3 whitespace-nowrap min-w-[14rem]">Network</th>
-            <th class="p-3 whitespace-nowrap text-right min-w-[8rem]">Linked practices</th>
-            <th class="p-3 whitespace-nowrap text-right min-w-[5.5rem]">Patients</th>
-            <th class="p-3 whitespace-nowrap min-w-[4.5rem]">Tier</th>
-            <th class="p-3 whitespace-nowrap text-right min-w-[8rem]">Est. ARR</th>
-            <th class="p-3 whitespace-nowrap min-w-[9rem]">Practice sizes</th>
-            <th class="p-3 whitespace-nowrap min-w-[6.5rem]">Engaged</th><th class="p-3 min-w-[6rem]"></th></tr></thead>
+            <th class="p-3 whitespace-nowrap min-w-[13rem]">Network</th>
+            <th class="p-3 whitespace-nowrap text-right min-w-[7.5rem]">Linked practices</th>
+            <th class="p-3 whitespace-nowrap text-right min-w-[5rem]">Patients</th>
+            <th class="p-3 whitespace-nowrap min-w-[4rem]">Tier</th>
+            <th class="p-3 whitespace-nowrap text-right min-w-[7.5rem]">Est. ARR</th>
+            <th class="p-3 whitespace-nowrap min-w-[8.5rem]">Practice sizes</th>
+            <th class="p-3 whitespace-nowrap min-w-[6.5rem]">Engaged</th>
+            <th class="p-3 whitespace-nowrap min-w-[8rem]">Customers</th><th class="p-3 min-w-[4.5rem]"></th></tr></thead>
           <tbody id="net-rows" class="divide-y divide-slate-100"></tbody>
         </table>
       </div>
@@ -142,7 +143,7 @@
       </div>
       <div id="rev-tiers" class="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4"></div>
       <div class="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 class="font-bold mb-2">Pipeline by lead status <span class="text-xs font-normal text-slate-400">(single-practice route)</span></h3>
+        <h3 class="font-bold mb-2">HubSpot position <span class="text-xs font-normal text-slate-400">(single-practice route, from HubSpot data)</span></h3>
         <div id="rev-pipeline" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
       </div>
       <details class="bg-white rounded-xl border border-slate-200 p-4">
@@ -170,7 +171,10 @@ const pct = n => (Number(n) * 100).toFixed(n * 1000 % 10 ? 1 : 0).replace(/\.0$/
 const chip = (text, cls) => `<span class="chip ${cls}">${esc(text)}</span>`;
 const TIER_CLS = { "Tier 1": "bg-purple-100 text-purple-800", "Tier 2": "bg-indigo-100 text-indigo-800", "Tier 3": "bg-blue-100 text-blue-800", "Tier 4": "bg-sky-100 text-sky-800", "Tier 5": "bg-slate-100 text-slate-600" };
 const CQC_CLS = { "Outstanding": "bg-emerald-100 text-emerald-800", "Good": "bg-green-100 text-green-800", "Requires improvement": "bg-amber-100 text-amber-800", "Inadequate": "bg-rose-100 text-rose-800" };
-const LEAD_CLS = { "Cold": "bg-slate-100 text-slate-600", "In-Progress": "bg-blue-100 text-blue-800", "Contacted": "bg-emerald-100 text-emerald-800", "Do-Not-Contact": "bg-rose-100 text-rose-800" };
+const HS_CLS = { customer: "bg-emerald-100 text-emerald-800", engaged: "bg-blue-100 text-blue-800", imported: "bg-slate-100 text-slate-700", none: "bg-slate-50 text-slate-400" };
+const HS_LABEL = { customer: "Customer", engaged: "Engaged", imported: "In HubSpot", none: "Not in HubSpot" };
+const hsState = p => p.hubspot_customer ? "customer" : p.hubspot_engaged ? "engaged" : p.hs_imported > 0 ? "imported" : "none";
+const fmtDate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 const NET_KINDS = { pcn: "PCNs", group: "Provider groups", federation: "Federations", icb: "ICBs" };
 
 /* ---------- auth ---------- */
@@ -202,9 +206,9 @@ async function fetchAll(table, columns, order) {
   }
 }
 async function loadPractices() {
-  const [base, pp] = await Promise.all([fetchAll("gp_practices", "*", "ods_code"), fetchAll("practice_pricing", "*", "ods_code")]);
-  const m = new Map(pp.map(r => [r.ods_code, r]));
-  practices = base.map(p => ({ ...p, ...(m.get(p.ods_code) || {}) }));
+  const [base, pp, hs] = await Promise.all([fetchAll("gp_practices", "*", "ods_code"), fetchAll("practice_pricing", "*", "ods_code"), fetchAll("practice_hubspot", "*", "ods_code")]);
+  const m = new Map(pp.map(r => [r.ods_code, r])), h = new Map(hs.map(r => [r.ods_code, r]));
+  practices = base.map(p => ({ ...p, ...(m.get(p.ods_code) || {}), ...(h.get(p.ods_code) || {}) }));
 }
 async function loadConfig() {
   const [t, st] = await Promise.all([db.from("pricing_tiers").select("*").order("tier"), db.from("pricing_settings").select("*").order("key")]);
@@ -235,7 +239,7 @@ async function startApp() {
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); }
 }
 async function loadNetworks() {
-  try { networks = await fetchAll("org_pricing", "*", "id"); renderNetworks(); renderRevenue(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
+  try { networks = await fetchAll("network_summary", "*", "id"); renderNetworks(); renderRevenue(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
 }
 
 /* ---------- tabs ---------- */
@@ -375,10 +379,10 @@ function addAlert(a) {
 const netMatch = (p, nf) => !nf || (nf.kind === "pcn" ? p.pcn_code === nf.key : nf.kind === "group" ? p.cqc_provider_id === nf.key
   : nf.kind === "federation" ? (p.gp_federation || "").toLowerCase() === nf.key : (p.icb_name || "").toLowerCase() === nf.key);
 function applyFilters() {
-  const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, lead = $("f-lead").value,
+  const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, hs = $("f-hs").value,
         cqcf = $("f-cqc").value, icb = $("f-icb").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
   filtered = practices.filter(p =>
-    p.status === "Active" && netMatch(p, netFilter) && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!lead || p.lead_status === lead) &&
+    p.status === "Active" && netMatch(p, netFilter) && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!hs || hsState(p) === hs) &&
     (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) &&
     (!sig || signalCodes.has(p.ods_code)) && (!grp || p.group_size > 1) &&
     (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(q))))
@@ -388,6 +392,11 @@ function applyFilters() {
   if (netFilter) { nc.innerHTML = `${esc(NET_KINDS[netFilter.kind] || "")}: ${esc(netFilter.label)} <button class="ml-1 font-bold">✕</button>`; nc.querySelector("button").onclick = () => { netFilter = null; applyFilters(); }; }
   shown = 0; $("rows").innerHTML = ""; renderMore();
   $("count").textContent = `${filtered.length.toLocaleString()} practices`;
+}
+function hsCell(p) {
+  const st = hsState(p);
+  const line = p.hs_contacts === 0 ? "no contact yet" : p.hs_primary_imported ? "contact imported " + fmtDate(p.hs_primary_imported_at) : p.hs_imported > 0 ? p.hs_imported + " of " + p.hs_contacts + " contacts imported" : "contact not imported";
+  return chip(HS_LABEL[st], HS_CLS[st]) + `<div class="text-[11px] text-slate-400 mt-0.5">${esc(line)}</div>`;
 }
 function contactBlock(p) {
   if (!p.manager_name) return '<span class="text-xs italic text-amber-600">No contact yet</span>';
@@ -416,8 +425,8 @@ function renderMore() {
       <td class="p-3 text-right whitespace-nowrap align-top">${p.total_patients > 0 ? `<div class="font-mono font-semibold text-emerald-700" title="Estimated annual recurring revenue, single-practice route">${gbpFull(p.est_arr)}</div><div class="text-[11px] text-slate-400">£${Number(p.base_price).toFixed(3)}/pt</div>` : '<span class="text-slate-300">–</span>'}</td>
       <td class="p-3 min-w-[12rem] align-top">${networkBlock(p)}</td>
       <td class="p-3 whitespace-nowrap align-top">${p.cqc_rating ? chip(p.cqc_rating, CQC_CLS[p.cqc_rating] || "bg-slate-100 text-slate-600") : '<span class="text-slate-300">no rating</span>'}${p.cqc_last_inspection ? `<div class="text-[11px] text-slate-400">inspected ${esc(p.cqc_last_inspection)}</div>` : ""}<div class="text-xs text-slate-600 mt-0.5">${p.clinical_software && p.clinical_software !== "Unknown" ? esc(p.clinical_software) : '<span class="text-slate-300">system unknown</span>'}</div></td>
-      <td class="p-3 min-w-[11rem] align-top">${contactBlock(p)}</td>
-      <td class="p-3 whitespace-nowrap align-top">${chip(p.lead_status, LEAD_CLS[p.lead_status] || "")}</td>`;
+      <td class="p-3 min-w-[10rem] align-top">${contactBlock(p)}</td>
+      <td class="p-3 whitespace-nowrap align-top">${hsCell(p)}</td>`;
     tr.onclick = () => toggleDetail(tr, p);
     frag.appendChild(tr);
   }
@@ -436,7 +445,6 @@ async function toggleDetail(tr, p) {
   const [{ data: cs }, { data: sg }] = await Promise.all([
     db.from("contacts").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
     db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10)]);
-  const opts = ["Cold", "In-Progress", "Contacted", "Do-Not-Contact"].map(s => `<option ${s === p.lead_status ? "selected" : ""}>${s}</option>`).join("");
   const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
   const link = (label, kind, key) => `<a href="#" class="text-blue-600 hover:underline" data-net="${kind}|${esc(key)}|${esc(label)}">${esc(label)}</a>`;
   const cards = [
@@ -449,20 +457,17 @@ async function toggleDetail(tr, p) {
       kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend))),
     card("Quality (CQC)", kv("Registration", esc(p.cqc_status)) + kv("Overall rating", p.cqc_rating ? chip(p.cqc_rating, CQC_CLS[p.cqc_rating] || "bg-slate-100 text-slate-600") : "") +
       kv("Last inspection", esc(p.cqc_last_inspection)) + kv("Manager absent since", esc(p.cqc_manager_absent_date)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : "")),
+    card("HubSpot", kv("Status", chip(HS_LABEL[hsState(p)], HS_CLS[hsState(p)])) + kv("Lifecycle stage", esc(p.hubspot_stage)) + kv("Company imported", esc(fmtDate(p.hubspot_company_imported_at))) +
+      kv("Contacts imported", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + kv("Last contact import", esc(fmtDate(p.hs_last_imported_at))) + kv("Last synced", esc(fmtDate(p.hubspot_synced_at))) +
+      (!p.hubspot_synced_at && !p.hs_imported ? '<div class="text-slate-400 italic py-0.5">Not synced yet: filled in by the HubSpot integration.</div>' : "")),
     card("Notes (Oscar)", kv("Categories", esc(p.oscar_categories)) + (p.org_notes ? `<div class="py-0.5 text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : ""))].join("");
   const contacts = (cs || []).map(c => `<div class="py-1.5 border-t border-slate-100 first:border-0"><b>${esc(c.full_name)}</b>${c.is_primary ? ' <span class="text-amber-500" title="Primary contact">★</span>' : ""}
-      <span class="text-slate-500"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span><div class="text-xs text-slate-500">${c.email ? (c.email_opt_out ? "email opt-out" : esc(c.email)) : ""} ${esc(c.phone)}</div></div>`).join("") || '<p class="text-xs italic text-slate-400">No contacts on file yet (added when the Oscar file is loaded).</p>';
+      <span class="text-slate-500"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span><div class="text-xs text-slate-500">${c.email ? (c.email_opt_out ? "email opt-out" : esc(c.email)) : ""} ${esc(c.phone)}</div><div class="mt-0.5">${c.hubspot_status === "Imported" ? chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800") : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-xs italic text-slate-400">No contacts on file yet (added when the Oscar file is loaded).</p>';
   const timeline = (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-[11px] text-slate-400">${esc(new Date(s.detected_at).toLocaleDateString("en-GB"))}</span> <b class="text-xs">${esc(s.headline)}</b><div class="text-xs text-slate-500">${esc(s.description)}</div></div>`).join("") || '<p class="text-xs italic text-slate-400">No signals for this practice yet.</p>';
-  d.firstChild.innerHTML = `<div class="flex items-center gap-3 mb-3"><span class="font-semibold">Lead status</span><select class="border border-slate-300 rounded px-2 py-1">${opts}</select><span class="text-xs text-slate-400"></span></div>
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${cards}</div>
+  d.firstChild.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${cards}</div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
       <div class="bg-white rounded-lg border border-slate-200 p-3"><h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Contacts</h4>${contacts}</div>
       <div class="bg-white rounded-lg border border-slate-200 p-3"><h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Signals</h4>${timeline}</div></div>`;
-  const sel = d.querySelector("select"), note = d.querySelector("span.text-xs");
-  sel.onchange = async () => {
-    const { error: e } = await db.from("gp_practices").update({ lead_status: sel.value }).eq("ods_code", p.ods_code);
-    if (e) { note.textContent = "Save failed"; sel.value = p.lead_status; } else { p.lead_status = sel.value; note.textContent = "Saved"; }
-  };
   d.querySelectorAll("a[data-net]").forEach(a => a.onclick = ev => { ev.preventDefault(); const [kind, key, label] = a.dataset.net.split("|"); openNetwork(kind, key, label); });
 }
 
@@ -470,7 +475,7 @@ async function toggleDetail(tr, p) {
 const keyOf = n => n.kind === "pcn" ? n.source_key.slice(4) : n.kind === "group" ? n.source_key.slice("cqc:provider:".length) : n.source_key.slice(n.kind === "icb" ? 4 : 4);
 function openNetwork(kind, key, label) {
   netFilter = { kind, key, label };
-  for (const id of ["f-search", "f-tier", "f-sw", "f-lead", "f-cqc", "f-icb"]) $(id).value = "";   // earlier filters must not hide the network's practices
+  for (const id of ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb"]) $(id).value = "";   // earlier filters must not hide the network's practices
   $("f-sig").checked = false; $("f-grp").checked = false;
   showTab("practices"); applyFilters();
 }
@@ -481,20 +486,20 @@ function renderNetworks() {
   const q = $("n-search").value.trim().toLowerCase(), sort = $("n-sort").value, multi = $("n-multi").checked;
   netList = networks.filter(n => n.kind === netKind && (!multi || n.practices >= 3) && (!q || n.name.toLowerCase().includes(q)))
     .sort((a, b) => sort === "patients" ? b.patients - a.patients : sort === "arr" ? (b.arr_network || b.arr_single) - (a.arr_network || a.arr_single) : sort === "practices" ? b.practices - a.practices
-      : ((b.practices - b.engaged - b.do_not_contact) - (a.practices - a.engaged - a.do_not_contact)) || b.patients - a.patients);
+      : ((b.practices - b.engaged) - (a.practices - a.engaged)) || b.patients - a.patients);
   netShown = 0; $("net-rows").innerHTML = ""; renderMoreNetworks();
-  $("n-count").textContent = `${netList.length.toLocaleString()} ${NET_KINDS[netKind].toLowerCase()}`;
+  $("n-count").textContent = `${netList.length.toLocaleString()} ${netList.length === 1 ? { pcn: "PCN", group: "group", federation: "federation", icb: "ICB" }[netKind] : NET_KINDS[netKind].toLowerCase().replace("pcns", "PCNs").replace("icbs", "ICBs")}`;
 }
 function renderMoreNetworks() {
   const slice = netList.slice(netShown, netShown + PAGE); netShown += slice.length;
   const frag = document.createDocumentFragment();
   for (const n of slice) {
-    const open = n.practices - n.engaged - n.do_not_contact, tot = Math.max(n.practices, 1);
+    const open = n.practices - n.engaged, tot = Math.max(n.practices, 1);
     const bar = (v, cls) => v ? `<div class="${cls}" style="width:${(v / tot) * 100}%" title="${v}"></div>` : "";
     const tr = document.createElement("tr");
     tr.className = "hover:bg-blue-50/40 cursor-pointer align-top";
     const KIND = { pcn: "PCN", icb: "ICB", group: "group", federation: "federation" }[n.kind] || n.kind;
-    tr.innerHTML = `<td class="p-3 min-w-[14rem] align-top"><div class="font-semibold">${esc(n.name)}</div>
+    tr.innerHTML = `<td class="p-3 min-w-[13rem] align-top"><div class="font-semibold">${esc(n.name)}</div>
         <div class="text-[11px] text-slate-500">EMIS ${n.emis} · SystmOne ${n.systmone}${n.cqc_concern ? " · " + chip(n.cqc_concern + " CQC flagged", "bg-amber-100 text-amber-800") : ""}</div>
         ${n.confirmed === false ? '<div class="text-[11px] text-amber-600">inferred link: verify</div>' : ""}</td>
       <td class="p-3 text-right font-mono align-top">${n.practices}</td>
@@ -502,16 +507,17 @@ function renderMoreNetworks() {
       <td class="p-3 whitespace-nowrap align-top">${n.network_tier ? chip("Tier " + n.network_tier, TIER_CLS["Tier " + n.network_tier]) : '<span class="text-slate-300">–</span>'}</td>
       <td class="p-3 text-right whitespace-nowrap align-top">${n.network_tier ? `<div class="font-mono font-semibold text-emerald-700">${gbpFull(n.arr_network)}</div><div class="text-[11px] text-slate-400">as ${KIND} · £${Number(n.network_base_price).toFixed(3)}/pt</div><div class="text-[11px] text-slate-400">${gbpFull(n.arr_single)} if sold singly</div>`
         : `<div class="font-mono text-slate-500">${gbpFull(n.arr_single)}</div><div class="text-[11px] text-slate-400">no ${esc(KIND)} price route set</div>`}</td>
-      <td class="p-3 min-w-[9rem] align-top"><div class="flex h-2 rounded overflow-hidden bg-slate-100">${bar(n.tier1, "bg-purple-500")}${bar(n.tier2, "bg-indigo-400")}${bar(n.tier3, "bg-blue-400")}${bar(n.tier4, "bg-sky-300")}${bar(n.tier5, "bg-slate-300")}</div>
+      <td class="p-3 min-w-[8.5rem] align-top"><div class="flex h-2 rounded overflow-hidden bg-slate-100">${bar(n.tier1, "bg-purple-500")}${bar(n.tier2, "bg-indigo-400")}${bar(n.tier3, "bg-blue-400")}${bar(n.tier4, "bg-sky-300")}${bar(n.tier5, "bg-slate-300")}</div>
         <div class="text-[11px] text-slate-400 mt-0.5">${[n.tier1, n.tier2, n.tier3, n.tier4, n.tier5].map((v, i) => v ? "T" + (i + 1) + " " + v : "").filter(Boolean).join(" · ")}</div></td>
-      <td class="p-3 text-xs whitespace-nowrap align-top">${n.engaged} of ${n.practices}${open > 0 ? `<div class="text-[11px] text-emerald-700 font-semibold">${open} to approach</div>` : ""}</td>
+      <td class="p-3 text-xs whitespace-nowrap align-top"><div class="font-semibold">${n.engaged} of ${n.practices}</div>${open > 0 ? `<div class="text-[11px] text-slate-400">${open} to approach</div>` : '<div class="text-[11px] text-emerald-700">all engaged</div>'}</td>
+      <td class="p-3 whitespace-nowrap align-top">${n.customers > 0 ? chip("Has " + (n.customers === 1 ? "a customer" : n.customers + " customers"), "bg-emerald-100 text-emerald-800") + `<div class="text-[11px] text-slate-400 mt-0.5">${gbp(n.arr_customers)}/yr live</div>` : '<span class="text-[11px] text-slate-300">no customers</span>'}</td>
       <td class="p-3 text-right align-top"><button class="text-blue-600 hover:underline text-xs whitespace-nowrap">View →</button></td>`;
     tr.onclick = () => openNetwork(n.kind, keyOf(n), n.name);
     frag.appendChild(tr);
   }
   $("net-rows").appendChild(frag);
   $("n-more").classList.toggle("hidden", netShown >= netList.length);
-  if (!netList.length) $("net-rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">Nothing here yet. Federations appear once a source for them is loaded (currently the Oscar file).</td></tr>';
+  if (!netList.length) $("net-rows").innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400 italic">Nothing here yet. Federations appear once a source for them is loaded (currently the Oscar file).</td></tr>';
 }
 ["n-search", "n-sort", "n-multi"].forEach(id => $(id).addEventListener(id === "n-search" ? "input" : "change", renderNetworks));
 $("n-more").addEventListener("click", renderMoreNetworks);
@@ -537,9 +543,9 @@ function renderRevenue() {
         <td class="text-right font-mono">${m.length.toLocaleString()}</td><td class="text-right font-mono">${(sum(m, r.pat) / 1e6).toFixed(2)}m</td><td class="text-right font-mono font-semibold">${gbp(sum(m, r.val))}</td></tr>`; }).join("");
     return `<div class="bg-white rounded-xl border border-slate-200 p-4"><h3 class="font-bold mb-2">${r.name}</h3>
       <table class="w-full text-xs"><thead class="text-slate-400"><tr><th class="text-left font-medium">Tier</th><th class="text-right font-medium">Count</th><th class="text-right font-medium">Patients</th><th class="text-right font-medium">Est. ARR</th></tr></thead><tbody>${rows}</tbody></table></div>`; }).join("");
-  $("rev-pipeline").innerHTML = ["Cold", "In-Progress", "Contacted", "Do-Not-Contact"].map(st => {
-    const m = act.filter(p => p.lead_status === st);
-    return `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(st, LEAD_CLS[st])}</div><div class="text-xl font-bold mt-1">${gbp(sum(m, p => p.est_arr))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices</div></div>`; }).join("");
+  $("rev-pipeline").innerHTML = ["customer", "engaged", "imported", "none"].map(st => {
+    const m = act.filter(p => hsState(p) === st);
+    return `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(HS_LABEL[st], HS_CLS[st])}</div><div class="text-xl font-bold mt-1">${gbp(sum(m, p => p.est_arr))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices</div></div>`; }).join("");
   const tiers = cfgTiers.slice().sort((a, b) => a.route.localeCompare(b.route) || a.tier - b.tier);
   const list = Number(cfgSettings.list_price_per_patient?.value || 0);
   $("rev-config").innerHTML = `<table class="w-full mb-3"><thead class="text-slate-400"><tr><th class="text-left font-medium">Route</th><th class="text-left font-medium">Tier</th><th class="text-right font-medium">Patients ≥</th><th class="text-right font-medium">Size disc.</th><th class="text-right font-medium">Speed disc. (yr 1)</th><th class="text-right font-medium">Price / pt</th><th class="text-right font-medium">Yr-1 price</th></tr></thead><tbody>` +
@@ -551,16 +557,16 @@ function renderRevenue() {
 const csvCell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replaceAll('"', '""') + '"'; };
 $("btn-export").addEventListener("click", () => {
   const rows = filtered.filter(p => p.lead_status !== "Do-Not-Contact");   // never export do-not-contact leads
-  const head = ["ODS Code", "Practice", "PCN", "ICB", "Group", "Federation", "Patients", "Tier", "Est ARR", "Clinical System", "CQC Rating", "Contact", "Job Title", "Email", "Phone", "Lead Status", "Region"];
+  const head = ["ODS Code", "Practice", "PCN", "ICB", "Group", "Federation", "Patients", "Tier", "Est ARR", "Clinical System", "CQC Rating", "Contact", "Job Title", "Email", "Phone", "HubSpot", "Imported to HubSpot", "Region"];
   const lines = rows.map(p => [p.ods_code, p.practice_name, p.pcn_name, p.icb_name, p.group_size > 1 ? p.group_name : "", p.gp_federation, p.total_patients, p.tier_label, p.est_arr, p.clinical_software, p.cqc_rating,
-    p.manager_name, p.manager_title, p.manager_email_opt_out ? "" : p.manager_email, p.manager_phone, p.lead_status, p.region].map(csvCell).join(","));
+    p.manager_name, p.manager_title, p.manager_email_opt_out ? "" : p.manager_email, p.manager_phone, HS_LABEL[hsState(p)], p.hs_primary_imported ? fmtDate(p.hs_primary_imported_at) : "", p.region].map(csvCell).join(","));
   const blob = new Blob(["﻿" + head.map(csvCell).join(",") + "\r\n" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `Lalu_Leads_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 });
 
-["f-search", "f-tier", "f-sw", "f-lead", "f-cqc", "f-icb", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
+["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
 $("more").addEventListener("click", renderMore);
 boot();
 </script>

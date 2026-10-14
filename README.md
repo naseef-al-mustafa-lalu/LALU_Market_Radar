@@ -55,6 +55,14 @@ The views `practice_pricing` and `org_pricing` calculate it live, so editing a r
 The dashboard shows it per practice, per network (Networks tab) and in the **Revenue** tab (route totals, tier breakdown, pipeline by lead status, rate card).
 Provider groups and federations are priced on the aggregate patients of their linked practices (seeded from the PCN schedule; edit the `group` / `federation` rows in `pricing_tiers`). The routes are alternative ways to sell to the same patients: do not add them together. `MIN_TIER_ALERT` (Tier 1-5) uses the single-practice tiers.
 
+## HubSpot status (for the future integration)
+No HubSpot connection exists yet; the tables are ready for one. Fields the integration should write:
+- `contacts.hubspot_status` (`Not imported` / `Imported`), `hubspot_imported_at`, `hubspot_contact_id`: has this contact been imported into HubSpot, and when.
+- `gp_practices.hubspot_company_id`, `hubspot_company_imported_at`, `hubspot_stage` (raw lifecycle stage), `hubspot_engaged`, `hubspot_customer`, `hubspot_synced_at`.
+The dashboard reads them: the practice table's **HubSpot** column (Customer / Engaged / In HubSpot / Not in HubSpot plus the import date), the Networks tab's **Engaged**
+(x of N linked practices) and **Customers** status, and the Revenue tab's HubSpot position. Daily loads never overwrite these fields.
+Example manual update: `update contacts set hubspot_status='Imported', hubspot_imported_at=now() where contact_urn=123;`
+
 ## Data model
 `gp_practices` holds one row per practice with everything collected about it. `organisations` + `org_relationships` form a graph
 (practice -> PCN / ICB / provider group / federation) where every link records its source (ods, cqc, oscar), a confidence and whether

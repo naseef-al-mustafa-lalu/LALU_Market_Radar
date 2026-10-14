@@ -10,13 +10,17 @@ def prac(i, **kw):
     d.update(kw); return d
 PR = [prac(i) for i in range(8)]
 PR[3]["gp_federation"] = "Fed One"
+for p_ in PR:
+    p_.update(hubspot_customer=False, hubspot_engaged=False, hubspot_stage=None)
+PR[2].update(hubspot_customer=True, hubspot_stage="customer"); PR[1].update(hubspot_engaged=True, hubspot_stage="opportunity")
+HS = [dict(ods_code=p_["ods_code"], hs_contacts=1, hs_imported=1 if i < 3 else 0, hs_primary_imported=i < 3, hs_last_imported_at="2026-10-12T09:00:00Z", hs_primary_imported_at="2026-10-12T09:00:00Z" if i < 3 else None) for i, p_ in enumerate(PR)]
 PP = [dict(ods_code=p["ods_code"], price_tier=3, tier_label="Tier 3 (Medium-Large)", base_price=0.076, year1_price=0.072, est_arr=round(p["total_patients"] * 0.076), est_arr_year1=round(p["total_patients"] * 0.072)) for p in PR]
 TIERS = [dict(route="practice", tier=i + 1, label=l, threshold=t, size_discount=d, speed_discount=0.05) for i, (l, t, d) in enumerate([("Very Large", 20000, 0.1), ("Large", 15000, 0.075), ("Medium-Large", 10000, 0.05), ("Medium", 5000, 0), ("Solo", 0, 0)])] + \
         [dict(route=r, tier=5, label="Solo / Small", threshold=0, size_discount=0.125, speed_discount=0.05) for r in ("pcn", "group", "federation")]
 SETTINGS = [dict(key="list_price_per_patient", value=0.08, description="Annual list price per patient")]
-NETS = [dict(id="1", kind="pcn", name="West PCN", source_key="ods:U00001", practices=4, patients=40000, tier1=0, tier2=0, tier3=4, tier4=0, tier5=0, emis=4, systmone=0, cqc_concern=1, engaged=1, do_not_contact=0, confirmed=True, arr_single=3000, network_tier=1, arr_network=2500, network_base_price=0.0620),
-        dict(id="2", kind="group", name="Modality Test", source_key="cqc:provider:P1", practices=3, patients=30000, tier1=0, tier2=0, tier3=3, tier4=0, tier5=0, emis=3, systmone=0, cqc_concern=0, engaged=0, do_not_contact=0, confirmed=True, arr_single=2200, network_tier=5, arr_network=2100, network_base_price=0.07),
-        dict(id="3", kind="federation", name="Fed One", source_key="fed:fed one", practices=1, patients=13000, tier1=0, tier2=0, tier3=1, tier4=0, tier5=0, emis=1, systmone=0, cqc_concern=0, engaged=0, do_not_contact=0, confirmed=False, arr_single=900, network_tier=5, arr_network=870, network_base_price=0.07)]
+NETS = [dict(id="1", kind="pcn", name="West PCN", source_key="ods:U00001", practices=4, patients=40000, tier1=0, tier2=0, tier3=4, tier4=0, tier5=0, emis=4, systmone=0, cqc_concern=1, engaged=2, customers=1, arr_customers=900, hs_imported=3, do_not_contact=0, confirmed=True, arr_single=3000, network_tier=1, arr_network=2500, network_base_price=0.0620),
+        dict(id="2", kind="group", name="Modality Test", source_key="cqc:provider:P1", practices=3, patients=30000, tier1=0, tier2=0, tier3=3, tier4=0, tier5=0, emis=3, systmone=0, cqc_concern=0, engaged=1, customers=1, arr_customers=800, hs_imported=1, do_not_contact=0, confirmed=True, arr_single=2200, network_tier=5, arr_network=2100, network_base_price=0.07),
+        dict(id="3", kind="federation", name="Fed One", source_key="fed:fed one", practices=1, patients=13000, tier1=0, tier2=0, tier3=1, tier4=0, tier5=0, emis=1, systmone=0, cqc_concern=0, engaged=0, customers=0, arr_customers=0, hs_imported=0, do_not_contact=0, confirmed=False, arr_single=900, network_tier=5, arr_network=870, network_base_price=0.07)]
 FAKE = """
 window.supabase = { createClient: () => {
   const data = %s;
@@ -25,7 +29,7 @@ window.supabase = { createClient: () => {
   return { auth: { getSession: async () => ({ data: { session: {} } }), signOut: async () => {}, signInWithPassword: async () => ({}) },
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async () => ({ data: {} }), functions: { invoke: async () => ({ data: {} }) } };
 } };
-""" % json.dumps({"gp_practices": PR, "practice_pricing": PP, "org_pricing": NETS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
+""" % json.dumps({"gp_practices": PR, "practice_pricing": PP, "network_summary": NETS, "practice_hubspot": HS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
 import os
 CSS = os.environ.get("TAILWIND_CSS", "")
 errors = []
@@ -47,24 +51,25 @@ with sync_playwright() as p:
     pg.wait_for_selector("text=Network and ownership")
     assert "Modality Test" in pg.inner_text("#rows")
     pg.click("#tab-networks"); pg.wait_for_selector("#net-rows tr")
-    assert "West PCN" in pg.inner_text("#net-rows") and "3 to approach" in pg.inner_text("#net-rows"), pg.inner_text("#net-rows")
+    assert "West PCN" in pg.inner_text("#net-rows") and "2 of 4" in pg.inner_text("#net-rows") and "Has a customer" in pg.inner_text("#net-rows"), pg.inner_text("#net-rows")
     pg.click("#net-kinds button[data-k=group]"); assert "Modality Test" in pg.inner_text("#net-rows") and "as group" in pg.inner_text("#net-rows")
     pg.uncheck("#n-multi"); pg.click("#net-kinds button[data-k=federation]"); assert "Fed One" in pg.inner_text("#net-rows") and "inferred" in pg.inner_text("#net-rows")
     pg.check("#n-multi"); pg.click("#net-kinds button[data-k=pcn]")
     nb = pg.evaluate("(() => { const w = document.querySelector('#view-networks .overflow-x-auto'); return [w.scrollWidth, w.clientWidth]; })()")
     assert nb[0] <= nb[1] + 2, f"networks table overflows: {nb}"
     pg.screenshot(path="/tmp/claude-0/networks.png"); pg.click("#net-kinds button[data-k=group]")
-    pg.click("#tab-practices"); pg.check("#f-grp"); pg.select_option("#f-lead", "Contacted"); pg.click("#tab-networks")   # stale filters must not hide a network's practices
+    pg.click("#tab-practices"); pg.check("#f-grp"); pg.select_option("#f-hs", "customer"); pg.click("#tab-networks")   # stale filters must not hide a network's practices
     pg.click("#net-kinds button[data-k=group]")
     pg.click("#net-rows tr:first-child")   # View practices -> filtered
     pg.wait_for_selector("#view-practices:not(.hidden)")
     assert "3 practices" in pg.inner_text("#count"), pg.inner_text("#count")
     assert "Provider groups" in pg.inner_text("#net-chip")
+    assert "customer" in pg.inner_text("#rows").lower() and "engaged" in pg.inner_text("#rows").lower() and "contact imported" in pg.inner_text("#rows").lower()
     assert "£" in pg.inner_text("#rows") and "Tier 3" in pg.inner_text("#rows") and "est. arr" in pg.inner_text("#view-practices").lower()
     pg.fill("#f-search", "zzz"); assert "0 practices" in pg.inner_text("#count")
     pg.click("#tab-revenue"); pg.wait_for_selector("#rev-cards > div")
     rc = pg.inner_text("#rev-cards").lower(); assert "single practices route" in rc and "pcns route" in rc and "provider groups route" in rc and "federations route" in rc and "Tier 3" in pg.inner_text("#rev-tiers")
-    assert "Pipeline" in pg.inner_text("#view-revenue") and "Annual list price" in pg.text_content("#rev-config")
+    assert "hubspot position" in pg.inner_text("#view-revenue").lower() and "Annual list price" in pg.text_content("#rev-config")
     pg.screenshot(path="/tmp/claude-0/revenue.png", full_page=True)
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)
