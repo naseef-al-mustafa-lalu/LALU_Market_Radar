@@ -7,8 +7,14 @@
 <title>Lalu Market Radar</title>
 <script src="https://cdn.tailwindcss.com/3.4.16"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+  thead th { position: sticky; top: 0; z-index: 1; }
+  .chip { display:inline-flex; align-items:center; gap:.25rem; padding:.05rem .5rem; border-radius:9999px; font-size:11px; font-weight:600; white-space:nowrap; }
+  details > summary { cursor: pointer; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+</style>
 </head>
-<body class="bg-slate-50 text-slate-900 antialiased">
+<body class="bg-slate-100 text-slate-900 antialiased">
 
 <!-- Login -->
 <section id="login" class="hidden min-h-screen flex items-center justify-center p-6">
@@ -22,68 +28,97 @@
   </form>
 </section>
 
-<!-- App -->
 <div id="app" class="hidden">
-  <nav class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+  <nav class="bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap items-center gap-4">
     <span class="text-lg font-bold">Lalu Market Radar</span>
-    <div class="flex items-center gap-4 text-sm text-slate-500">
+    <div class="flex gap-1 bg-slate-100 rounded-lg p-1 text-sm font-semibold">
+      <button id="tab-practices" class="px-3 py-1 rounded-md bg-white shadow-sm">Practices</button>
+      <button id="tab-networks" class="px-3 py-1 rounded-md text-slate-500">Networks</button>
+    </div>
+    <div class="ml-auto flex items-center gap-4 text-sm text-slate-500">
       <span id="refresh-badge">Loading…</span>
       <button id="signout" class="text-blue-600 hover:underline">Sign out</button>
     </div>
   </nav>
 
-  <main class="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <aside class="space-y-6">
-    <div class="bg-white rounded-xl border border-slate-200 p-5">
-      <h2 class="font-bold mb-2">Patient counts</h2>
-      <p id="pc-status" class="text-sm text-slate-500">Checking…</p>
-      <div class="mt-3 border-t border-slate-100 pt-3">
-        <div class="text-xs font-semibold text-slate-600 mb-1">Option A: automatic (needs the office PC runner)</div>
-        <button id="pc-run" class="w-full bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg py-1.5 text-xs font-semibold">Update from NHS now</button>
-        <p id="pc-run-msg" class="mt-1 text-xs text-slate-500 min-h-[1rem]"></p>
+  <main class="max-w-[1500px] mx-auto p-4 lg:p-6 grid grid-cols-1 xl:grid-cols-[19rem_1fr] gap-6">
+    <!-- Left rail -->
+    <aside class="space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h2 class="font-bold mb-2 flex items-center justify-between">Latest signals <span id="live-dot" class="text-[11px] font-semibold text-slate-400">connecting…</span></h2>
+        <div id="alerts" class="space-y-2 max-h-[420px] overflow-y-auto"><p class="text-sm italic text-slate-400">No signals yet.</p></div>
       </div>
-      <div class="mt-3 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600">Option B: upload the file yourself</div>
-      <ol class="mt-2 space-y-2 text-sm text-slate-700 list-decimal list-inside">
-        <li><a class="text-blue-600 underline" target="_blank" rel="noopener" href="https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice">Open the NHS page</a>, click the latest month, and download <b>gp-reg-pat-prac-all.csv</b>.</li>
-        <li>Choose that file: <input id="pc-file" type="file" accept=".csv,text/csv" class="block mt-1 text-xs"></li>
-        <li>Month <input id="pc-month" type="month" class="border border-slate-300 rounded px-2 py-1 text-xs"> <button id="pc-load" disabled class="ml-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></li>
-      </ol>
-      <p id="pc-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
-    </div>
-    <div class="bg-white rounded-xl border border-slate-200 p-5">
-      <h2 class="font-bold mb-2">Largest groups</h2>
-      <div id="groups" class="space-y-1 text-sm max-h-72 overflow-y-auto"><p class="text-xs italic text-slate-400">Groups appear once CQC data has loaded.</p></div>
-    </div>
-    <div class="bg-white rounded-xl border border-slate-200 p-5 h-fit">
-      <h2 class="font-bold mb-3">Latest signals <span id="live-dot" class="ml-2 text-[11px] font-semibold text-slate-400">connecting…</span></h2>
-      <div id="alerts" class="space-y-3 max-h-[600px] overflow-y-auto"><p class="text-sm italic text-slate-400">No signals yet.</p></div>
-    </div>
+      <details class="bg-white rounded-xl border border-slate-200 p-4">
+        <summary class="font-bold flex items-center justify-between">Patient counts <span class="text-xs font-normal text-slate-400">update ▾</span></summary>
+        <p id="pc-status" class="text-sm text-slate-500 mt-2">Checking…</p>
+        <div class="mt-3 border-t border-slate-100 pt-3">
+          <div class="text-xs font-semibold text-slate-600 mb-1">Option A: automatic (needs the office PC runner)</div>
+          <button id="pc-run" class="w-full bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg py-1.5 text-xs font-semibold">Update from NHS now</button>
+          <p id="pc-run-msg" class="mt-1 text-xs text-slate-500 min-h-[1rem]"></p>
+        </div>
+        <div class="mt-2 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-600">Option B: upload the file yourself</div>
+        <ol class="mt-2 space-y-2 text-sm text-slate-700 list-decimal list-inside">
+          <li><a class="text-blue-600 underline" target="_blank" rel="noopener" href="https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice">Open the NHS page</a>, click the latest month, download <b>gp-reg-pat-prac-all.csv</b>.</li>
+          <li>Choose it: <input id="pc-file" type="file" accept=".csv,text/csv" class="block mt-1 text-xs"></li>
+          <li>Month <input id="pc-month" type="month" class="border border-slate-300 rounded px-2 py-1 text-xs"> <button id="pc-load" disabled class="ml-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></li>
+        </ol>
+        <p id="pc-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
+      </details>
     </aside>
 
-    <section class="lg:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div class="p-5 border-b border-slate-200 space-y-3">
+    <!-- Practices tab -->
+    <section id="view-practices" class="bg-white rounded-xl border border-slate-200 overflow-hidden min-w-0">
+      <div class="p-4 border-b border-slate-200 space-y-3">
         <div class="flex flex-wrap gap-2 items-center">
-          <input id="f-search" placeholder="Search practice, ODS, PCN, contact…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[200px]">
-          <select id="f-tier" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All tiers</option><option>Tier 1</option><option>Tier 2</option><option>Tier 3</option></select>
+          <input id="f-search" placeholder="Search practice, ODS code, PCN, group, contact…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[220px]">
+          <select id="f-tier" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All sizes</option><option value="Tier 1">Tier 1 · 15k+</option><option value="Tier 2">Tier 2 · 7–15k</option><option value="Tier 3">Tier 3 · &lt;7k</option></select>
           <select id="f-sw" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any system</option><option>EMIS Web</option><option>SystmOne</option><option>Vision</option><option>Unknown</option></select>
           <select id="f-lead" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any status</option><option>Cold</option><option>In-Progress</option><option>Contacted</option><option>Do-Not-Contact</option></select>
           <select id="f-cqc" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any CQC rating</option><option>Outstanding</option><option>Good</option><option>Requires improvement</option><option>Inadequate</option><option value="None">Not rated / unknown</option></select>
           <select id="f-icb" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm max-w-[200px]"><option value="">All ICBs</option></select>
         </div>
-        <div class="flex items-center justify-between text-sm">
-          <span class="flex items-center gap-4"><label class="flex items-center gap-2"><input id="f-sig" type="checkbox"> Recent signals only</label><label class="flex items-center gap-2"><input id="f-grp" type="checkbox"> Group-run only</label></span>
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span class="flex flex-wrap items-center gap-4">
+            <label class="flex items-center gap-2"><input id="f-sig" type="checkbox"> Recent signals only</label>
+            <label class="flex items-center gap-2"><input id="f-grp" type="checkbox"> Group-run only</label>
+            <span id="net-chip" class="hidden chip bg-indigo-100 text-indigo-800"></span>
+          </span>
           <span><span id="count" class="text-slate-500"></span>
             <button id="btn-export" class="ml-3 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-semibold">Export CSV</button></span>
         </div>
       </div>
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto max-h-[78vh]">
         <table class="w-full text-left text-sm">
-          <thead class="bg-slate-100 text-xs uppercase tracking-wider text-slate-600"><tr>
-            <th class="p-3">Practice</th><th class="p-3">Network</th><th class="p-3 text-right">Patients</th><th class="p-3">Key contact</th></tr></thead>
+          <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
+            <th class="p-3">Practice</th><th class="p-3 text-right">List size</th><th class="p-3">Network</th>
+            <th class="p-3">CQC</th><th class="p-3">System</th><th class="p-3">Key contact</th><th class="p-3">Status</th></tr></thead>
           <tbody id="rows" class="divide-y divide-slate-100"></tbody>
         </table>
       </div>
-      <div class="p-4 text-center"><button id="more" class="hidden text-blue-600 hover:underline text-sm">Show more</button></div>
+      <div class="p-3 text-center"><button id="more" class="hidden text-blue-600 hover:underline text-sm">Show more</button></div>
+    </section>
+
+    <!-- Networks tab -->
+    <section id="view-networks" class="hidden bg-white rounded-xl border border-slate-200 overflow-hidden min-w-0">
+      <div class="p-4 border-b border-slate-200 space-y-3">
+        <p class="text-sm text-slate-600">Sign several practices at once: PCNs, provider groups and federations ranked by how many practices you have not yet engaged.</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          <div id="net-kinds" class="flex gap-1 bg-slate-100 rounded-lg p-1 text-sm font-semibold"></div>
+          <input id="n-search" placeholder="Search networks…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[200px]">
+          <select id="n-sort" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="open">Most unengaged practices</option><option value="practices">Most practices</option><option value="patients">Most patients</option></select>
+          <label class="flex items-center gap-2 text-sm"><input id="n-multi" type="checkbox" checked> 3+ practices only</label>
+          <span id="n-count" class="text-sm text-slate-500"></span>
+        </div>
+      </div>
+      <div class="overflow-x-auto max-h-[78vh]">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
+            <th class="p-3">Network</th><th class="p-3 text-right">Practices</th><th class="p-3 text-right">Patients</th>
+            <th class="p-3">Size mix</th><th class="p-3">Systems</th><th class="p-3">CQC concerns</th><th class="p-3">Engaged</th><th class="p-3"></th></tr></thead>
+          <tbody id="net-rows" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+      <div class="p-3 text-center"><button id="n-more" class="hidden text-blue-600 hover:underline text-sm">Show more</button></div>
     </section>
   </main>
 </div>
@@ -94,10 +129,16 @@ const SUPABASE_KEY = "sb_publishable_LpkAFZSZ977KX590OHJcXw_MMhtKxUy"; // publis
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = id => document.getElementById(id);
 const PAGE = 100;
-let practices = [], filtered = [], shown = 0, signalCodes = new Set(), channel = null, lastRunDate = null;
+let practices = [], filtered = [], shown = 0, signalCodes = new Set(), signalCounts = new Map(), channel = null, lastRunDate = null;
+let networks = [], netKind = "pcn", netShown = 0, netList = [], netFilter = null;
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const tier = p => (p.sales_segment || "").slice(0, 6);
+const chip = (text, cls) => `<span class="chip ${cls}">${esc(text)}</span>`;
+const TIER_CLS = { "Tier 1": "bg-purple-100 text-purple-800", "Tier 2": "bg-blue-100 text-blue-800", "Tier 3": "bg-slate-100 text-slate-600" };
+const CQC_CLS = { "Outstanding": "bg-emerald-100 text-emerald-800", "Good": "bg-green-100 text-green-800", "Requires improvement": "bg-amber-100 text-amber-800", "Inadequate": "bg-rose-100 text-rose-800" };
+const LEAD_CLS = { "Cold": "bg-slate-100 text-slate-600", "In-Progress": "bg-blue-100 text-blue-800", "Contacted": "bg-emerald-100 text-emerald-800", "Do-Not-Contact": "bg-rose-100 text-rose-800" };
+const NET_KINDS = { pcn: "PCNs", group: "Provider groups", federation: "Federations", icb: "ICBs" };
 
 /* ---------- auth ---------- */
 async function boot() {
@@ -106,18 +147,15 @@ async function boot() {
 }
 function showLogin() { $("app").classList.add("hidden"); $("login").classList.remove("hidden"); }
 $("login-form").addEventListener("submit", async e => {
-  e.preventDefault();
-  $("login-error").textContent = "";
+  e.preventDefault(); $("login-error").textContent = "";
   const { error } = await db.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
   if (error) { $("login-error").textContent = "Sign-in failed. Check your email and password."; return; }
-  $("password").value = "";
-  startApp();
+  $("password").value = ""; startApp();
 });
 $("signout").addEventListener("click", async () => {
   if (channel) { db.removeChannel(channel); channel = null; }
-  practices = []; filtered = [];
-  await db.auth.signOut();
-  showLogin();
+  practices = []; filtered = []; networks = [];
+  await db.auth.signOut(); showLogin();
 });
 
 /* ---------- data ---------- */
@@ -134,22 +172,35 @@ async function startApp() {
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
   try {
     practices = await fetchAll("gp_practices", "*", "ods_code");
-    if (!practices.length) { $("rows").innerHTML = '<tr><td colspan="4" class="p-6 text-center text-slate-400 italic">No data yet, or your account is not authorised.</td></tr>'; }
+    if (!practices.length) $("rows").innerHTML = '<tr><td colspan="7" class="p-6 text-center text-slate-400 italic">No data yet, or your account is not authorised.</td></tr>';
     const icbs = [...new Set(practices.map(p => p.icb_name))].sort();
     $("f-icb").innerHTML = '<option value="">All ICBs</option>' + icbs.map(i => `<option>${esc(i)}</option>`).join("");
-    const { data: sigs } = await db.from("sales_triggers").select("*").order("detected_at", { ascending: false }).limit(300);
+    const { data: sigs } = await db.from("sales_triggers").select("*").order("detected_at", { ascending: false }).limit(500);
     signalCodes = new Set((sigs || []).map(s => s.ods_code));
+    signalCounts = new Map(); (sigs || []).forEach(s => signalCounts.set(s.ods_code, (signalCounts.get(s.ods_code) || 0) + 1));
     $("alerts").innerHTML = ""; (sigs || []).slice(0, 30).reverse().forEach(addAlert);
     if (!(sigs || []).length) $("alerts").innerHTML = '<p class="text-sm italic text-slate-400">No signals yet.</p>';
     const { data: run } = await db.from("ingest_runs").select("finished_at").eq("status", "success").order("id", { ascending: false }).limit(1);
     lastRunDate = run && run[0] ? new Date(run[0].finished_at).toLocaleDateString("en-GB") : null;
-    applyFilters();
-    renderGroups();
-    refreshPatientStatus();
+    applyFilters(); refreshPatientStatus();
+    loadNetworks();
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signalCodes.add(p.new.ods_code); addAlert(p.new); })
       .subscribe(s => { $("live-dot").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); }
 }
+async function loadNetworks() {
+  try { networks = await fetchAll("org_summary", "*", "id"); renderNetworks(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
+}
+
+/* ---------- tabs ---------- */
+function showTab(which) {
+  const p = which === "practices";
+  $("view-practices").classList.toggle("hidden", !p); $("view-networks").classList.toggle("hidden", p);
+  $("tab-practices").className = "px-3 py-1 rounded-md " + (p ? "bg-white shadow-sm" : "text-slate-500");
+  $("tab-networks").className = "px-3 py-1 rounded-md " + (p ? "text-slate-500" : "bg-white shadow-sm");
+}
+$("tab-practices").onclick = () => showTab("practices");
+$("tab-networks").onclick = () => showTab("networks");
 
 /* ---------- patient counts (upload) ---------- */
 /* parser:start */
@@ -174,7 +225,7 @@ function monthFromText(t) {
   return iso ? `${iso[1]}-${iso[2]}` : null;
 }
 function readPatientFile(text) {
-  const rows = parseCsv(text.replace(/^\uFEFF/, ""));
+  const rows = parseCsv(text.replace(/^﻿/, ""));
   const head = (rows[0] || []).map(h => h.trim().toUpperCase());
   const col = n => head.indexOf(n);
   const iCode = col("CODE"), iN = col("NUMBER_OF_PATIENTS"), iType = col("TYPE"), iSex = col("SEX"), iAge = col("AGE"), iDate = col("EXTRACT_DATE");
@@ -196,10 +247,13 @@ function readPatientFile(text) {
 }
 /* parser:end */
 
-let pcParsed = null;
-async function refreshPatientStatus() {
+let pcParsed = null, pcTimer = null;
+async function latestCountRow() {
   const { data } = await db.from("patient_counts").select("data_month,updated_at").order("updated_at", { ascending: false }).limit(1);
-  const withCounts = practices.filter(p => p.total_patients > 0).length, row = data && data[0];
+  return data && data[0];
+}
+async function refreshPatientStatus() {
+  const row = await latestCountRow(), withCounts = practices.filter(p => p.total_patients > 0).length;
   $("refresh-badge").textContent = `Practices refreshed ${lastRunDate || "never"} · Patient counts: ${row ? "NHS " + (row.data_month || "?") : "not loaded"}`;
   $("pc-status").textContent = row
     ? `Data for ${row.data_month || "?"}, loaded ${new Date(row.updated_at).toLocaleDateString("en-GB")}. ${withCounts.toLocaleString()} of ${practices.length.toLocaleString()} practices have counts.`
@@ -228,17 +282,11 @@ $("pc-load").addEventListener("click", async () => {
       if (error) throw error;
       stored += data.stored; updated += data.practices_updated;
     }
-    practices = await fetchAll("gp_practices", "*", "ods_code"); applyFilters(); await refreshPatientStatus();
+    practices = await fetchAll("gp_practices", "*", "ods_code"); applyFilters(); await refreshPatientStatus(); loadNetworks();
     msg.textContent = `Done: ${stored.toLocaleString()} counts stored, ${updated.toLocaleString()} practices updated.`;
     $("pc-file").value = ""; pcParsed = null;
   } catch (err) { msg.textContent = "Load failed: " + (err.message || err); btn.disabled = false; }
 });
-
-let pcTimer = null;
-async function latestCountRow() {
-  const { data } = await db.from("patient_counts").select("data_month,updated_at").order("updated_at", { ascending: false }).limit(1);
-  return data && data[0];
-}
 $("pc-run").addEventListener("click", async () => {
   const btn = $("pc-run"), msg = $("pc-run-msg");
   btn.disabled = true; msg.textContent = "Sending request…";
@@ -250,120 +298,178 @@ $("pc-run").addEventListener("click", async () => {
     msg.textContent = "Could not start: " + detail + " (use Option B instead)"; btn.disabled = false; return;
   }
   msg.textContent = "Started. Waiting for the office PC runner… this updates when it finishes.";
-  const t0 = Date.now();
-  clearInterval(pcTimer);
+  const t0 = Date.now(); clearInterval(pcTimer);
   pcTimer = setInterval(async () => {
     const row = await latestCountRow();
     if (row && (!before || row.updated_at !== before.updated_at)) {
       clearInterval(pcTimer);
-      practices = await fetchAll("gp_practices", "*", "ods_code"); applyFilters(); await refreshPatientStatus();
+      practices = await fetchAll("gp_practices", "*", "ods_code"); applyFilters(); await refreshPatientStatus(); loadNetworks();
       msg.textContent = "Done: patient counts updated."; btn.disabled = false;
     } else if (Date.now() - t0 > 10 * 60 * 1000) {
-      clearInterval(pcTimer);
-      msg.textContent = "Still waiting after 10 minutes: is the runner on? The request stays queued. Or use Option B."; btn.disabled = false;
+      clearInterval(pcTimer); msg.textContent = "Still waiting after 10 minutes: is the runner on? The request stays queued. Or use Option B."; btn.disabled = false;
     }
   }, 10000);
 });
 
-/* ---------- alerts ---------- */
+/* ---------- signals rail ---------- */
 function addAlert(a) {
   const rail = $("alerts");
   if (rail.querySelector("p")) rail.innerHTML = "";
-  const hot = ["MERGER_DETECTED", "NEW_PRACTICE", "CQC_DEREGISTERED"].includes(a.trigger_type);
+  const hot = ["MERGER_DETECTED", "NEW_PRACTICE", "CQC_DEREGISTERED", "CQC_PROVIDER_CHANGE"].includes(a.trigger_type);
   const el = document.createElement("div");
-  el.className = `p-3 border-l-4 rounded-r-lg ${hot ? "border-purple-600 bg-purple-50" : "border-blue-600 bg-blue-50"}`;
+  el.className = `p-2.5 border-l-4 rounded-r-lg cursor-pointer ${hot ? "border-purple-600 bg-purple-50" : "border-blue-600 bg-blue-50"}`;
   el.innerHTML = `<div class="flex justify-between text-[10px] font-bold uppercase tracking-wider"><span>${esc(a.trigger_type.replaceAll("_", " "))}</span><span class="font-mono text-slate-400">${esc(new Date(a.detected_at).toLocaleDateString("en-GB"))}</span></div>
     <div class="text-xs font-bold mt-1">${esc(a.headline)} <span class="font-mono text-slate-400">${esc(a.ods_code)}</span></div>
     <p class="text-[11px] text-slate-600 mt-0.5">${esc(a.description)}</p>`;
-  el.style.cursor = "pointer";
-  el.onclick = () => { $("f-search").value = a.ods_code; applyFilters(); };
+  el.onclick = () => { showTab("practices"); netFilter = null; $("f-search").value = a.ods_code; applyFilters(); };
   rail.prepend(el);
 }
 
-/* ---------- groups ---------- */
-function renderGroups() {
-  const g = new Map();
-  for (const p of practices) {
-    if (p.status !== "Active" || !p.group_size || !p.cqc_provider_id) continue;
-    const e = g.get(p.cqc_provider_id) || { name: p.group_name || "Unnamed group", n: 0, pts: 0 };
-    e.n++; e.pts += p.total_patients || 0; g.set(p.cqc_provider_id, e);
-  }
-  const top = [...g.values()].sort((a, b) => b.n - a.n || b.pts - a.pts).slice(0, 15);
-  $("groups").innerHTML = top.length ? "" : '<p class="text-xs italic text-slate-400">Groups appear once CQC data has loaded.</p>';
-  for (const e of top) {
-    const row = document.createElement("button");
-    row.className = "w-full text-left flex justify-between gap-2 hover:bg-slate-50 rounded px-1 py-0.5";
-    row.innerHTML = `<span class="truncate">${esc(e.name)}</span><span class="text-xs text-slate-500 whitespace-nowrap">${e.n} · ${e.pts ? e.pts.toLocaleString() : "–"} pts</span>`;
-    row.onclick = () => { $("f-search").value = e.name; applyFilters(); };
-    $("groups").appendChild(row);
-  }
-}
-
-/* ---------- table ---------- */
+/* ---------- practices table ---------- */
+const netMatch = (p, nf) => !nf || (nf.kind === "pcn" ? p.pcn_code === nf.key : nf.kind === "group" ? p.cqc_provider_id === nf.key
+  : nf.kind === "federation" ? (p.gp_federation || "").toLowerCase() === nf.key : (p.icb_name || "").toLowerCase() === nf.key);
 function applyFilters() {
-  const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value,
-        lead = $("f-lead").value, cqcf = $("f-cqc").value, icb = $("f-icb").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
+  const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, lead = $("f-lead").value,
+        cqcf = $("f-cqc").value, icb = $("f-icb").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
   filtered = practices.filter(p =>
-    p.status === "Active" && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!lead || p.lead_status === lead) && (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) &&
-    (!icb || p.icb_name === icb) && (!sig || signalCodes.has(p.ods_code)) && (!grp || p.group_size > 1) &&
-    (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation].some(v => (v || "").toLowerCase().includes(q))))
+    p.status === "Active" && netMatch(p, netFilter) && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!lead || p.lead_status === lead) &&
+    (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) &&
+    (!sig || signalCodes.has(p.ods_code)) && (!grp || p.group_size > 1) &&
+    (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(q))))
     .sort((a, b) => b.total_patients - a.total_patients);
+  const nc = $("net-chip");
+  nc.classList.toggle("hidden", !netFilter);
+  if (netFilter) { nc.innerHTML = `${esc(NET_KINDS[netFilter.kind] || "")}: ${esc(netFilter.label)} <button class="ml-1 font-bold">✕</button>`; nc.querySelector("button").onclick = () => { netFilter = null; applyFilters(); }; }
   shown = 0; $("rows").innerHTML = ""; renderMore();
   $("count").textContent = `${filtered.length.toLocaleString()} practices`;
+}
+function contactBlock(p) {
+  if (!p.manager_name) return '<span class="text-xs italic text-amber-600">No contact yet</span>';
+  const email = p.manager_email ? (p.manager_email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : esc(p.manager_email)) : "";
+  return `<div class="font-medium">${esc(p.manager_name)}</div><div class="text-xs text-slate-500">${esc(p.manager_title)}</div><div class="text-xs text-slate-500">${email}</div>`;
+}
+function networkBlock(p) {
+  const bits = [];
+  if (p.pcn_code) bits.push(`<div class="text-xs"><span class="text-slate-400">PCN</span> ${esc(p.pcn_name)}</div>`);
+  if (p.group_size > 1) bits.push(`<div>${chip((p.group_name || "Group") + " · " + p.group_size, "bg-indigo-100 text-indigo-800")}</div>`);
+  if (p.gp_federation) bits.push(`<div>${chip(p.gp_federation, "bg-teal-100 text-teal-800")}</div>`);
+  bits.push(`<div class="text-[11px] text-slate-400">${esc(p.icb_name)}</div>`);
+  return bits.join("");
 }
 function renderMore() {
   const slice = filtered.slice(shown, shown + PAGE); shown += slice.length;
   const frag = document.createDocumentFragment();
   for (const p of slice) {
     const tr = document.createElement("tr");
-    tr.className = "hover:bg-slate-50 cursor-pointer align-top";
-    const email = p.manager_email ? (p.manager_email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : esc(p.manager_email)) : "";
-    tr.innerHTML = `<td class="p-3"><div class="font-semibold">${esc(p.practice_name)}</div><div class="text-[11px] font-mono text-slate-400">${esc(p.ods_code)} · ${p.total_patients > 0 ? esc(tier(p)) : (p.ods_code[0] === "W" ? "Wales" : "No list size")} · ${esc(p.clinical_software)}${p.cqc_rating ? " · CQC " + esc(p.cqc_rating) : ""}${p.group_size ? " · <span class=\"text-indigo-700 font-semibold\">" + esc(p.group_name || "Group") + " (" + p.group_size + " practices)</span>" : ""}${signalCodes.has(p.ods_code) ? ' · <span class="text-purple-700 font-semibold">signal</span>' : ""}</div></td>
-      <td class="p-3"><div>${esc(p.pcn_name)}</div><div class="text-xs text-slate-400">${esc(p.icb_name)}</div></td>
-      <td class="p-3 text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : '<span class="text-slate-300" title="No NHS England patient count (Welsh or non-standard practice, or not yet published)">–</span>'}</td>
-      <td class="p-3"><div class="font-medium">${p.manager_name ? esc(p.manager_name) : '<span class="italic text-amber-600">No contact</span>'}</div><div class="text-xs text-slate-500">${esc(p.manager_title)}</div><div class="text-xs text-slate-400">${email}</div><div class="text-[11px] text-blue-600 font-mono">${esc(p.manager_phone)}</div></td>`;
+    tr.className = "hover:bg-blue-50/40 cursor-pointer align-top";
+    const sig = signalCounts.get(p.ods_code);
+    tr.innerHTML = `
+      <td class="p-3 min-w-[15rem]"><div class="font-semibold text-slate-900">${esc(p.practice_name)}</div>
+        <div class="text-[11px] text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}</div></td>
+      <td class="p-3 text-right whitespace-nowrap">${p.total_patients > 0 ? `<div class="font-mono font-semibold">${p.total_patients.toLocaleString()}</div>${chip(tier(p), TIER_CLS[tier(p)] || "")}` : `<span class="text-slate-300" title="No NHS England patient count (Welsh or non-standard practice, or not yet published)">${p.ods_code[0] === "W" ? "Wales" : "–"}</span>`}</td>
+      <td class="p-3 min-w-[13rem]">${networkBlock(p)}</td>
+      <td class="p-3 whitespace-nowrap">${p.cqc_rating ? chip(p.cqc_rating, CQC_CLS[p.cqc_rating] || "bg-slate-100 text-slate-600") : '<span class="text-slate-300">–</span>'}${p.cqc_last_inspection ? `<div class="text-[11px] text-slate-400">inspected ${esc(p.cqc_last_inspection)}</div>` : ""}</td>
+      <td class="p-3 text-xs whitespace-nowrap">${p.clinical_software && p.clinical_software !== "Unknown" ? esc(p.clinical_software) : '<span class="text-slate-300">–</span>'}</td>
+      <td class="p-3 min-w-[12rem]">${contactBlock(p)}</td>
+      <td class="p-3 whitespace-nowrap">${chip(p.lead_status, LEAD_CLS[p.lead_status] || "")}</td>`;
     tr.onclick = () => toggleDetail(tr, p);
     frag.appendChild(tr);
   }
   $("rows").appendChild(frag);
   $("more").classList.toggle("hidden", shown >= filtered.length);
-  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="4" class="p-6 text-center text-slate-400 italic">No practices match these filters.</td></tr>';
+  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="7" class="p-6 text-center text-slate-400 italic">No practices match these filters.</td></tr>';
 }
+
+/* ---------- practice profile (expands under the row) ---------- */
+const kv = (k, v) => v ? `<div class="flex justify-between gap-3 py-0.5"><dt class="text-slate-400">${k}</dt><dd class="text-right text-slate-700 break-words">${v}</dd></div>` : "";
+const card = (title, body) => body.trim() ? `<div class="bg-white rounded-lg border border-slate-200 p-3"><h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">${title}</h4><dl class="text-xs">${body}</dl></div>` : "";
 async function toggleDetail(tr, p) {
   if (tr.nextSibling && tr.nextSibling.dataset && tr.nextSibling.dataset.detail === p.ods_code) { tr.nextSibling.remove(); return; }
   const d = document.createElement("tr"); d.dataset.detail = p.ods_code;
-  d.innerHTML = '<td colspan="4" class="p-4 bg-slate-50 text-sm">Loading…</td>';
-  tr.after(d);
-  const { data: cs, error } = await db.from("contacts").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false });
+  d.innerHTML = '<td colspan="7" class="p-4 bg-slate-50 text-sm">Loading…</td>'; tr.after(d);
+  const [{ data: cs }, { data: sg }] = await Promise.all([
+    db.from("contacts").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
+    db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10)]);
   const opts = ["Cold", "In-Progress", "Contacted", "Do-Not-Contact"].map(s => `<option ${s === p.lead_status ? "selected" : ""}>${s}</option>`).join("");
-  const row = (k, v) => v ? `<div><span class="text-slate-400">${k}:</span> ${esc(v)}</div>` : "";
-  const profile = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-0.5 text-xs text-slate-700 mb-3">` +
-    row("Address", [p.address, p.town, p.county, p.postcode].filter(Boolean).join(", ")) + row("Region", p.region) +
-    row("Main phone", p.main_phone) + row("Main email", p.main_email ? (p.main_email_opt_out ? "(opt-out)" : p.main_email) : "") +
-    row("Federation", p.gp_federation) + row("GPs", p.nhs_num_gp) + row("Employees", p.num_employees) + row("Annual spend", p.annual_spend) +
-    row("Website", p.website) + row("Categories", p.oscar_categories) +
-    row("CQC", [p.cqc_status, p.cqc_rating, p.cqc_last_inspection ? "inspected " + p.cqc_last_inspection : "", p.cqc_manager_absent_date ? "manager absent since " + p.cqc_manager_absent_date : ""].filter(Boolean).join(" · ")) +
-    row("Notes", p.org_notes) + `</div>`;
-  d.firstChild.innerHTML = profile + `<div class="flex items-center gap-3 mb-3"><span class="font-semibold">Lead status</span><select class="border border-slate-300 rounded px-2 py-1">${opts}</select><span class="text-xs text-slate-400"></span></div>` +
-    (error ? "Could not load contacts." : (cs || []).map(c => `<div class="py-1 border-t border-slate-200"><b>${esc(c.full_name)}</b>${c.is_primary ? " ★" : ""} · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}<br><span class="text-xs text-slate-500">${c.email ? (c.email_opt_out ? "email opt-out" : esc(c.email)) : ""} ${esc(c.phone)}</span></div>`).join("") || "No contacts on file.");
+  const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
+  const link = (label, kind, key) => `<a href="#" class="text-blue-600 hover:underline" data-net="${kind}|${esc(key)}|${esc(label)}">${esc(label)}</a>`;
+  const cards = [
+    card("Overview", kv("ODS code", esc(p.ods_code)) + kv("Address", addr) + kv("Region", esc(p.region)) + kv("Website", p.website ? `<a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(/^https?:/.test(p.website) ? p.website : "https://" + p.website)}">${esc(p.website)}</a>` : "") +
+      kv("Main phone", esc(p.main_phone)) + kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("List size", p.total_patients > 0 ? p.total_patients.toLocaleString() + " (" + esc(p.data_month || "") + ")" : "") + kv("Segment", esc(p.sales_segment))),
+    card("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("ICB", link(p.icb_name, "icb", (p.icb_name || "").toLowerCase())) +
+      kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + ")", "group", p.cqc_provider_id) : "") + kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") +
+      kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend))),
+    card("Quality (CQC)", kv("Registration", esc(p.cqc_status)) + kv("Overall rating", p.cqc_rating ? chip(p.cqc_rating, CQC_CLS[p.cqc_rating] || "bg-slate-100 text-slate-600") : "") +
+      kv("Last inspection", esc(p.cqc_last_inspection)) + kv("Manager absent since", esc(p.cqc_manager_absent_date)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : "")),
+    card("Notes (Oscar)", kv("Categories", esc(p.oscar_categories)) + (p.org_notes ? `<div class="py-0.5 text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : ""))].join("");
+  const contacts = (cs || []).map(c => `<div class="py-1.5 border-t border-slate-100 first:border-0"><b>${esc(c.full_name)}</b>${c.is_primary ? ' <span class="text-amber-500" title="Primary contact">★</span>' : ""}
+      <span class="text-slate-500"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span><div class="text-xs text-slate-500">${c.email ? (c.email_opt_out ? "email opt-out" : esc(c.email)) : ""} ${esc(c.phone)}</div></div>`).join("") || '<p class="text-xs italic text-slate-400">No contacts on file yet (added when the Oscar file is loaded).</p>';
+  const timeline = (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-[11px] text-slate-400">${esc(new Date(s.detected_at).toLocaleDateString("en-GB"))}</span> <b class="text-xs">${esc(s.headline)}</b><div class="text-xs text-slate-500">${esc(s.description)}</div></div>`).join("") || '<p class="text-xs italic text-slate-400">No signals for this practice yet.</p>';
+  d.firstChild.innerHTML = `<div class="flex items-center gap-3 mb-3"><span class="font-semibold">Lead status</span><select class="border border-slate-300 rounded px-2 py-1">${opts}</select><span class="text-xs text-slate-400"></span></div>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">${cards}</div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+      <div class="bg-white rounded-lg border border-slate-200 p-3"><h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Contacts</h4>${contacts}</div>
+      <div class="bg-white rounded-lg border border-slate-200 p-3"><h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Signals</h4>${timeline}</div></div>`;
   const sel = d.querySelector("select"), note = d.querySelector("span.text-xs");
   sel.onchange = async () => {
     const { error: e } = await db.from("gp_practices").update({ lead_status: sel.value }).eq("ods_code", p.ods_code);
     if (e) { note.textContent = "Save failed"; sel.value = p.lead_status; } else { p.lead_status = sel.value; note.textContent = "Saved"; }
   };
+  d.querySelectorAll("a[data-net]").forEach(a => a.onclick = ev => { ev.preventDefault(); const [kind, key, label] = a.dataset.net.split("|"); openNetwork(kind, key, label); });
 }
+
+/* ---------- networks ---------- */
+const keyOf = n => n.kind === "pcn" ? n.source_key.slice(4) : n.kind === "group" ? n.source_key.slice("cqc:provider:".length) : n.source_key.slice(n.kind === "icb" ? 4 : 4);
+function openNetwork(kind, key, label) {
+  netFilter = { kind, key, label }; $("f-search").value = ""; showTab("practices"); applyFilters();
+}
+function renderNetworks() {
+  $("net-kinds").innerHTML = Object.entries(NET_KINDS).map(([k, label]) =>
+    `<button data-k="${k}" class="px-3 py-1 rounded-md ${k === netKind ? "bg-white shadow-sm" : "text-slate-500"}">${label} <span class="text-xs text-slate-400">${networks.filter(n => n.kind === k).length}</span></button>`).join("");
+  $("net-kinds").querySelectorAll("button").forEach(b => b.onclick = () => { netKind = b.dataset.k; renderNetworks(); });
+  const q = $("n-search").value.trim().toLowerCase(), sort = $("n-sort").value, multi = $("n-multi").checked;
+  netList = networks.filter(n => n.kind === netKind && (!multi || n.practices >= 3) && (!q || n.name.toLowerCase().includes(q)))
+    .sort((a, b) => sort === "patients" ? b.patients - a.patients : sort === "practices" ? b.practices - a.practices
+      : ((b.practices - b.engaged - b.do_not_contact) - (a.practices - a.engaged - a.do_not_contact)) || b.patients - a.patients);
+  netShown = 0; $("net-rows").innerHTML = ""; renderMoreNetworks();
+  $("n-count").textContent = `${netList.length.toLocaleString()} ${NET_KINDS[netKind].toLowerCase()}`;
+}
+function renderMoreNetworks() {
+  const slice = netList.slice(netShown, netShown + PAGE); netShown += slice.length;
+  const frag = document.createDocumentFragment();
+  for (const n of slice) {
+    const open = n.practices - n.engaged - n.do_not_contact, tot = Math.max(n.practices, 1);
+    const bar = (v, cls) => v ? `<div class="${cls}" style="width:${(v / tot) * 100}%" title="${v}"></div>` : "";
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-blue-50/40 cursor-pointer align-top";
+    tr.innerHTML = `<td class="p-3 min-w-[14rem]"><div class="font-semibold">${esc(n.name)}</div>${n.confirmed === false ? '<div class="text-[11px] text-amber-600">inferred link: verify</div>' : ""}</td>
+      <td class="p-3 text-right font-mono">${n.practices}</td><td class="p-3 text-right font-mono">${n.patients ? Number(n.patients).toLocaleString() : "–"}</td>
+      <td class="p-3 min-w-[9rem]"><div class="flex h-2 rounded overflow-hidden bg-slate-100">${bar(n.tier1, "bg-purple-500")}${bar(n.tier2, "bg-blue-400")}${bar(n.tier3, "bg-slate-300")}</div>
+        <div class="text-[11px] text-slate-400 mt-0.5">${n.tier1} large · ${n.tier2} mid · ${n.tier3} small</div></td>
+      <td class="p-3 text-xs whitespace-nowrap">EMIS ${n.emis} · S1 ${n.systmone}</td>
+      <td class="p-3 text-xs">${n.cqc_concern ? chip(n.cqc_concern + " flagged", "bg-amber-100 text-amber-800") : '<span class="text-slate-300">–</span>'}</td>
+      <td class="p-3 text-xs whitespace-nowrap">${n.engaged} of ${n.practices}${open > 0 ? `<div class="text-[11px] text-emerald-700 font-semibold">${open} to approach</div>` : ""}</td>
+      <td class="p-3 text-right"><button class="text-blue-600 hover:underline text-xs whitespace-nowrap">View practices →</button></td>`;
+    tr.onclick = () => openNetwork(n.kind, keyOf(n), n.name);
+    frag.appendChild(tr);
+  }
+  $("net-rows").appendChild(frag);
+  $("n-more").classList.toggle("hidden", netShown >= netList.length);
+  if (!netList.length) $("net-rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">Nothing here yet. Provider groups appear after the next daily run; federations appear when the Oscar file is loaded.</td></tr>';
+}
+["n-search", "n-sort", "n-multi"].forEach(id => $(id).addEventListener(id === "n-search" ? "input" : "change", renderNetworks));
+$("n-more").addEventListener("click", renderMoreNetworks);
 
 /* ---------- export ---------- */
 const csvCell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replaceAll('"', '""') + '"'; };
 $("btn-export").addEventListener("click", () => {
   const rows = filtered.filter(p => p.lead_status !== "Do-Not-Contact");   // never export do-not-contact leads
-  const head = ["ODS Code", "Practice", "PCN", "ICB", "Patients", "Segment", "Clinical System", "Contact", "Job Title", "Email", "Phone", "Lead Status", "Region", "Federation", "CQC Rating"];
-  const lines = rows.map(p => [p.ods_code, p.practice_name, p.pcn_name, p.icb_name, p.total_patients, p.sales_segment, p.clinical_software,
-    p.manager_name, p.manager_title, p.manager_email_opt_out ? "" : p.manager_email, p.manager_phone, p.lead_status, p.region, p.gp_federation, p.cqc_rating].map(csvCell).join(","));
+  const head = ["ODS Code", "Practice", "PCN", "ICB", "Group", "Federation", "Patients", "Segment", "Clinical System", "CQC Rating", "Contact", "Job Title", "Email", "Phone", "Lead Status", "Region"];
+  const lines = rows.map(p => [p.ods_code, p.practice_name, p.pcn_name, p.icb_name, p.group_size > 1 ? p.group_name : "", p.gp_federation, p.total_patients, p.sales_segment, p.clinical_software, p.cqc_rating,
+    p.manager_name, p.manager_title, p.manager_email_opt_out ? "" : p.manager_email, p.manager_phone, p.lead_status, p.region].map(csvCell).join(","));
   const blob = new Blob(["﻿" + head.map(csvCell).join(",") + "\r\n" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `Lalu_Leads_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.href = URL.createObjectURL(blob); a.download = `Lalu_Leads_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 });
 

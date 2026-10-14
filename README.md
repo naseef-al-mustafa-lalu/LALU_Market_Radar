@@ -45,6 +45,12 @@ Signals: new practice, practice closed (merger), rapid growth, PCN move, new man
 new inspection, registered manager absent, practice changed operator (likely takeover). CQC signals only fire after a first CQC value is stored, so the initial load is silent.
 Requires the `CQC_API_KEY` secret (free key from the CQC API portal).
 
+## Data model
+`gp_practices` holds one row per practice with everything collected about it. `organisations` + `org_relationships` form a graph
+(practice -> PCN / ICB / provider group / federation) where every link records its source (ods, cqc, oscar), a confidence and whether
+it is confirmed. `refresh_org_graph()` rebuilds the links after each daily load; the view `org_summary` feeds the dashboard's **Networks**
+tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Oscar adds contacts, federation and notes.
+
 ## Operating notes
 - NHS patient numbers are **monthly**, so list-size/closure signals move monthly; Oscar contact changes are picked up daily.
 - A failed run emails `DIGEST_TO` and is recorded in `ingest_runs`. Rejected rows (bad ODS codes etc.) go to `ingest_rejects`.

@@ -181,6 +181,11 @@ def sync(rest, run_id):
             stats["contacts_delete_skipped"] = len(stale)
         stats.update(contacts_changed=len(changed), contacts_removed=len(stale))
 
+    try:
+        stats["graph"] = rest.rpc("refresh_org_graph")
+    except Exception as e:  # noqa: BLE001  derived data: never fail the run
+        stats["graph_error"] = str(e)[:200]
+
     if rejects:
         stats["rejects"] = len(rejects)
         rest.insert("ingest_rejects", [{"run_id": run_id, "source": s, "key": k, "reason": r} for s, k, r in rejects[:1000]])

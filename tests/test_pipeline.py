@@ -26,6 +26,10 @@ class FakeRest:
             if table == "gp_practices":
                 cur.setdefault("lead_status", "Cold")
 
+    def rpc(self, name, args=None):
+        self.t.setdefault("rpc_calls", []).append(name)
+        return {"organisations": 0, "relationships": 0}
+
     def insert(self, table, rows, batch=500, returning=False):
         if table == "ingest_runs":
             rows = [{"id": len(self.t[table]) + 1, "status": "running"}]
