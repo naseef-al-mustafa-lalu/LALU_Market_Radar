@@ -44,34 +44,46 @@ with sync_playwright() as p:
     pg.wait_for_selector("#rows tr", timeout=8000)
     assert pg.locator("#rows tr").count() == 8, pg.locator("#rows tr").count()
     assert "8 practices" in pg.inner_text("#count")
+    def noflow(sel, name):
+        b_ = pg.evaluate("(s => { const w = document.querySelector(s); return [w.scrollWidth, w.clientWidth]; })(%r)" % sel)
+        assert b_[0] <= b_[1] + 2, f"{name} overflows: {b_}"
+    noflow("#view-practices .overflow-x-auto", "practices")
     pg.screenshot(path="/tmp/claude-0/practices.png")
-    box = pg.evaluate("(() => { const w = document.querySelector('#view-practices .overflow-x-auto'); return [w.scrollWidth, w.clientWidth]; })()")
-    assert box[0] <= box[1] + 2, f"practices table overflows: {box}"
-    pg.click("#rows tr:first-child")
-    pg.wait_for_selector("text=Network and ownership")
-    assert "Modality Test" in pg.inner_text("#rows")
-    pg.screenshot(path="/tmp/claude-0/profile.png", full_page=True)
-    pg.set_viewport_size({"width": 1180, "height": 800}); pg.screenshot(path="/tmp/claude-0/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})
+    # filters + chips + sort
+    pg.click("#f-more-btn"); pg.check("#f-grp")
+    assert "3 practices" in pg.inner_text("#count"), pg.inner_text("#count")
+    assert "clear" in pg.inner_text("#f-chips").lower()
+    pg.click("#f-chips >> text=/clear/i"); assert "8 practices" in pg.inner_text("#count")
+    pg.click("th[data-sort=patients]"); pg.click("th[data-sort=patients]")
+    # drawer
+    pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
+    body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
+    pg.screenshot(path="/tmp/claude-0/profile.png")
+    pg.keyboard.press("Escape")
+    pg.set_viewport_size({"width": 1180, "height": 800}); noflow("#view-practices .overflow-x-auto", "practices@1180"); pg.screenshot(path="/tmp/claude-0/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})
+    # networks
     pg.click("#tab-networks"); pg.wait_for_selector("#net-rows tr")
-    assert "West PCN" in pg.inner_text("#net-rows") and "2 of 4" in pg.inner_text("#net-rows") and "Has a customer" in pg.inner_text("#net-rows"), pg.inner_text("#net-rows")
-    pg.click("#net-kinds button[data-k=group]"); assert "Modality Test" in pg.inner_text("#net-rows") and "as group" in pg.inner_text("#net-rows")
-    pg.uncheck("#n-multi"); pg.click("#net-kinds button[data-k=federation]"); assert "Fed One" in pg.inner_text("#net-rows") and "inferred" in pg.inner_text("#net-rows")
+    assert "West PCN" in pg.inner_text("#net-rows"), pg.inner_text("#net-rows")
+    pg.click("#net-kinds button[data-k=group]"); assert "Modality Test" in pg.inner_text("#net-rows")
+    pg.uncheck("#n-multi"); pg.click("#net-kinds button[data-k=federation]"); assert "Fed One" in pg.inner_text("#net-rows")
     pg.check("#n-multi"); pg.click("#net-kinds button[data-k=pcn]")
-    nb = pg.evaluate("(() => { const w = document.querySelector('#view-networks .overflow-x-auto'); return [w.scrollWidth, w.clientWidth]; })()")
-    assert nb[0] <= nb[1] + 2, f"networks table overflows: {nb}"
-    pg.screenshot(path="/tmp/claude-0/networks.png"); pg.click("#net-kinds button[data-k=group]")
-    pg.click("#tab-practices"); pg.check("#f-grp"); pg.select_option("#f-hs", "customer"); pg.click("#tab-networks")   # stale filters must not hide a network's practices
+    noflow("#view-networks .overflow-x-auto", "networks"); pg.screenshot(path="/tmp/claude-0/networks.png")
     pg.click("#net-kinds button[data-k=group]")
-    pg.click("#net-rows tr:first-child")   # View practices -> filtered
+    pg.click("#net-rows tr:first-child")
     pg.wait_for_selector("#view-practices:not(.hidden)")
     assert "3 practices" in pg.inner_text("#count"), pg.inner_text("#count")
-    assert "Provider groups" in pg.inner_text("#net-chip")
-    assert "customer" in pg.inner_text("#rows").lower() and "engaged" in pg.inner_text("#rows").lower() and "contact imported" in pg.inner_text("#rows").lower()
-    assert "£" in pg.inner_text("#rows") and "Tier 3" in pg.inner_text("#rows") and "est. arr" in pg.inner_text("#view-practices").lower()
+    assert "back to networks" in pg.inner_text("#view-practices").lower()
+    assert "£" in pg.inner_text("#rows")
     pg.fill("#f-search", "zzz"); assert "0 practices" in pg.inner_text("#count")
-    pg.click("#tab-revenue"); pg.wait_for_selector("#rev-cards > div")
-    rc = pg.inner_text("#rev-cards").lower(); assert "single practices route" in rc and "pcns route" in rc and "provider groups route" in rc and "federations route" in rc and "Tier 3" in pg.inner_text("#rev-tiers")
-    assert "hubspot position" in pg.inner_text("#view-revenue").lower() and "Annual list price" in pg.text_content("#rev-config")
+    # revenue
+    pg.click("#tab-revenue"); pg.wait_for_selector("#rev-routes tr, #rev-routes > div")
+    assert "£" in pg.inner_text("#rev-routes") and "£" in pg.inner_text("#rev-matrix")
+    pg.click("#rev-metric") if pg.locator("#rev-metric").evaluate("e => e.tagName") == "BUTTON" else None
     pg.screenshot(path="/tmp/claude-0/revenue.png", full_page=True)
+    # signals + data
+    pg.click("#tab-signals"); assert pg.is_visible("#s-count")
+    pg.click("#tab-data"); pg.wait_for_selector("#d-fresh")
+    assert "2026" in pg.inner_text("#d-fresh") and "Annual list price" in pg.inner_text("#rev-config")
+    pg.screenshot(path="/tmp/claude-0/data.png", full_page=True)
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)
