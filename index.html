@@ -62,6 +62,7 @@
         <div id="f-more" class="hidden flex flex-wrap gap-2 items-center">
           <select id="f-sw" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any system</option><option>EMIS Web</option><option>SystmOne</option><option>Vision</option><option>Unknown</option></select>
           <select id="f-cqc" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any CQC rating</option><option>Outstanding</option><option>Good</option><option>Requires improvement</option><option>Inadequate</option><option value="None">Not rated / unknown</option></select>
+          <select id="f-country" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All countries</option><option>England</option><option>Wales</option><option>Scotland</option></select>
           <select id="f-icb" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm max-w-[220px]"><option value="">All ICBs</option></select>
           <label class="flex items-center gap-2 text-sm ml-2"><input id="f-sig" type="checkbox"> Has recent signals</label>
           <label class="flex items-center gap-2 text-sm"><input id="f-grp" type="checkbox"> Group-run only</label>
@@ -169,6 +170,17 @@
           <li>Month <input id="pc-month" type="month" class="border border-slate-300 rounded px-2 py-1 text-xs"> <button id="pc-load" disabled class="ml-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></li>
         </ol>
         <p id="pc-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h2 class="font-bold">Scotland and Wales</h2>
+        <p id="dv-status" class="text-sm text-slate-500 mt-1">Checking…</p>
+        <p class="text-xs text-slate-500 mt-2">Upload the practice file from <b>Public Health Scotland</b> (<i>practice contact details</i> open data CSV: has list sizes and GP clusters) or <b>NHS Wales</b> (the practice data CSV: has clusters but no list sizes). The file type is detected automatically; clusters are treated as the PCN equivalent and Scottish health boards as the ICB equivalent. Practices keep these groupings when the daily NHS England sync runs.</p>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <input id="dv-file" type="file" accept=".csv,text/csv" class="text-xs">
+          <input id="dv-month" type="month" class="border border-slate-300 rounded px-2 py-1 text-xs">
+          <button id="dv-load" disabled class="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button>
+        </div>
+        <p id="dv-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
       <div class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
         <h2 class="font-bold">Rate card and settings <span class="text-xs font-normal text-slate-400">(read-only here: edit the <code>pricing_tiers</code> and <code>pricing_settings</code> tables in Supabase)</span></h2>
@@ -309,10 +321,10 @@ const SORTERS = {
   cqc: p => CQC_RANK[p.cqc_rating] || 9, hubspot: p => HS_RANK[hsState(p)] };
 function applyFilters() {
   const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, hs = $("f-hs").value,
-        cqcf = $("f-cqc").value, icb = $("f-icb").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
+        cqcf = $("f-cqc").value, icb = $("f-icb").value, ctry = $("f-country").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
   filtered = practices.filter(p =>
     p.status === "Active" && netMatch(p, netFilter) && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!hs || hsState(p) === hs) &&
-    (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) &&
+    (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) && (!ctry || (p.country || "England") === ctry) &&
     (!sig || signalCodes.has(p.ods_code)) && (!grp || p.group_size > 1) &&
     (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(q))));
   const f = SORTERS[sort.key], by = (a, b) => { const x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || b.total_patients - a.total_patients; };
@@ -330,7 +342,7 @@ function renderChips() {
     add((NET_KINDS[netFilter.kind] || "").replace(/s$/, "") + ": " + netFilter.label, () => { netFilter = null; fromNetworks = false; applyFilters(); });
   }
   if ($("f-search").value.trim()) add("Search: " + $("f-search").value.trim(), () => { $("f-search").value = ""; applyFilters(); });
-  sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB");
+  sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country");
   if ($("f-sig").checked) add("Has recent signals", () => { $("f-sig").checked = false; applyFilters(); });
   if ($("f-grp").checked) add("Group-run only", () => { $("f-grp").checked = false; applyFilters(); });
   if (box.children.length > 1 || (box.children.length === 1 && !netFilter)) {
@@ -339,7 +351,7 @@ function renderChips() {
   }
 }
 function clearFilters() {
-  for (const id of ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb"]) $(id).value = "";
+  for (const id of ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country"]) $(id).value = "";
   $("f-sig").checked = false; $("f-grp").checked = false; netFilter = null; fromNetworks = false; applyFilters();
 }
 function renderSortHeaders() {
@@ -351,7 +363,7 @@ function renderSortHeaders() {
 document.querySelectorAll("#view-practices th[data-sort]").forEach(th => th.onclick = () => {
   const k = th.dataset.sort; sort = { key: k, dir: sort.key === k ? -sort.dir : (k === "name" || k === "cqc" || k === "hubspot" ? 1 : -1) }; applyFilters(); });
 $("f-more-btn").onclick = () => { const m = $("f-more"); m.classList.toggle("hidden"); $("f-more-btn").textContent = m.classList.contains("hidden") ? "More filters ▾" : "Fewer filters ▴"; };
-["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
+["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
 
 /* ---------- practices: compact rows ---------- */
 function networkCell(p) {
@@ -380,7 +392,7 @@ function renderMore() {
     tr.innerHTML = `
       <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}</div>
         <div class="text-[11px] text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}</div></td>
-      <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-slate-300" title="No NHS England patient count">${p.ods_code[0] === "W" ? "Wales" : "–"}</span>`}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-slate-300" title="No patient count loaded">${p.country === "Wales" ? "Wales" : "–"}</span>`}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold text-emerald-700" title="£${Number(p.base_price).toFixed(3)} per patient">${gbpFull(p.est_arr)}</span>` : '<span class="text-slate-300">–</span>'}</td>
       <td class="px-3 py-2">${networkCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap">${cqcCell(p)}</td>
@@ -424,7 +436,7 @@ async function openDrawer(p) {
     sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st])) + kv("Lifecycle stage", esc(p.hubspot_stage)) + kv("Company imported", esc(fmtDate(p.hubspot_company_imported_at))) +
       kv("Contacts imported", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + kv("Last contact import", esc(fmtDate(p.hs_last_imported_at))) + kv("Last synced", esc(fmtDate(p.hubspot_synced_at))) +
       (!p.hubspot_synced_at && !p.hs_imported ? '<div class="text-xs text-slate-400 italic py-0.5">Not synced yet: filled in by the HubSpot integration.</div>' : "")) +
-    sec("Practice details", kv("Address", addr) + kv("Region", esc(p.region)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
+    sec("Practice details", kv("Address", addr) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Region", esc(p.region)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
       kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)) + kv("Categories", esc(p.oscar_categories))) +
     sec("Notes (Oscar)", p.org_notes ? `<div class="text-sm text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : "") +
     `<div id="dr-signals"></div>`;
@@ -448,6 +460,51 @@ function openNetwork(kind, key, label) {
   clearFilters(); closeDrawer();
   netFilter = { kind, key, label }; fromNetworks = fromTab;
   showTab("practices"); applyFilters();
+}
+/* ---------- network profile (side panel): how the network price is built and what it does to each practice ---------- */
+function openNetworkProfile(n) {
+  drawerCode = null; document.querySelectorAll("#rows tr.bg-blue-50").forEach(r => r.classList.remove("bg-blue-50"));
+  const KIND = { pcn: "PCN / cluster", icb: "ICB / health board", group: "Provider group", federation: "Federation" }[n.kind] || n.kind, key = keyOf(n);
+  const members = practices.filter(p => p.status === "Active" && netMatch(p, { kind: n.kind, key })).sort((a, b) => b.total_patients - a.total_patients);
+  const list = Number(cfgSettings.list_price_per_patient?.value || 0);
+  const route = cfgTiers.filter(t => t.route === n.kind).sort((a, b) => a.threshold - b.threshold);
+  const row = route.find(t => t.tier === n.network_tier), base = n.network_base_price != null ? Number(n.network_base_price) : null;
+  const next = route.find(t => t.threshold > n.patients && (!row || t.tier < row.tier));
+  $("dr-title").textContent = n.name;
+  $("dr-sub").innerHTML = `${chip(KIND, "bg-slate-100 text-slate-700")} ${n.network_tier ? chip("Tier " + n.network_tier + (row ? " · " + row.label : ""), TIER_CLS["Tier " + n.network_tier]) : ""} ${n.customers > 0 ? chip("Has a customer", "bg-emerald-100 text-emerald-800") : ""} ${n.confirmed === false ? chip("inferred: verify", "bg-amber-50 text-amber-700") : ""}`;
+  const saving = n.arr_single != null && n.arr_network != null ? n.arr_single - n.arr_network : null;
+  const price = !row || base == null ? '<div class="text-sm italic text-slate-400">No price route is configured for this kind of network (edit <code>pricing_tiers</code>).</div>' :
+    kv("List price per patient", "£" + list.toFixed(3)) +
+    kv("Network patients", Number(n.patients).toLocaleString() + " across " + n.practices + " practices") +
+    kv("Tier (by combined patients)", chip("Tier " + row.tier + " · " + row.label, TIER_CLS["Tier " + row.tier]) + (row.threshold ? ` <span class="text-xs text-slate-400">≥ ${Number(row.threshold).toLocaleString()}</span>` : "")) +
+    kv("Size discount", pct(row.size_discount)) +
+    kv("Price per patient / yr", `<b>£${base.toFixed(3)}</b> <span class="text-xs text-slate-400">= £${list.toFixed(3)} × (1 − ${pct(row.size_discount)})</span>`) +
+    kv("Speed discount (year 1)", pct(row.speed_discount)) +
+    kv("Year-1 price per patient", "£" + (base * (1 - Number(row.speed_discount))).toFixed(3)) +
+    kv("Est. ARR (network route)", `<b class="text-emerald-700">${gbpFull(n.arr_network)}</b>`) +
+    kv("Est. year-1 value", gbpFull(n.arr_network * (1 - Number(row.speed_discount)))) +
+    kv("Same practices signed singly", gbpFull(n.arr_single)) +
+    kv("Network discount vs singly", saving == null ? "" : `${gbpFull(saving)} <span class="text-xs text-slate-400">(${n.arr_single ? pct(saving / n.arr_single) : "0%"})</span>`) +
+    (next ? `<div class="text-xs text-slate-500 pt-1">${(Number(next.threshold) - Number(n.patients)).toLocaleString()} more patients would reach Tier ${next.tier} (${pct(next.size_discount)} size discount).</div>` : "") +
+    '<div class="text-xs text-slate-400 pt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</div>';
+  const rows = members.map(p => {
+    const net = base != null ? p.total_patients * base : null;
+    return `<tr class="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}</div><div class="text-[11px] text-slate-400 font-mono">${esc(p.ods_code)}</div></td>
+      <td class="text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : "–"}</td>
+      <td class="px-2">${p.price_tier ? chip("T" + p.price_tier, TIER_CLS["Tier " + p.price_tier] || "") : ""}</td>
+      <td class="text-right font-mono">${p.base_price != null ? "£" + Number(p.base_price).toFixed(3) : "–"}</td>
+      <td class="text-right font-mono">${gbpFull(p.est_arr)}</td>
+      <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net) : "–"}</td></tr>`; }).join("");
+  const hdr = ["Practice", "Patients", "Tier", "£/pt singly", "ARR singly", "ARR in network"].map((h, i) => `<th class="${i === 0 ? "text-left" : i === 2 ? "text-left px-2" : "text-right"} font-medium">${h}</th>`).join("");
+  $("dr-body").innerHTML =
+    `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
+      .map(([k, v]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-[10px] uppercase tracking-wider text-slate-400">${k}</div></div>`).join("")}</div>` +
+    sec("Pricing (" + KIND + " route)", price) +
+    sec("Linked practices: price singly vs in the network", `<div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-[10px] uppercase tracking-wider text-slate-400"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div>`) +
+    `<button id="np-view" class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
+  $("dr-body").scrollTop = 0;
+  $("dr-body").onclick = ev => { const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
+  $("drawer").classList.remove("translate-x-full");
 }
 function renderNetworks() {
   $("net-kinds").innerHTML = Object.entries(NET_KINDS).map(([k, label]) =>
@@ -481,7 +538,8 @@ function renderMoreNetworks() {
       <td class="px-3 py-2 text-xs whitespace-nowrap align-top"><div class="font-semibold">${n.engaged} of ${n.practices}</div>${open > 0 ? `<div class="text-[11px] text-slate-400">${open} to approach</div>` : '<div class="text-[11px] text-emerald-700">all engaged</div>'}</td>
       <td class="px-3 py-2 whitespace-nowrap align-top">${n.customers > 0 ? chip("Has " + (n.customers === 1 ? "a customer" : n.customers + " customers"), "bg-emerald-100 text-emerald-800") + `<div class="text-[11px] text-slate-400 mt-0.5">${gbpFull(n.arr_customers)}/yr live</div>` : '<span class="text-[11px] text-slate-300">no customers</span>'}</td>
       <td class="px-3 py-2 text-right align-top"><button class="text-blue-600 hover:underline text-xs whitespace-nowrap">View →</button></td>`;
-    tr.onclick = () => openNetwork(n.kind, keyOf(n), n.name);
+    tr.onclick = () => openNetworkProfile(n);
+    tr.querySelector("button").onclick = e => { e.stopPropagation(); openNetwork(n.kind, keyOf(n), n.name); };
     frag.appendChild(tr);
   }
   $("net-rows").appendChild(frag);
@@ -551,6 +609,8 @@ $("s-more").addEventListener("click", renderMoreSignals);
 /* ---------- data tab ---------- */
 async function renderData() {
   const row = await latestCountRow(), withCounts = practices.filter(p => p.total_patients > 0).length, withCqc = practices.filter(p => p.cqc_location_id).length;
+  { const dv = ["Scotland", "Wales"].map(c => { const l = practices.filter(p => p.country === c); return l.length ? `${c}: ${l.length.toLocaleString()} practices, ${l.filter(p => p.total_patients > 0).length.toLocaleString()} with list sizes` : `${c}: none loaded`; });
+    $("dv-status").textContent = dv.join(" · "); }
   $("pc-status").textContent = row ? `Data for ${row.data_month || "?"}, loaded ${fmtDate(row.updated_at)}. ${withCounts.toLocaleString()} of ${practices.length.toLocaleString()} practices have counts.` : "No patient counts loaded yet: practices show no list size or ARR until you load the NHS file.";
   $("d-fresh").innerHTML = [["Practices last refreshed", lastRunDate || "never"], ["Patient counts", row ? "NHS " + (row.data_month || "?") + ", loaded " + fmtDate(row.updated_at) : "not loaded"],
     ["Practices with a CQC match", withCqc.toLocaleString() + " of " + practices.length.toLocaleString()], ["Practices with a contact", practices.filter(p => p.manager_name).length.toLocaleString()],
@@ -642,6 +702,70 @@ $("pc-load").addEventListener("click", async () => {
     await reloadAfterCounts();
     msg.textContent = `Done: ${stored.toLocaleString()} counts stored, ${updated.toLocaleString()} practices updated.`;
     $("pc-file").value = ""; pcParsed = null;
+  } catch (err) { msg.textContent = "Load failed: " + (err.message || err); btn.disabled = false; }
+});
+/* devolved nations */
+const SCOT_HB = { S08000015: "NHS Ayrshire and Arran", S08000016: "NHS Borders", S08000017: "NHS Dumfries and Galloway", S08000019: "NHS Forth Valley", S08000020: "NHS Grampian",
+  S08000022: "NHS Highland", S08000024: "NHS Lothian", S08000025: "NHS Orkney", S08000026: "NHS Shetland", S08000028: "NHS Western Isles", S08000029: "NHS Fife",
+  S08000030: "NHS Tayside", S08000031: "NHS Greater Glasgow and Clyde", S08000032: "NHS Lanarkshire" };
+const titleCase = t => (t || "").trim().toLowerCase().replace(/(^|[\s(\-/])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+const slug = t => (t || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+function readDevolvedFile(text, fileName) {
+  const rows = parseCsv(text.replace(/^\uFEFF/, "")), head = (rows[0] || []).map(h => h.trim().toLowerCase());
+  const ix = n => head.indexOf(n.toLowerCase()), out = [], seen = new Set();
+  const cell = (x, i) => i >= 0 && x[i] != null ? x[i].trim() : "";
+  if (ix("PracticeCode") >= 0 && ix("GPPracticeName") >= 0) {
+    const [c, nm, ls, pc, hb, cl] = ["PracticeCode", "GPPracticeName", "PracticeListSize", "Postcode", "HB", "GPCluster"].map(ix), addr = ["AddressLine2", "AddressLine3", "AddressLine4"].map(ix);
+    for (const x of rows.slice(1)) {
+      const raw = cell(x, c).replace(/\D/g, ""); if (!raw || raw.length > 5) continue;
+      const code = "S" + raw.padStart(5, "0"); if (seen.has(code)) continue; seen.add(code);
+      const cluster = cell(x, cl), town = addr.map(i => cell(x, i)).filter(Boolean).pop() || "";
+      out.push({ code, name: cell(x, nm), postcode: cell(x, pc), town: titleCase(town), patients: parseInt(cell(x, ls), 10) || null,
+        net_code: cluster ? "SC-" + slug(cluster) : null, net_name: cluster || null, icb: SCOT_HB[cell(x, hb)] || null });
+    }
+    const m = /(20\d{2})(\d{2})\d{2}/.exec(fileName || "");
+    if (out.length < 500) throw new Error(`Only ${out.length} Scottish practices found: wrong file?`);
+    return { country: "Scotland", rows: out, month: m ? `${m[1]}-${m[2]}` : null };
+  }
+  if (ix("PracticeId") >= 0 && ix("ClusterID") >= 0) {
+    const [id, st, tn, pc, cl, per] = ["PracticeId", "Street", "Posttown", "Postcode", "ClusterID", "Period"].map(ix); let month = null;
+    for (const x of rows.slice(1)) {
+      const code = cell(x, id).toUpperCase(); if (!/^W[0-9]{5}$/.test(code) || seen.has(code)) continue; seen.add(code);
+      const cluster = cell(x, cl);
+      out.push({ code, name: titleCase(cell(x, st)), postcode: cell(x, pc), town: titleCase(cell(x, tn)), patients: null,
+        net_code: cluster ? "WC" + cluster : null, net_name: cluster ? "Wales cluster " + cluster : null, icb: null });
+      if (!month && /^\d{6}$/.test(cell(x, per))) month = cell(x, per).slice(0, 4) + "-" + cell(x, per).slice(4);
+    }
+    if (out.length < 300) throw new Error(`Only ${out.length} Welsh practices found: wrong file?`);
+    return { country: "Wales", rows: out, month };
+  }
+  throw new Error("Not recognised. Expected the Scotland practice contact details CSV (PracticeCode, GPPracticeName…) or the Wales practice data CSV (PracticeId, ClusterID…).");
+}
+let dvParsed = null;
+$("dv-file").addEventListener("change", async e => {
+  const f = e.target.files[0], msg = $("dv-msg"); dvParsed = null; $("dv-load").disabled = true;
+  if (!f) return;
+  if (f.size > 20 * 1024 * 1024) { msg.textContent = "That file is too large for a practice list."; return; }
+  try {
+    dvParsed = readDevolvedFile(await f.text(), f.name);
+    $("dv-month").value = dvParsed.month || new Date().toISOString().slice(0, 7);
+    msg.textContent = `${dvParsed.country}: read ${dvParsed.rows.length.toLocaleString()} practices${dvParsed.country === "Wales" ? " (no list sizes in this file, so no ARR until Welsh counts are loaded)" : ""}. Press Load.`;
+    $("dv-load").disabled = false;
+  } catch (err) { msg.textContent = err.message; }
+});
+$("dv-load").addEventListener("click", async () => {
+  const btn = $("dv-load"), msg = $("dv-msg"), month = $("dv-month").value;
+  if (!dvParsed || !/^\d{4}-\d{2}$/.test(month)) { msg.textContent = "Choose a file and a month first."; return; }
+  btn.disabled = true; let stored = 0, added = 0;
+  try {
+    for (let i = 0; i < dvParsed.rows.length; i += 1000) {
+      msg.textContent = `Loading ${Math.min(i + 1000, dvParsed.rows.length).toLocaleString()} of ${dvParsed.rows.length.toLocaleString()}…`;
+      const { data, error } = await db.rpc("load_devolved", { p_country: dvParsed.country, p_month: month, p_rows: dvParsed.rows.slice(i, i + 1000) });
+      if (error) throw error; stored += data.stored; added += data.new;
+    }
+    const c = dvParsed.country; dvParsed = null; $("dv-file").value = "";
+    await reloadAfterCounts();
+    msg.textContent = `Done: ${c} loaded, ${stored.toLocaleString()} practices (${added.toLocaleString()} new).`;
   } catch (err) { msg.textContent = "Load failed: " + (err.message || err); btn.disabled = false; }
 });
 $("pc-run").addEventListener("click", async () => {

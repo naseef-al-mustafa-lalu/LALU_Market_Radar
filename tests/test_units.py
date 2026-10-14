@@ -106,3 +106,14 @@ def test_digest_select_and_escape():
     assert [t["id"] for t in send] == ["2"] and {t["id"] for t in skip} == {"1", "3"}
     out = digest.render(send, "https://x", TIERS)
     assert "<script>" not in out and "&lt;script&gt;" in out and "a@b.c" not in out and "opt-out" in out
+
+
+def test_uploaded_network_is_not_overwritten_by_ods_sync():
+    from src import ingest
+    old = {"ods_code": "W93001", "practice_name": "St Lukes", "postcode": "NP11 5GX", "status": "Active", "pcn_code": "WC60103",
+           "pcn_name": "Wales cluster 60103", "icb_name": "Aneurin Bevan", "network_locked": True, "country": "Wales",
+           "total_patients": 0, "clinical_software": "Unknown", "software_checked_at": None, "website": None}
+    ods = {"W93001": {"name": "ST LUKES", "postcode": "NP11 5GX", "status": "Active"}}
+    recs, _ = ingest.build_records(ods, {}, "2026-09", {"W93001": old}, {}, None, None, pcn_checked=frozenset({"W93001"}))
+    assert not recs or (recs[0]["pcn_code"], recs[0]["pcn_name"], recs[0]["icb_name"]) == ("WC60103", "Wales cluster 60103", "Aneurin Bevan")
+    assert ingest.pcn_due({"W93001"}, {"W93001": old}, __import__("datetime").datetime.now(__import__("datetime").timezone.utc)) == []

@@ -18,7 +18,12 @@ Five tabs: **Practices** (search, tier and HubSpot filters, "More filters", remo
 **Revenue** (route totals and route x tier matrix), **Signals** (change-detection feed, live updates) and **Data** (freshness, recent pipeline runs, patient-count upload/runner, rate card).
 `tests/dashboard_smoke.py` exercises all of them against a fake Supabase client.
 
-## Monthly patient counts (two ways, both in the dashboard's "Patient counts" card)
+## Scotland and Wales
+Upload the Public Health Scotland *practice contact details* CSV or the NHS Wales practice data CSV in the Data tab ("Scotland and Wales"); the type is detected from the columns.
+Scotland rows are stored as `S` + the 5-digit practice code with list sizes, GP cluster (PCN equivalent) and health board (ICB equivalent). Wales rows match the ODS
+`W` codes, add the cluster, and have **no list sizes** in this file, so they carry no ARR until Welsh counts are supplied. Uploaded groupings are locked (`network_locked`) so the daily sync keeps them,
+and bulk loads do not raise NEW_PRACTICE signals. Clicking a network row opens its profile: price build-up, discounts, and each linked practice priced singly vs in the network.
+ (two ways, both in the dashboard's "Patient counts" card)
 NHS Digital (the only source of GP list sizes) blocks cloud datacentres, so GitHub's servers cannot fetch it.
 
 **Option B: upload (works anywhere, nothing to install).** Open the NHS "Patients Registered at a GP Practice" page in your browser,

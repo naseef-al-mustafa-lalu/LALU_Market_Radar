@@ -41,6 +41,9 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
             pcn_icb = pcn_map[code][2] if code in pcn_map else None
         elif code in pcn_map:
             r["pcn_code"], r["pcn_name"], pcn_icb = pcn_map[code]
+        if old and old.get("network_locked"):  # cluster / health board came from a manual upload: ODS must not overwrite it
+            r["pcn_code"], r["pcn_name"], r["icb_name"] = old["pcn_code"], old["pcn_name"], old["icb_name"]
+            pcn_icb = None
         if oscar_info is not None:
             info = oscar_info.get(code)
             p = info["primary"] if info else None
@@ -52,7 +55,7 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
                     if v not in (None, ""):
                         r[k] = v
                 r["website"] = info["website"] or r.get("website")
-                if not r.get("pcn_code"):  # practices in a PCN keep the ODS-derived ICB name
+                if not r.get("pcn_code") and not r.get("network_locked"):  # practices in a PCN keep the ODS-derived ICB name
                     r["icb_name"] = info["icb"] or r["icb_name"]
         if pcn_icb:  # ODS-derived ICB names are consistent across practices, so they win over Oscar's wording
             r["icb_name"] = pcn_icb
@@ -89,6 +92,8 @@ def pcn_due(active_codes, existing, now):
     """Practices whose PCN we have never looked up (all of them, first run) or last checked > 30 days ago (capped)."""
     never, stale = [], []
     for c in sorted(active_codes):
+        if (existing.get(c) or {}).get("network_locked"):
+            continue
         checked = (existing.get(c) or {}).get("pcn_checked_at")
         if not checked:
             never.append(c)
@@ -105,7 +110,7 @@ def sync(rest, run_id):
     active = sources.load_active_gp_practices()
     existing = {r["ods_code"]: r for r in rest.select_all("gp_practices", order="ods_code")}
     ods = {c: {"name": v["name"], "postcode": v["postcode"], "status": "Active"} for c, v in active.items()}
-    closed = [c for c, r in existing.items() if r["status"] == "Active" and c not in active]
+    closed = [c for c, r in existing.items() if r["status"] == "Active" and c not in active and r.get("country") != "Scotland"]
     for c in closed:
         ods[c] = {"name": existing[c]["practice_name"], "postcode": existing[c].get("postcode"), "status": "Closed"}
     stats.update(ods_active=len(active), closures=len(closed))

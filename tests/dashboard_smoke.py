@@ -27,7 +27,7 @@ window.supabase = { createClient: () => {
   const q = t => { const r = { select: () => r, order: () => r, range: (a,b) => Promise.resolve({ data: (data[t]||[]).slice(a, b+1) }), eq: () => r, limit: () => Promise.resolve({ data: data[t]||[] }),
     update: () => ({ eq: () => Promise.resolve({ error: null }) }), then: (f) => Promise.resolve({ data: data[t]||[] }).then(f) }; return r; };
   return { auth: { getSession: async () => ({ data: { session: {} } }), signOut: async () => {}, signInWithPassword: async () => ({}) },
-    from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async () => ({ data: {} }), functions: { invoke: async () => ({ data: {} }) } };
+    from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async () => ({ data: {} }) } };
 } };
 """ % json.dumps({"gp_practices": PR, "practice_pricing": PP, "network_summary": NETS, "practice_hubspot": HS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
 import os
@@ -69,7 +69,13 @@ with sync_playwright() as p:
     pg.check("#n-multi"); pg.click("#net-kinds button[data-k=pcn]")
     noflow("#view-networks .overflow-x-auto", "networks"); pg.screenshot(path="/tmp/claude-0/networks.png")
     pg.click("#net-kinds button[data-k=group]")
-    pg.click("#net-rows tr:first-child")
+    pg.click("#net-rows tr:first-child")   # row opens the network profile
+    pg.wait_for_selector("#drawer:not(.translate-x-full)")
+    prof = pg.inner_text("#dr-body")
+    assert "pricing" in prof.lower() and "Size discount" in prof and "Price per patient" in prof and "Network discount vs singly" in prof and "Test Surgery 0" in prof, prof
+    pg.screenshot(path="/tmp/claude-0/netprofile.png")
+    pg.click("#dr-body tr[data-ods=A10001]"); pg.wait_for_function("document.querySelector('#dr-title').textContent === 'Test Surgery 1'")
+    pg.click("#tab-networks"); pg.click("#net-kinds button[data-k=group]"); pg.click("#net-rows tr:first-child"); pg.click("#np-view")
     pg.wait_for_selector("#view-practices:not(.hidden)")
     assert "3 practices" in pg.inner_text("#count"), pg.inner_text("#count")
     assert "back to networks" in pg.inner_text("#view-practices").lower()
@@ -84,6 +90,25 @@ with sync_playwright() as p:
     pg.click("#tab-signals"); assert pg.is_visible("#s-count")
     pg.click("#tab-data"); pg.wait_for_selector("#d-fresh")
     assert "2026" in pg.inner_text("#d-fresh") and "Annual list price" in pg.inner_text("#rev-config")
+    import tempfile, os
+    td = tempfile.mkdtemp()
+    sc = os.path.join(td, "scotland_20260701_opendata.csv"); wl = os.path.join(td, "wales.csv")
+    open(sc, "w").write("PracticeCode,GPPracticeName,PracticeListSize,AddressLine1,AddressLine2,AddressLine3,AddressLine4,Postcode,TelephoneNumber,PracticeType,HB,HSCP,DataZone,GPCluster\n" +
+        "".join(f'{10000+i},Practice {i},{5000+i},x,Liff Road,MUIRHEAD,,DD2 5NH,01,GMS,S08000030,s,d,Dundee {i%4}\n' for i in range(600)))
+    open(wl, "w").write("Period,PsuPracticeCode,PracticeId,Locality,Street,Area,Posttown,County,Postcode,ClusterID\n" +
+        "".join(f"202607,6{i},W{93000+i},,ST. LUKE'S SURGERY {i},a,CARDIFF,GWENT,NP11 5GX,601{i%5:02d}\n" for i in range(400)) + "202607,,7A3,HB,1 Talbot Gateway,a,Baglan,,SA12 7BR,\n")
+    pg.set_input_files("#dv-file", sc); pg.wait_for_function("!document.querySelector('#dv-load').disabled")
+    assert "Scotland: read 600" in pg.inner_text("#dv-msg"), pg.inner_text("#dv-msg")
+    pg.click("#dv-load"); pg.wait_for_function("document.querySelector('#dv-msg').textContent.startsWith('Done')")
+    pg.set_input_files("#dv-file", wl); pg.wait_for_function("!document.querySelector('#dv-load').disabled")
+    assert "Wales: read 400" in pg.inner_text("#dv-msg"), pg.inner_text("#dv-msg")
+    pg.click("#dv-load"); pg.wait_for_function("document.querySelector('#dv-msg').textContent.startsWith('Done')")
+    calls = pg.evaluate("window.__rpc.filter(c => c[0] === 'load_devolved')")
+    assert [c[1]["p_country"] for c in calls] == ["Scotland", "Wales"], calls
+    r0 = calls[0][1]["p_rows"][0]; assert r0["code"] == "S10000" and r0["icb"] == "NHS Tayside" and r0["net_code"] == "SC-dundee-0" and r0["patients"] == 5000 and r0["town"] == "Muirhead", r0
+    w0 = calls[1][1]["p_rows"][0]; assert w0["code"] == "W93000" and w0["net_code"] == "WC60100" and w0["name"] == "St. Luke'S Surgery 0" or w0["name"].startswith("St. Luke"), w0
+    pg.set_input_files("#dv-file", os.path.join(td, "scotland_20260701_opendata.csv")); open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
+    pg.set_input_files("#dv-file", os.path.join(td, "bad.csv")); pg.wait_for_function("document.querySelector('#dv-msg').textContent.startsWith('Not recognised')")
     pg.screenshot(path="/tmp/claude-0/data.png", full_page=True)
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)
