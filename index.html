@@ -10,6 +10,7 @@
 <style>
   thead th { position: sticky; top: 0; z-index: 1; }
   .chip { display:inline-flex; align-items:center; gap:.25rem; padding:.05rem .5rem; border-radius:9999px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .chip.hidden { display: none; }
   details > summary { cursor: pointer; list-style: none; }
   details > summary::-webkit-details-marker { display: none; }
 </style>
@@ -42,7 +43,7 @@
     </div>
   </nav>
 
-  <main class="max-w-[1500px] mx-auto p-4 lg:p-6 grid grid-cols-1 xl:grid-cols-[19rem_1fr] gap-6">
+  <main class="max-w-[1500px] mx-auto p-4 lg:p-6 grid grid-cols-1 xl:grid-cols-[17rem_1fr] gap-6">
     <!-- Left rail -->
     <aside class="space-y-4">
       <div class="bg-white rounded-xl border border-slate-200 p-4">
@@ -91,8 +92,13 @@
       <div class="overflow-x-auto max-h-[78vh]">
         <table class="w-full text-left text-sm">
           <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
-            <th class="p-3">Practice</th><th class="p-3 text-right">List size · est. ARR</th><th class="p-3">Network</th>
-            <th class="p-3">CQC</th><th class="p-3">System</th><th class="p-3">Key contact</th><th class="p-3">Status</th></tr></thead>
+            <th class="p-3 whitespace-nowrap min-w-[13rem]">Practice</th>
+            <th class="p-3 whitespace-nowrap text-right min-w-[6.5rem]">List size</th>
+            <th class="p-3 whitespace-nowrap text-right min-w-[5.5rem]">Est. ARR</th>
+            <th class="p-3 whitespace-nowrap min-w-[12rem]">Network</th>
+            <th class="p-3 whitespace-nowrap min-w-[8.5rem]">CQC · system</th>
+            <th class="p-3 whitespace-nowrap min-w-[11rem]">Key contact</th>
+            <th class="p-3 whitespace-nowrap min-w-[6rem]">Status</th></tr></thead>
           <tbody id="rows" class="divide-y divide-slate-100"></tbody>
         </table>
       </div>
@@ -114,8 +120,13 @@
       <div class="overflow-x-auto max-h-[78vh]">
         <table class="w-full text-left text-sm">
           <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
-            <th class="p-3">Network</th><th class="p-3 text-right">Practices</th><th class="p-3 text-right">Patients</th>
-            <th class="p-3">Tier · est. ARR</th><th class="p-3">Size mix</th><th class="p-3">Systems</th><th class="p-3">CQC concerns</th><th class="p-3">Engaged</th><th class="p-3"></th></tr></thead>
+            <th class="p-3 whitespace-nowrap min-w-[14rem]">Network</th>
+            <th class="p-3 whitespace-nowrap text-right min-w-[8rem]">Linked practices</th>
+            <th class="p-3 whitespace-nowrap text-right min-w-[5.5rem]">Patients</th>
+            <th class="p-3 whitespace-nowrap min-w-[4.5rem]">Tier</th>
+            <th class="p-3 whitespace-nowrap text-right min-w-[8rem]">Est. ARR</th>
+            <th class="p-3 whitespace-nowrap min-w-[9rem]">Practice sizes</th>
+            <th class="p-3 whitespace-nowrap min-w-[6.5rem]">Engaged</th><th class="p-3 min-w-[6rem]"></th></tr></thead>
           <tbody id="net-rows" class="divide-y divide-slate-100"></tbody>
         </table>
       </div>
@@ -126,10 +137,10 @@
     <section id="view-revenue" class="hidden min-w-0 space-y-4">
       <div class="bg-white rounded-xl border border-slate-200 p-4">
         <h2 class="font-bold">Estimated annual recurring revenue (ARR)</h2>
-        <p class="text-sm text-slate-500 mt-1">Patients under management × the tier price per patient, from your pricing model. The three routes are <b>alternative ways to sell to the same patients</b>, so do not add them together.</p>
-        <div id="rev-cards" class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3"></div>
+        <p class="text-sm text-slate-500 mt-1">Patients under management × the tier price per patient, from your pricing model. Each network route is the <b>aggregate of its linked practices&rsquo; patients</b>. The routes are alternative ways to sell to the same patients, so do not add them together.</p>
+        <div id="rev-cards" class="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 mt-3"></div>
       </div>
-      <div id="rev-tiers" class="grid grid-cols-1 xl:grid-cols-3 gap-4"></div>
+      <div id="rev-tiers" class="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4"></div>
       <div class="bg-white rounded-xl border border-slate-200 p-4">
         <h3 class="font-bold mb-2">Pipeline by lead status <span class="text-xs font-normal text-slate-400">(single-practice route)</span></h3>
         <div id="rev-pipeline" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
@@ -399,14 +410,14 @@ function renderMore() {
     tr.className = "hover:bg-blue-50/40 cursor-pointer align-top";
     const sig = signalCounts.get(p.ods_code);
     tr.innerHTML = `
-      <td class="p-3 min-w-[15rem]"><div class="font-semibold text-slate-900">${esc(p.practice_name)}</div>
+      <td class="p-3 min-w-[13rem] align-top"><div class="font-semibold text-slate-900">${esc(p.practice_name)}</div>
         <div class="text-[11px] text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}</div></td>
-      <td class="p-3 text-right whitespace-nowrap">${p.total_patients > 0 ? `<div class="font-mono font-semibold">${p.total_patients.toLocaleString()}</div>${chip(tier(p), TIER_CLS[tier(p)] || "")}<div class="text-[11px] text-emerald-700 font-semibold mt-0.5" title="Estimated annual value, single-practice route">≈ ${gbp(p.est_arr)}/yr</div>` : `<span class="text-slate-300" title="No NHS England patient count (Welsh or non-standard practice, or not yet published)">${p.ods_code[0] === "W" ? "Wales" : "–"}</span>`}</td>
-      <td class="p-3 min-w-[13rem]">${networkBlock(p)}</td>
-      <td class="p-3 whitespace-nowrap">${p.cqc_rating ? chip(p.cqc_rating, CQC_CLS[p.cqc_rating] || "bg-slate-100 text-slate-600") : '<span class="text-slate-300">–</span>'}${p.cqc_last_inspection ? `<div class="text-[11px] text-slate-400">inspected ${esc(p.cqc_last_inspection)}</div>` : ""}</td>
-      <td class="p-3 text-xs whitespace-nowrap">${p.clinical_software && p.clinical_software !== "Unknown" ? esc(p.clinical_software) : '<span class="text-slate-300">–</span>'}</td>
-      <td class="p-3 min-w-[12rem]">${contactBlock(p)}</td>
-      <td class="p-3 whitespace-nowrap">${chip(p.lead_status, LEAD_CLS[p.lead_status] || "")}</td>`;
+      <td class="p-3 text-right whitespace-nowrap align-top">${p.total_patients > 0 ? `<div class="font-mono font-semibold">${p.total_patients.toLocaleString()}</div><div class="mt-0.5">${chip(tier(p), TIER_CLS[tier(p)] || "")}</div>` : `<span class="text-slate-300" title="No NHS England patient count (Welsh or non-standard practice, or not yet published)">${p.ods_code[0] === "W" ? "Wales" : "–"}</span>`}</td>
+      <td class="p-3 text-right whitespace-nowrap align-top">${p.total_patients > 0 ? `<div class="font-mono font-semibold text-emerald-700" title="Estimated annual recurring revenue, single-practice route">${gbpFull(p.est_arr)}</div><div class="text-[11px] text-slate-400">£${Number(p.base_price).toFixed(3)}/pt</div>` : '<span class="text-slate-300">–</span>'}</td>
+      <td class="p-3 min-w-[12rem] align-top">${networkBlock(p)}</td>
+      <td class="p-3 whitespace-nowrap align-top">${p.cqc_rating ? chip(p.cqc_rating, CQC_CLS[p.cqc_rating] || "bg-slate-100 text-slate-600") : '<span class="text-slate-300">no rating</span>'}${p.cqc_last_inspection ? `<div class="text-[11px] text-slate-400">inspected ${esc(p.cqc_last_inspection)}</div>` : ""}<div class="text-xs text-slate-600 mt-0.5">${p.clinical_software && p.clinical_software !== "Unknown" ? esc(p.clinical_software) : '<span class="text-slate-300">system unknown</span>'}</div></td>
+      <td class="p-3 min-w-[11rem] align-top">${contactBlock(p)}</td>
+      <td class="p-3 whitespace-nowrap align-top">${chip(p.lead_status, LEAD_CLS[p.lead_status] || "")}</td>`;
     tr.onclick = () => toggleDetail(tr, p);
     frag.appendChild(tr);
   }
@@ -482,22 +493,25 @@ function renderMoreNetworks() {
     const bar = (v, cls) => v ? `<div class="${cls}" style="width:${(v / tot) * 100}%" title="${v}"></div>` : "";
     const tr = document.createElement("tr");
     tr.className = "hover:bg-blue-50/40 cursor-pointer align-top";
-    tr.innerHTML = `<td class="p-3 min-w-[14rem]"><div class="font-semibold">${esc(n.name)}</div>${n.confirmed === false ? '<div class="text-[11px] text-amber-600">inferred link: verify</div>' : ""}</td>
-      <td class="p-3 text-right font-mono">${n.practices}</td><td class="p-3 text-right font-mono">${n.patients ? Number(n.patients).toLocaleString() : "–"}</td>
-      <td class="p-3 whitespace-nowrap">${n.network_tier ? `${chip("Tier " + n.network_tier, TIER_CLS["Tier " + n.network_tier])}<div class="text-[11px] font-semibold text-emerald-700 mt-0.5">${gbp(n.arr_network)}/yr as ${esc(n.kind.toUpperCase())}</div><div class="text-[11px] text-slate-400">${gbp(n.arr_single)} if sold singly</div>`
-        : `<span class="text-[11px] text-slate-400">no ${esc(n.kind)} price route yet</span><div class="text-[11px] text-slate-400">${gbp(n.arr_single)} if sold singly</div>`}</td>
-      <td class="p-3 min-w-[9rem]"><div class="flex h-2 rounded overflow-hidden bg-slate-100">${bar(n.tier1, "bg-purple-500")}${bar(n.tier2, "bg-indigo-400")}${bar(n.tier3, "bg-blue-400")}${bar(n.tier4, "bg-sky-300")}${bar(n.tier5, "bg-slate-300")}</div>
-        <div class="text-[11px] text-slate-400 mt-0.5">T1 ${n.tier1} · T2 ${n.tier2} · T3 ${n.tier3} · T4 ${n.tier4} · T5 ${n.tier5}</div></td>
-      <td class="p-3 text-xs whitespace-nowrap">EMIS ${n.emis} · S1 ${n.systmone}</td>
-      <td class="p-3 text-xs">${n.cqc_concern ? chip(n.cqc_concern + " flagged", "bg-amber-100 text-amber-800") : '<span class="text-slate-300">–</span>'}</td>
-      <td class="p-3 text-xs whitespace-nowrap">${n.engaged} of ${n.practices}${open > 0 ? `<div class="text-[11px] text-emerald-700 font-semibold">${open} to approach</div>` : ""}</td>
-      <td class="p-3 text-right"><button class="text-blue-600 hover:underline text-xs whitespace-nowrap">View practices →</button></td>`;
+    const KIND = { pcn: "PCN", icb: "ICB", group: "group", federation: "federation" }[n.kind] || n.kind;
+    tr.innerHTML = `<td class="p-3 min-w-[14rem] align-top"><div class="font-semibold">${esc(n.name)}</div>
+        <div class="text-[11px] text-slate-500">EMIS ${n.emis} · SystmOne ${n.systmone}${n.cqc_concern ? " · " + chip(n.cqc_concern + " CQC flagged", "bg-amber-100 text-amber-800") : ""}</div>
+        ${n.confirmed === false ? '<div class="text-[11px] text-amber-600">inferred link: verify</div>' : ""}</td>
+      <td class="p-3 text-right font-mono align-top">${n.practices}</td>
+      <td class="p-3 text-right font-mono align-top">${n.patients ? Number(n.patients).toLocaleString() : "–"}</td>
+      <td class="p-3 whitespace-nowrap align-top">${n.network_tier ? chip("Tier " + n.network_tier, TIER_CLS["Tier " + n.network_tier]) : '<span class="text-slate-300">–</span>'}</td>
+      <td class="p-3 text-right whitespace-nowrap align-top">${n.network_tier ? `<div class="font-mono font-semibold text-emerald-700">${gbpFull(n.arr_network)}</div><div class="text-[11px] text-slate-400">as ${KIND} · £${Number(n.network_base_price).toFixed(3)}/pt</div><div class="text-[11px] text-slate-400">${gbpFull(n.arr_single)} if sold singly</div>`
+        : `<div class="font-mono text-slate-500">${gbpFull(n.arr_single)}</div><div class="text-[11px] text-slate-400">no ${esc(KIND)} price route set</div>`}</td>
+      <td class="p-3 min-w-[9rem] align-top"><div class="flex h-2 rounded overflow-hidden bg-slate-100">${bar(n.tier1, "bg-purple-500")}${bar(n.tier2, "bg-indigo-400")}${bar(n.tier3, "bg-blue-400")}${bar(n.tier4, "bg-sky-300")}${bar(n.tier5, "bg-slate-300")}</div>
+        <div class="text-[11px] text-slate-400 mt-0.5">${[n.tier1, n.tier2, n.tier3, n.tier4, n.tier5].map((v, i) => v ? "T" + (i + 1) + " " + v : "").filter(Boolean).join(" · ")}</div></td>
+      <td class="p-3 text-xs whitespace-nowrap align-top">${n.engaged} of ${n.practices}${open > 0 ? `<div class="text-[11px] text-emerald-700 font-semibold">${open} to approach</div>` : ""}</td>
+      <td class="p-3 text-right align-top"><button class="text-blue-600 hover:underline text-xs whitespace-nowrap">View →</button></td>`;
     tr.onclick = () => openNetwork(n.kind, keyOf(n), n.name);
     frag.appendChild(tr);
   }
   $("net-rows").appendChild(frag);
   $("n-more").classList.toggle("hidden", netShown >= netList.length);
-  if (!netList.length) $("net-rows").innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400 italic">Nothing here yet. Provider groups appear after the next daily run; federations appear when the Oscar file is loaded.</td></tr>';
+  if (!netList.length) $("net-rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">Nothing here yet. Federations appear once a source for them is loaded (currently the Oscar file).</td></tr>';
 }
 ["n-search", "n-sort", "n-multi"].forEach(id => $(id).addEventListener(id === "n-search" ? "input" : "change", renderNetworks));
 $("n-more").addEventListener("click", renderMoreNetworks);
@@ -507,14 +521,15 @@ function renderRevenue() {
   if (!practices.length || !cfgTiers.length) return;
   const act = practices.filter(p => p.status === "Active" && p.total_patients > 0);
   const sum = (a, f) => a.reduce((t, x) => t + (Number(f(x)) || 0), 0);
-  const pcns = networks.filter(n => n.kind === "pcn" && n.patients > 0), icbs = networks.filter(n => n.kind === "icb" && n.patients > 0);
+  const net = k => networks.filter(n => n.kind === k && n.patients > 0);
+  const netRoute = (key, name, unit) => { const l = net(key); return { key, name, unit, entities: l.length, patients: sum(l, n => n.patients), arr: sum(l, n => n.arr_network), tierOf: n => n.network_tier, pat: n => n.patients, val: n => n.arr_network, list: l }; };
   const routes = [
-    { key: "practice", name: "Single practices", entities: act.length, patients: sum(act, p => p.total_patients), arr: sum(act, p => p.est_arr), tierOf: p => p.price_tier, pat: p => p.total_patients, val: p => p.est_arr, list: act },
-    { key: "pcn", name: "PCNs", entities: pcns.length, patients: sum(pcns, n => n.patients), arr: sum(pcns, n => n.arr_network), tierOf: n => n.network_tier, pat: n => n.patients, val: n => n.arr_network, list: pcns },
-    { key: "icb", name: "ICBs", entities: icbs.length, patients: sum(icbs, n => n.patients), arr: sum(icbs, n => n.arr_network), tierOf: n => n.network_tier, pat: n => n.patients, val: n => n.arr_network, list: icbs }];
+    { key: "practice", name: "Single practices", unit: ["practice", "practices"], entities: act.length, patients: sum(act, p => p.total_patients), arr: sum(act, p => p.est_arr), tierOf: p => p.price_tier, pat: p => p.total_patients, val: p => p.est_arr, list: act },
+    netRoute("pcn", "PCNs", ["PCN", "PCNs"]), netRoute("icb", "ICBs", ["ICB", "ICBs"]), netRoute("group", "Provider groups", ["group", "groups"]), netRoute("federation", "Federations", ["federation", "federations"])]
+    .filter(r => r.key === "practice" || cfgTiers.some(t => t.route === r.key));
   $("rev-cards").innerHTML = routes.map(r => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${r.name} route</div>
     <div class="text-2xl font-bold text-emerald-700">${gbp(r.arr)}<span class="text-sm font-normal text-slate-400"> /yr</span></div>
-    <div class="text-xs text-slate-500">${r.entities.toLocaleString()} ${r.name.toLowerCase()} · ${(r.patients / 1e6).toFixed(1)}m patients · £${(r.arr / Math.max(r.patients, 1)).toFixed(4)}/patient avg</div></div>`).join("");
+    <div class="text-xs text-slate-500">${r.entities.toLocaleString()} ${r.entities === 1 ? r.unit[0] : r.unit[1]} · ${(r.patients / 1e6).toFixed(1)}m patients · £${(r.arr / Math.max(r.patients, 1)).toFixed(4)}/patient avg</div></div>`).join("");
   $("rev-tiers").innerHTML = routes.map(r => {
     const rows = cfgTiers.filter(t => t.route === r.key).sort((a, b) => a.tier - b.tier).map(t => {
       const m = r.list.filter(x => r.tierOf(x) === t.tier);

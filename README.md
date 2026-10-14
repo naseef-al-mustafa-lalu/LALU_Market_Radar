@@ -53,7 +53,7 @@ in Supabase, so nothing is hard-coded:
 Price per patient = list price x (1 - size discount); year-1 price also subtracts the speed discount. Est. ARR = patients x price.
 The views `practice_pricing` and `org_pricing` calculate it live, so editing a row (Supabase -> Table Editor) updates the dashboard immediately.
 The dashboard shows it per practice, per network (Networks tab) and in the **Revenue** tab (route totals, tier breakdown, pipeline by lead status, rate card).
-The three routes are alternative ways to sell to the same patients: do not add them together. `MIN_TIER_ALERT` (Tier 1-5) uses the single-practice tiers.
+Provider groups and federations are priced on the aggregate patients of their linked practices (seeded from the PCN schedule; edit the `group` / `federation` rows in `pricing_tiers`). The routes are alternative ways to sell to the same patients: do not add them together. `MIN_TIER_ALERT` (Tier 1-5) uses the single-practice tiers.
 
 ## Data model
 `gp_practices` holds one row per practice with everything collected about it. `organisations` + `org_relationships` form a graph
