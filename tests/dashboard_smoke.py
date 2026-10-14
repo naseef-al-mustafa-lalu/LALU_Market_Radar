@@ -50,6 +50,8 @@ with sync_playwright() as p:
     pg.click("#rows tr:first-child")
     pg.wait_for_selector("text=Network and ownership")
     assert "Modality Test" in pg.inner_text("#rows")
+    pg.screenshot(path="/tmp/claude-0/profile.png", full_page=True)
+    pg.set_viewport_size({"width": 1180, "height": 800}); pg.screenshot(path="/tmp/claude-0/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})
     pg.click("#tab-networks"); pg.wait_for_selector("#net-rows tr")
     assert "West PCN" in pg.inner_text("#net-rows") and "2 of 4" in pg.inner_text("#net-rows") and "Has a customer" in pg.inner_text("#net-rows"), pg.inner_text("#net-rows")
     pg.click("#net-kinds button[data-k=group]"); assert "Modality Test" in pg.inner_text("#net-rows") and "as group" in pg.inner_text("#net-rows")
