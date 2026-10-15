@@ -29,7 +29,7 @@ window.supabase = { createClient: () => {
   return { auth: { getSession: async () => ({ data: { session: {} } }), signOut: async () => {}, signInWithPassword: async () => ({}) },
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async () => ({ data: {} }) } };
 } };
-""" % json.dumps({"gp_practices": PR, "practice_pricing": PP, "network_summary": NETS, "practice_hubspot": HS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
+""" % json.dumps({"gp_practices": PR, "practice_pricing": PP, "network_summary": NETS, "practice_hubspot": HS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [], "signal_settings": [dict(trigger_type="NEW_PRACTICE", label="New practice", source="NHS ODS (daily)", rule="A code appears", why="Greenfield", sort_order=1, enabled=True)], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
 import os
 CSS = os.environ.get("TAILWIND_CSS", "")
 errors = []
@@ -88,6 +88,9 @@ with sync_playwright() as p:
     pg.screenshot(path="/tmp/claude-0/revenue.png", full_page=True)
     # signals + data
     pg.click("#tab-signals"); assert pg.is_visible("#s-count")
+    pg.click("#sig-sub button[data-s=types]"); assert "NHS ODS (daily)" in pg.inner_text("#sig-types-rows") and pg.is_hidden("#s-count")
+    pg.uncheck("input[data-t=NEW_PRACTICE]"); pg.wait_for_function("document.querySelector('#sig-types-msg').textContent.includes('disabled')")
+    pg.click("#sig-sub button[data-s=feed]"); assert pg.is_visible("#s-count")
     pg.click("#tab-data"); pg.wait_for_selector("#d-fresh")
     assert "2026" in pg.inner_text("#d-fresh") and "Annual list price" in pg.inner_text("#rev-config")
     import tempfile, os
