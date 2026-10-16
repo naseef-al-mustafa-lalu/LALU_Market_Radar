@@ -42,6 +42,11 @@ def norm_name(s):
     return " ".join(w for w in s.split() if w not in {"the", "ltd", "limited", "llp", "cic"})
 
 
+def norm_network(s):
+    s = norm_name(s).replace("primary care network", "pcn")
+    return " ".join(w for w in s.split() if w not in {"nhs"})
+
+
 def role_of(title):
     for label, rx in ROLE_RES:
         if rx.search(title or ""):
@@ -98,14 +103,20 @@ def fetch_all(get=requests.get, pause=0.5, max_pages=400):
     return adverts, total
 
 
-def candidates_for(name, postcodes, by_postcode):
-    """Practices at the employer's postcodes. Returns (status, ods_code or None, candidate list)."""
+def candidates_for(name, postcodes, by_postcode, networks=None):
+    """Practices at the employer's postcodes. Returns (status, ods_code or None, candidate list, org_id or None).
+    A PCN / federation employer is linked only when exactly one network has the same normalised name."""
     cands = {p["ods_code"]: p for pc in postcodes for p in by_postcode.get(pc, [])}
     cand_list = [{"ods_code": p["ods_code"], "name": p["practice_name"], "postcode": p.get("postcode")} for p in cands.values()]
     exact = [p for p in cands.values() if norm_name(p["practice_name"]) == norm_name(name)]
     if len(exact) == 1:
-        return "auto", exact[0]["ods_code"], cand_list
-    return ("network" if NETWORK_NAME.search(name or "") else "review"), None, cand_list
+        return "auto", exact[0]["ods_code"], cand_list, None
+    if NETWORK_NAME.search(name or ""):
+        same = [n for n in (networks or []) if norm_network(n["name"]) == norm_network(name)]
+        if len(same) == 1:
+            return "auto", None, cand_list, same[0]["id"]
+        return "network", None, cand_list, None
+    return "review", None, cand_list, None
 
 
 def sync(rest, practices, today=None, fetch=fetch_all):
@@ -124,22 +135,25 @@ def sync(rest, practices, today=None, fetch=fetch_all):
             continue
         e = emp.setdefault(a["employer_code"], {"employer_code": a["employer_code"], "employer_name": a["employer"], "postcodes": set()})
         e["postcodes"].update(filter(None, (norm_postcode(l) for l in a["locations"])))
+    networks = [n for n in rest.select_all("organisations", "id,kind,name", order="name") if n["kind"] in ("pcn", "federation", "group")]
     existing = {r["employer_code"]: r for r in rest.select_all("job_employers", order="employer_code")}
     now_iso = today.isoformat()
     emp_rows, counts = [], {"auto": 0, "confirmed": 0, "review": 0, "network": 0, "rejected": 0}
     for code, e in emp.items():
         old = existing.get(code)
         keep = old and old["match_status"] in ("confirmed", "rejected")
-        status, ods, cands = candidates_for(e["employer_name"], e["postcodes"], by_postcode)
+        status, ods, cands, org = candidates_for(e["employer_name"], e["postcodes"], by_postcode, networks)
         row = {"employer_code": code, "employer_name": e["employer_name"], "postcodes": sorted(e["postcodes"]), "candidates": cands, "last_seen": now_iso}
         if keep:
-            row.update(match_status=old["match_status"], ods_code=old["ods_code"])
+            row.update(match_status=old["match_status"], ods_code=old["ods_code"], org_id=old.get("org_id"))
         else:
-            row.update(match_status=status, ods_code=ods)
+            row.update(match_status=status, ods_code=ods, org_id=org)
         counts[row["match_status"]] += 1
         emp_rows.append(row)
     rest.upsert("job_employers", emp_rows, "employer_code")
-    ods_of = {r["employer_code"]: (r["ods_code"] if r["match_status"] in ("auto", "confirmed") else None) for r in emp_rows}
+    linked = lambda r: r["match_status"] in ("auto", "confirmed")
+    ods_of = {r["employer_code"]: (r["ods_code"] if linked(r) else None) for r in emp_rows}
+    org_of = {r["employer_code"]: (r.get("org_id") if linked(r) else None) for r in emp_rows}
 
     # role adverts
     rows = []
@@ -148,7 +162,7 @@ def sync(rest, practices, today=None, fetch=fetch_all):
             continue
         role = role_of(a["title"])
         if role:
-            rows.append({"advert_id": a["advert_id"], "employer_code": a["employer_code"], "ods_code": ods_of.get(a["employer_code"]),
+            rows.append({"advert_id": a["advert_id"], "employer_code": a["employer_code"], "ods_code": ods_of.get(a["employer_code"]), "org_id": org_of.get(a["employer_code"]),
                          "reference": a["reference"], "title": a["title"], "matched_role": role, "post_date": a["post_date"],
                          "close_date": a["close_date"], "url": a["url"], "locations": a["locations"], "last_seen": now_iso})
     known = {r["advert_id"]: r["signalled"] for r in rest.select_all("job_adverts", "advert_id,signalled", order="advert_id")}
@@ -156,12 +170,20 @@ def sync(rest, practices, today=None, fetch=fetch_all):
     signals = []
     for r in rows:
         r["signalled"] = known.get(r["advert_id"], False)
-        if r["signalled"] or not r["ods_code"]:
-            continue              # already signalled, or employer not linked to a practice yet (signalled once it is)
-        if (r["post_date"] or "") >= cutoff:
-            signals.append({"ods_code": r["ods_code"], "trigger_type": "JOB_REPORT_ROLE", "headline": f"Hiring: {r['title']}",
-                            "description": f"{emp[r['employer_code']]['employer_name']} advertised \"{r['title']}\" ({r['matched_role']}) on NHS Jobs"
-                                           f"{', closing ' + r['close_date'] if r['close_date'] else ''}. {r['url']}"})
+        if r["signalled"]:
+            continue
+        if (r["post_date"] or "") >= cutoff:        # recent: raise it now, wherever it can be filed (practice, network, or the unlinked list)
+            sig = {"trigger_type": "JOB_REPORT_ROLE", "headline": f"Hiring: {r['title']}",
+                   "description": f"{emp[r['employer_code']]['employer_name']} advertised \"{r['title']}\" ({r['matched_role']}) on NHS Jobs"
+                                  f"{', closing ' + r['close_date'] if r['close_date'] else ''}. {r['url']}"}
+            if r["ods_code"]:
+                sig["ods_code"] = r["ods_code"]
+            elif r["org_id"]:
+                sig["org_id"] = r["org_id"]
+            else:
+                sig["employer_code"] = r["employer_code"]      # unlinked: lives in the feed until you link the employer
+            sig["employer_code"] = r["employer_code"]
+            signals.append(sig)
         r["signalled"] = True     # older adverts load silently
     rest.upsert("job_adverts", rows, "advert_id")
     if signals:

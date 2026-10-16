@@ -6,7 +6,7 @@ from .common import Rest, esc, need_env, recipients, send_email
 
 TIER_RANK = {f"Tier {i}": i for i in range(1, 6)}  # Tier 1 = largest (20,000+ patients) ... Tier 5 = smallest
 MAX_ROWS = 150
-COLS = ("id,trigger_type,headline,description,gp_practices(ods_code,practice_name,pcn_name,icb_name,total_patients,"
+COLS = ("id,trigger_type,headline,description,employer_code,organisations(name,kind),gp_practices(ods_code,practice_name,pcn_name,icb_name,total_patients,"
         "clinical_software,manager_name,manager_title,manager_email,manager_phone,"
         "manager_email_opt_out,lead_status,status)")
 
@@ -49,7 +49,19 @@ def row_html(t, tiers):
             f"<td style='padding:10px;font-size:12px;background:#f8fafc'><b>{esc(t['headline'])}</b><br>{esc(t['description'])}</td></tr>")
 
 
-def render(send, dashboard_url, tiers):
+def other_html(others):
+    """Signals filed against a network or an unlinked employer (no single practice to tier or contact)."""
+    if not others:
+        return ""
+    items = "".join(
+        f"<tr style='border-bottom:1px solid #e2e8f0'><td style='padding:8px;font-size:13px'><b>{esc((t.get('organisations') or {}).get('name') or 'Unlinked employer ' + str(t.get('employer_code') or ''))}</b>"
+        f"<br><span style='color:#64748b;font-size:11px'>{esc((t.get('organisations') or {}).get('kind') or 'link it in Signals > Job matches')}</span></td>"
+        f"<td style='padding:8px;font-size:12px'><b>{esc(t['headline'])}</b><br>{esc(t['description'])}</td></tr>" for t in others[:MAX_ROWS])
+    return ("<h3 style='margin:24px 0 6px;font-size:15px'>Network and unlinked signals</h3>"
+            f"<table style='width:100%;border-collapse:collapse;text-align:left'><tbody>{items}</tbody></table>")
+
+
+def render(send, dashboard_url, tiers, others=()):
     rows = "".join(row_html(t, tiers) for t in send[:MAX_ROWS])
     more = f"<p style='color:#64748b'>+{len(send) - MAX_ROWS} more in the dashboard.</p>" if len(send) > MAX_ROWS else ""
     link = (f"<p style='text-align:center'><a href='{esc(dashboard_url)}' style='background:#2563eb;color:#fff;padding:12px 28px;"
@@ -59,7 +71,7 @@ def render(send, dashboard_url, tiers):
             "<h2 style='color:#2563eb;margin-top:0'>Lalu Market Radar: daily digest</h2>"
             "<table style='width:100%;border-collapse:collapse;text-align:left'><thead><tr style='background:#f1f5f9;font-size:12px;"
             "text-transform:uppercase;color:#475569'><th style='padding:10px'>Practice</th><th style='padding:10px'>Signal</th>"
-            f"<th style='padding:10px'>Contact</th><th style='padding:10px'>Detail</th></tr></thead><tbody>{rows}</tbody></table>{more}{link}"
+            f"<th style='padding:10px'>Contact</th><th style='padding:10px'>Detail</th></tr></thead><tbody>{rows}</tbody></table>{more}{other_html(others)}{link}"
             "</div></body></html>")
 
 
@@ -76,14 +88,16 @@ def main():
     if not triggers:
         print("No new triggers."); return
     tiers = [t for t in rest.select_all("pricing_tiers", "route,tier,threshold", order="tier") if t["route"] == "practice"]
-    send, skip = select(triggers, min_tier, tiers)
-    if send:
-        send_email(f"Market radar: {len(send)} new lead signal{'s' if len(send) != 1 else ''}",
-                   render(send, os.environ.get("DASHBOARD_URL", ""), tiers), recipients())  # raises on failure: nothing marked sent
-    done = [t["id"] for t in send + skip]
+    others = [t for t in triggers if not t.get("gp_practices")]
+    send, skip = select([t for t in triggers if t.get("gp_practices")], min_tier, tiers)
+    if send or others:
+        n = len(send) + len(others)
+        send_email(f"Market radar: {n} new lead signal{'s' if n != 1 else ''}",
+                   render(send, os.environ.get("DASHBOARD_URL", ""), tiers, others), recipients())  # raises on failure: nothing marked sent
+    done = [t["id"] for t in send + skip + others]
     for i in range(0, len(done), 100):
         rest.patch("sales_triggers", {"id": f"in.({','.join(done[i:i + 100])})"}, {"email_dispatched": True})
-    print(f"Sent {len(send)}, filtered {len(skip)}.")
+    print(f"Sent {len(send)} practice + {len(others)} network/unlinked, filtered {len(skip)}.")
 
 
 if __name__ == "__main__":

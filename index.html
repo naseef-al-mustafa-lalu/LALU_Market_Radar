@@ -150,7 +150,7 @@
           <label class="text-sm"><input type="checkbox" id="jm-adv" checked> only employers with a report / records advert</label>
           <span id="jm-count" class="text-sm text-slate-500 ml-auto"></span>
         </div>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Employer</th><th class="pr-3">Adverts</th><th class="pr-3 min-w-[16rem]">Link to practice</th><th></th></tr></thead><tbody id="jm-rows" class="divide-y divide-slate-100"></tbody></table></div>
+        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Employer</th><th class="pr-3">Adverts</th><th class="pr-3 min-w-[16rem]">Link to practice</th><th></th></tr></thead><tbody id="jm-rows" class="divide-y divide-slate-100"></tbody></table></div><datalist id="jm-netlist"></datalist>
         <button id="jm-more" class="hidden mt-2 text-blue-600 hover:underline text-sm">Show more</button>
         <p id="jm-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
@@ -287,7 +287,7 @@ function indexSignals() {
   $("sig-badge").textContent = recent; $("sig-badge").classList.toggle("hidden", !recent);
 }
 async function loadNetworks() {
-  try { networks = await fetchAll("network_summary", "*", "id"); renderNetworks(); renderRevenue(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
+  try { networks = await fetchAll("network_summary", "*", "id"); renderNetworks(); renderRevenue(); fillNetList(); renderSignals(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
 }
 async function startApp() {
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
@@ -508,6 +508,11 @@ function openNetworkProfile(n) {
       .map(([k, v]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-[10px] uppercase tracking-wider text-slate-400">${k}</div></div>`).join("")}</div>` +
     sec("Pricing (" + KIND + " route)", price) +
     sec("Linked practices: price singly vs in the network", `<div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-[10px] uppercase tracking-wider text-slate-400"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div>`) +
+    sec("Recent signals across this network", (() => {
+      const codes = new Set(members.map(p => p.ods_code));
+      return signals.filter(x => (x.ods_code && codes.has(x.ods_code)) || x.org_id === n.id).slice(0, 8).map(x => `<div class="py-1 border-t border-slate-100 first:border-0 text-sm"><span class="font-mono text-[11px] text-slate-400">${esc(fmtDate(x.detected_at))}</span> <b class="text-xs">${esc(x.headline)}</b>
+        <div class="text-[11px] text-slate-500">${esc(x.ods_code ? (byOds.get(x.ods_code)?.practice_name || x.ods_code) : "network-level")} · ${esc(x.trigger_type.replaceAll("_", " ").toLowerCase())}</div></div>`).join("");
+    })()) +
     `<button id="np-view" class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;
   $("dr-body").onclick = ev => { const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
@@ -618,9 +623,12 @@ $("sig-types-rows").addEventListener("change", async e => {
 let jobEmployers = [], jobAdverts = [], jmShown = 0, jmList = [];
 async function loadJobs() {
   const [e, a] = await Promise.all([fetchAll("job_employers", "*", "employer_code"), fetchAll("job_adverts", "*", "advert_id")]);
-  jobEmployers = e; jobAdverts = a; renderJobMatches();
+  jobEmployers = e; jobAdverts = a; fillNetList(); renderJobMatches(); renderSignals();
   const n = e.filter(x => x.match_status === "review" && a.some(j => j.employer_code === x.employer_code)).length;
   $("jobs-badge").textContent = n; $("jobs-badge").classList.toggle("hidden", !n);
+}
+function fillNetList() {
+  $("jm-netlist").innerHTML = networks.filter(n => ["pcn", "federation", "group"].includes(n.kind)).sort((x, y) => x.name.localeCompare(y.name)).map(n => `<option value="${esc(n.name)} (${esc(n.kind)})">`).join("");
 }
 function renderJobMatches() {
   const st = $("jm-status").value, q = $("jm-search").value.trim().toLowerCase(), onlyAdv = $("jm-adv").checked;
@@ -634,11 +642,11 @@ function renderMoreJobMatches() {
   const slice = jmList.slice(jmShown, jmShown + 50); jmShown += slice.length; const adv = window.__adv;
   $("jm-rows").insertAdjacentHTML("beforeend", slice.map(e => {
     const ads = adv.get(e.employer_code) || [], cur = e.ods_code ? byOds.get(e.ods_code) : null;
-    const opts = (e.candidates || []).map(c => `<option value="${esc(c.ods_code)}" ${c.ods_code === e.ods_code ? "selected" : ""}>${esc(c.name)} (${esc(c.ods_code)})</option>`).join("");
+    const linkedNet = e.org_id ? networks.find(n => n.id === e.org_id) : null; const opts = (e.candidates || []).map(c => `<option value="${esc(c.ods_code)}" ${c.ods_code === e.ods_code ? "selected" : ""}>${esc(c.name)} (${esc(c.ods_code)})</option>`).join("");
     return `<tr class="align-top" data-c="${esc(e.employer_code)}"><td class="py-2 pr-3"><div class="font-semibold leading-tight">${esc(e.employer_name)}</div><div class="font-mono text-[10px] text-slate-400">${esc(e.employer_code)} · ${esc((e.postcodes || []).slice(0, 3).join(", "))}</div></td>
       <td class="pr-3 text-xs">${ads.length ? ads.slice(0, 3).map(j => `<div><a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(j.url)}">${esc(j.title)}</a> <span class="text-slate-400">${esc(fmtDate(j.post_date))}</span></div>`).join("") + (ads.length > 3 ? `<div class="text-slate-400">+${ads.length - 3} more</div>` : "") : '<span class="text-slate-300">none</span>'}</td>
-      <td class="pr-3 text-xs">${e.match_status === "confirmed" || e.match_status === "auto" ? `<b>${esc(cur ? cur.practice_name : e.ods_code)}</b> <span class="text-slate-400">${esc(e.ods_code)}</span>` :
-        `<select class="jm-pick border border-slate-300 rounded px-2 py-1 text-xs max-w-[18rem]"><option value="">${opts ? "Choose the practice…" : "No practice at this postcode"}</option>${opts}</select><div class="mt-1"><input class="jm-ods border border-slate-300 rounded px-2 py-0.5 text-xs w-28" placeholder="or ODS code"></div>`}</td>
+      <td class="pr-3 text-xs">${e.match_status === "confirmed" || e.match_status === "auto" ? `<b>${esc(cur ? cur.practice_name : linkedNet ? linkedNet.name : (e.ods_code || e.org_id || ""))}</b> <span class="text-slate-400">${esc(e.ods_code || (linkedNet ? linkedNet.kind : ""))}</span>` :
+        `<select class="jm-pick border border-slate-300 rounded px-2 py-1 text-xs max-w-[18rem]"><option value="">${opts ? "Choose the practice…" : "No practice at this postcode"}</option>${opts}</select><div class="mt-1 flex gap-1"><input class="jm-ods border border-slate-300 rounded px-2 py-0.5 text-xs w-24" placeholder="or ODS code"><input list="jm-netlist" class="jm-net border border-slate-300 rounded px-2 py-0.5 text-xs w-44" placeholder="or PCN / federation / group"></div>`}</td>
       <td class="whitespace-nowrap text-xs">${e.match_status === "confirmed" || e.match_status === "auto" || e.match_status === "rejected" ? `<button data-a="reopen" class="jm-act text-slate-500 hover:underline">Reopen</button>` :
         `<button data-a="confirm" class="jm-act bg-blue-600 text-white rounded px-2 py-1 mr-1">Confirm</button><button data-a="reject" class="jm-act text-slate-500 hover:underline">Not a practice</button>`}</td></tr>`; }).join(""));
   $("jm-more").classList.toggle("hidden", jmShown >= jmList.length);
@@ -647,13 +655,18 @@ function renderMoreJobMatches() {
 $("jm-rows").addEventListener("click", async ev => {
   const b = ev.target.closest(".jm-act"); if (!b) return;
   const tr = b.closest("tr"), code = tr.dataset.c, action = b.dataset.a, msg = $("jm-msg");
-  const ods = action === "confirm" ? ((tr.querySelector(".jm-ods").value.trim() || tr.querySelector(".jm-pick").value).toUpperCase()) : null;
-  if (action === "confirm" && !/^[A-Z][0-9]{5}$/.test(ods || "")) { msg.textContent = "Choose a practice or type its ODS code first."; return; }
+  let ods = null, org = null;
+  if (action === "confirm") {
+    const typed = tr.querySelector(".jm-net").value.trim(), net = typed && networks.find(n => `${n.name} (${n.kind})` === typed);
+    if (typed && !net) { msg.textContent = "Pick the network from the list."; return; }
+    if (net) org = net.id; else ods = (tr.querySelector(".jm-ods").value.trim() || tr.querySelector(".jm-pick").value).toUpperCase();
+    if (!org && !/^[A-Z][0-9]{5}$/.test(ods || "")) { msg.textContent = "Choose a practice, type its ODS code, or pick a network first."; return; }
+  }
   b.disabled = true;
-  const { error } = await db.rpc("review_job_employer", { p_code: code, p_ods: ods, p_action: action });
+  const { error } = await db.rpc("link_job_employer", { p_code: code, p_ods: ods, p_org: org, p_action: action });
   if (error) { msg.textContent = "Could not save: " + (error.message || error); b.disabled = false; return; }
-  msg.textContent = action === "confirm" ? "Linked. A signal is raised on the next daily run for recent adverts." : action === "reject" ? "Marked as not a practice." : "Reopened.";
-  await loadJobs();
+  msg.textContent = action === "confirm" ? "Linked. Its existing signals have moved to that practice / network." : action === "reject" ? "Marked as not a practice." : "Reopened.";
+  await loadJobs(); await loadSignals();
 });
 ["jm-status", "jm-adv"].forEach(id => $(id).addEventListener("change", renderJobMatches)); $("jm-search").addEventListener("input", renderJobMatches); $("jm-more").addEventListener("click", renderMoreJobMatches);
 /* ---------- signals ---------- */
@@ -661,20 +674,30 @@ function renderSignals() {
   const types = [...new Set(signals.map(s => s.trigger_type))].sort(), cur = $("s-type").value;
   $("s-type").innerHTML = '<option value="">All signal types</option>' + types.map(t => `<option value="${t}" ${t === cur ? "selected" : ""}>${esc(t.replaceAll("_", " ").toLowerCase())}</option>`).join("");
   const q = $("s-search").value.trim().toLowerCase(), ty = $("s-type").value;
-  sigList = signals.filter(s => (!ty || s.trigger_type === ty) && (!q || [s.headline, s.description, s.ods_code, byOds.get(s.ods_code)?.practice_name].some(v => (v || "").toLowerCase().includes(q))));
+  sigList = signals.filter(s => (!ty || s.trigger_type === ty) && (!q || [s.headline, s.description, s.ods_code, sigTarget(s).label].some(v => (v || "").toLowerCase().includes(q))));
   sigShown = 0; $("s-rows").innerHTML = ""; renderMoreSignals();
   $("s-count").textContent = `${sigList.length.toLocaleString()} signals`;
 }
+const sigTarget = s => {
+  if (s.ods_code && byOds.get(s.ods_code)) { const p = byOds.get(s.ods_code); return { kind: "practice", label: p.practice_name, sub: s.ods_code, p }; }
+  if (s.org_id) { const n = networks.find(x => x.id === s.org_id); return { kind: "network", label: n ? n.name : "Network", sub: n ? ({ pcn: "PCN / cluster", icb: "ICB", group: "Provider group", federation: "Federation" }[n.kind] || n.kind) : "", n }; }
+  if (s.employer_code) { const e = jobEmployers.find(x => x.employer_code === s.employer_code); return { kind: "unlinked", label: e ? e.employer_name : s.employer_code, sub: "unlinked employer: link it in Job matches", e }; }
+  return { kind: "none", label: s.ods_code || "", sub: s.ods_code || "" };
+};
 function renderMoreSignals() {
   const slice = sigList.slice(sigShown, sigShown + PAGE); sigShown += slice.length;
   const frag = document.createDocumentFragment();
   for (const s of slice) {
-    const p = byOds.get(s.ods_code), tr = document.createElement("tr"); tr.className = "hover:bg-blue-50/50 cursor-pointer align-top";
+    const t = sigTarget(s), tr = document.createElement("tr"); tr.className = "hover:bg-blue-50/50 cursor-pointer align-top";
     tr.innerHTML = `<td class="px-3 py-2 whitespace-nowrap font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</td>
       <td class="px-3 py-2 whitespace-nowrap">${chip(s.trigger_type.replaceAll("_", " ").toLowerCase(), HOT.includes(s.trigger_type) ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-700")}</td>
-      <td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(p ? p.practice_name : s.ods_code)}</div><div class="text-[11px] text-slate-500 font-mono">${esc(s.ods_code)}</div></td>
+      <td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(t.label)}${t.kind === "unlinked" ? " " + chip("unlinked", "bg-amber-100 text-amber-800") : t.kind === "network" ? " " + chip("network", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-[11px] text-slate-500 ${t.kind === "practice" ? "font-mono" : ""}">${esc(t.sub)}</div></td>
       <td class="px-3 py-2"><div class="font-medium">${esc(s.headline)}</div><div class="text-xs text-slate-500">${esc(s.description)}</div></td>`;
-    tr.onclick = () => { if (p) { clearFilters(); showTab("practices"); $("f-search").value = p.ods_code; applyFilters(); openDrawer(p); } };
+    tr.onclick = () => {
+      if (t.kind === "practice") { clearFilters(); showTab("practices"); $("f-search").value = t.p.ods_code; applyFilters(); openDrawer(t.p); }
+      else if (t.kind === "network" && t.n) { netKind = t.n.kind; showTab("networks"); renderNetworks(); openNetworkProfile(t.n); }
+      else if (t.kind === "unlinked") { setSigSub("jobs"); $("jm-status").value = t.e ? t.e.match_status : "review"; $("jm-search").value = t.label; renderJobMatches(); }
+    };
     frag.appendChild(tr);
   }
   $("s-rows").appendChild(frag);
