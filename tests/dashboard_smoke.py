@@ -24,7 +24,7 @@ NETS = [dict(id="1", kind="pcn", name="West PCN", source_key="ods:U00001", pract
 FAKE = """
 window.supabase = { createClient: () => {
   const data = %s;
-  const q = t => { const r = { select: () => r, order: () => r, range: (a,b) => Promise.resolve({ data: (data[t]||[]).slice(a, b+1) }), eq: () => r, limit: () => Promise.resolve({ data: data[t]||[] }),
+  const q = t => { const r = { select: () => r, order: () => r, range: (a,b) => (window.__slow ? new Promise(r => setTimeout(r, window.__slow)) : Promise.resolve()).then(() => ({ data: (data[t]||[]).slice(a, b+1) })), eq: () => r, limit: () => Promise.resolve({ data: data[t]||[] }),
     update: () => ({ eq: () => Promise.resolve({ error: null }) }), then: (f) => Promise.resolve({ data: data[t]||[] }).then(f) }; return r; };
   return { auth: { getSession: async () => ({ data: { session: { user: { email: 'new@lalu.co.uk' } } } }), signOut: async () => {}, updateUser: async (a) => { (window.__rpc = window.__rpc || []).push(['updateUser', a]); return {}; }, resetPasswordForEmail: async (e, o) => { (window.__rpc = window.__rpc || []).push(['reset', e, o]); return {}; }, signInWithPassword: async () => ({}) },
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async () => ({ data: {} }) } };
@@ -40,8 +40,12 @@ with sync_playwright() as p:
     pg.on("console", lambda m: errors.append(m.text) if m.type == "error" and "ERR_" not in m.text and "Failed to load resource" not in m.text else None)
     pg.route("**/*", lambda r: r.fulfill(body=FAKE, content_type="text/javascript") if "supabase-js" in r.request.url else
              (r.fulfill(body="document.head.insertAdjacentHTML('beforeend', '<style>' + %s + '</style>')" % json.dumps(open(CSS).read() if CSS and __import__("os").path.exists(CSS) else ""), content_type="text/javascript") if "tailwindcss" in r.request.url else r.continue_()))
+    pg.add_init_script("window.__slow = 700")
     pg.goto("file:///home/user/LALU_Market_Radar/index.html")
-    pg.wait_for_selector("#rows tr", timeout=8000)
+    pg.wait_for_selector("#loading:not(.hidden)", timeout=3000)       # the pop-up is there while data loads
+    assert "Loading" in pg.inner_text("#loading") and pg.is_visible("#load-spin")
+    pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
+    pg.evaluate("window.__slow = 0")
     assert pg.locator("#rows tr").count() == 8, pg.locator("#rows tr").count()
     assert "8 practices" in pg.inner_text("#count")
     def noflow(sel, name):

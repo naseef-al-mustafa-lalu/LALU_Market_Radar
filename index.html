@@ -19,6 +19,16 @@
 <body class="bg-slate-100 text-slate-900 antialiased">
 
 <!-- Login -->
+<div id="loading" class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-6" role="status" aria-live="polite">
+  <div class="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 w-full max-w-sm text-center">
+    <div id="load-spin" class="mx-auto w-10 h-10 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin"></div>
+    <h2 class="mt-4 font-bold text-lg">Loading Lalu Market Radar</h2>
+    <p id="load-step" class="mt-1 text-sm text-slate-600">Starting…</p>
+    <p id="load-slow" class="hidden mt-3 text-xs text-slate-500">Still working: the first load pulls about 6,000 practices and can take up to 30 seconds. It isn't stuck.</p>
+    <button id="load-retry" class="hidden mt-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-1.5 text-sm font-semibold">Try again</button>
+  </div>
+</div>
+
 <section id="login" class="hidden min-h-screen flex items-center justify-center p-6">
   <form id="login-form" class="bg-white border border-slate-200 rounded-xl p-8 w-full max-w-sm space-y-4 shadow-sm">
     <h1 class="text-xl font-bold">Lalu Market Radar</h1>
@@ -341,10 +351,24 @@ function indexSignals() {
 async function loadNetworks() {
   try { networks = await fetchAll("network_summary", "*", "id"); renderNetworks(); renderRevenue(); fillNetList(); renderSignals(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
 }
+/* ---------- loading pop-up (so a slow first load never looks like a crash) ---------- */
+let slowTimer = null;
+function loading(on, step) {
+  $("loading").classList.toggle("hidden", !on);
+  clearTimeout(slowTimer); $("load-slow").classList.add("hidden");
+  if (on) { $("load-spin").classList.remove("hidden"); $("load-retry").classList.add("hidden"); $("load-step").textContent = step || "Starting…"; slowTimer = setTimeout(() => $("load-slow").classList.remove("hidden"), 6000); }
+}
+const loadStep = t => { $("load-step").textContent = t; };
+function loadFailed(err) {
+  $("load-spin").classList.add("hidden"); clearTimeout(slowTimer); $("load-slow").classList.add("hidden");
+  $("load-step").textContent = "Could not load the data: " + (err && err.message ? err.message : err) + ". Check your connection and try again."; $("load-retry").classList.remove("hidden");
+}
+$("load-retry").onclick = () => startApp();
 async function startApp() {
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  loading(true, "Checking your sign-in and loading the price list…");
   try {
-    await loadConfig(); await loadPractices();
+    await loadConfig(); loadStep("Loading practices (about 6,000 of them)…"); await loadPractices(); loadStep("Loading signals…");
     if (!practices.length) $("rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">No data yet, or your account is not authorised.</td></tr>';
     const icbs = [...new Set(practices.map(p => p.icb_name))].sort();
     $("f-icb").innerHTML = '<option value="">All ICBs</option>' + icbs.map(i => `<option>${esc(i)}</option>`).join("");
@@ -352,7 +376,7 @@ async function startApp() {
     const { data: run } = await db.from("ingest_runs").select("finished_at").eq("status", "success").order("id", { ascending: false }).limit(1);
     lastRunDate = run && run[0] ? fmtDate(run[0].finished_at) : null;
     $("refresh-badge").textContent = "Refreshed " + (lastRunDate || "never");
-    applyFilters(); loadNetworks(); showTab(currentTab);
+    loadStep("Loading networks…"); await loadNetworks(); loadStep("Preparing the dashboard…"); applyFilters(); showTab(currentTab); loading(false);
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signals.unshift(p.new); indexSignals(); renderSignals(); if (currentTab === "practices") applyFilters(); })
       .subscribe(s => { $("sig-live").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); }
