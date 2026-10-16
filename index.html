@@ -761,11 +761,11 @@ function readDevolved(text, name, expect) {
    status() -> text shown under the box (what is currently in the database) */
 const UPLOAD_KIND = { scotland: "Scotland practices", "wales-clusters": "Wales practices and clusters", "wales-sizes": "Wales patient numbers (StatsWales)" };
 const latestMonth = list => list.map(p => p.data_month).filter(Boolean).sort().pop() || "?";
-async function loadDevolvedRows(country, rows, month, say) {
+async function loadDevolvedRows(country, rows, month, say, create = true) {
   let stored = 0, added = 0;
   for (let i = 0; i < rows.length; i += 1000) {
     say(`Loading ${Math.min(i + 1000, rows.length).toLocaleString()} of ${rows.length.toLocaleString()}…`);
-    const { data, error } = await db.rpc("load_devolved", { p_country: country, p_month: month, p_rows: rows.slice(i, i + 1000) });
+    const { data, error } = await db.rpc("load_devolved", { p_country: country, p_month: month, p_create: create, p_rows: rows.slice(i, i + 1000) });
     if (error) throw error; stored += data.stored; added += data.new;
   }
   return `${stored.toLocaleString()} practices processed (${added.toLocaleString()} new)`;
@@ -792,7 +792,7 @@ const UPLOADS = [
   { id: "walc", title: "Wales: practices and clusters", gives: "Welsh clusters (PCN equivalent) for each practice. No list sizes", file: "Wales_practice_data_….csv (PracticeId, ClusterID)", cadence: "when clusters change",
     href: "https://nwssp.nhs.wales/ourservices/primary-care-services/general-information/data-and-publications/gp-practice-analysis/", link: "NWSSP: GP practice analysis",
     parse: (t, n) => { const r = readDevolved(t, n, "wales-clusters"); return { count: r.rows.length, month: r.month, payload: r }; },
-    load: (r, month, say) => loadDevolvedRows("Wales", r.rows, month, say),
+    load: (r, month, say) => loadDevolvedRows("Wales", r.rows, month, say, false),   // clusters only update practices we already hold: the file also lists branch sites
     status: () => { const l = practices.filter(p => p.country === "Wales" && p.network_locked); return l.length ? `${l.length.toLocaleString()} Welsh practices have a cluster` : "Nothing loaded yet"; } },
   { id: "walp", title: "Wales: patient numbers and health boards", gives: "List size and health board for each Welsh practice (latest quarter only)", file: "patients-registered-to-general-practices-in-wales-…-v4-en-gb.csv", cadence: "quarterly",
     href: "https://stats.gov.wales/en-GB/75dcbf1e-9b43-4d9a-90b1-f02affe80bc2", link: "StatsWales: Patients registered to general practices in Wales (download as CSV)",

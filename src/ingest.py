@@ -110,7 +110,7 @@ def sync(rest, run_id):
     active = sources.load_active_gp_practices()
     existing = {r["ods_code"]: r for r in rest.select_all("gp_practices", order="ods_code")}
     ods = {c: {"name": v["name"], "postcode": v["postcode"], "status": "Active"} for c, v in active.items()}
-    closed = [c for c, r in existing.items() if r["status"] == "Active" and c not in active and r.get("country") != "Scotland"]
+    closed = [c for c, r in existing.items() if r["status"] == "Active" and c not in active and (r.get("country") or "England") == "England"]  # Scotland/Wales rows come from uploads, not ODS
     for c in closed:
         ods[c] = {"name": existing[c]["practice_name"], "postcode": existing[c].get("postcode"), "status": "Closed"}
     stats.update(ods_active=len(active), closures=len(closed))
