@@ -24,7 +24,7 @@ NETS = [dict(id="1", kind="pcn", name="West PCN", source_key="ods:U00001", pract
 FAKE = """
 window.supabase = { createClient: () => {
   const data = %s;
-  const q = t => { const r = { select: () => r, order: () => r, range: (a,b) => (window.__slow ? new Promise(r => setTimeout(r, window.__slow)) : Promise.resolve()).then(() => ({ data: (data[t]||[]).slice(a, b+1) })), eq: () => r, limit: () => Promise.resolve({ data: data[t]||[] }),
+  const q = t => { const r = { select: () => r, order: () => r, range: (a,b) => window.__fail ? Promise.resolve({ data: null, error: { message: 'network down' } }) : (window.__slow ? new Promise(r => setTimeout(r, window.__slow)) : Promise.resolve()).then(() => ({ data: (data[t]||[]).slice(a, b+1) })), eq: () => r, limit: () => Promise.resolve({ data: data[t]||[] }),
     update: () => ({ eq: () => Promise.resolve({ error: null }) }), then: (f) => Promise.resolve({ data: data[t]||[] }).then(f) }; return r; };
   return { auth: { getSession: async () => ({ data: { session: { user: { email: 'new@lalu.co.uk' } } } }), signOut: async () => {}, updateUser: async (a) => { (window.__rpc = window.__rpc || []).push(['updateUser', a]); return {}; }, resetPasswordForEmail: async (e, o) => { (window.__rpc = window.__rpc || []).push(['reset', e, o]); return {}; }, signInWithPassword: async () => ({}) },
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async () => ({ data: {} }) } };
@@ -145,6 +145,11 @@ with sync_playwright() as p:
     open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
     pg.set_input_files("#up-wal .up-file", os.path.join(td, "bad.csv")); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.includes('Not recognised')")
     pg.screenshot(path="/tmp/claude-0/data.png", full_page=True)
+    # a failed load must not leave the spinner up forever: it explains and offers Try again
+    pg.goto("about:blank"); pg.add_init_script("window.__fail = true"); pg.goto("file:///home/user/LALU_Market_Radar/index.html")
+    pg.wait_for_selector("#load-retry:not(.hidden)", timeout=8000)
+    assert "Could not load the data" in pg.inner_text("#load-step") and pg.is_hidden("#load-spin")
+    pg.evaluate("window.__fail = false"); pg.click("#load-retry"); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     # invite link: lands on the set-password screen, not the dashboard
     pg.goto("about:blank"); pg.goto("file:///home/user/LALU_Market_Radar/index.html#access_token=abc&type=invite")
     pg.wait_for_selector("#setpw:not(.hidden)"); assert "new@lalu.co.uk" in pg.inner_text("#setpw-who") and pg.is_hidden("#app")
