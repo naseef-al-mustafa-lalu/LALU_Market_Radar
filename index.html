@@ -168,7 +168,7 @@
       </div>
       
       <div id="sig-feed"><div class="overflow-x-auto max-h-[80vh]"><table class="w-full text-left text-sm">
-        <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr><th class="px-3 py-2.5 whitespace-nowrap">Date</th><th class="px-3 py-2.5 whitespace-nowrap">Type</th><th class="px-3 py-2.5 min-w-[14rem]">Practice</th><th class="px-3 py-2.5 min-w-[22rem]">Signal</th></tr></thead>
+        <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr><th class="px-3 py-2.5 whitespace-nowrap">Date</th><th class="px-3 py-2.5 whitespace-nowrap">Type</th><th class="px-3 py-2.5 min-w-[14rem]">Practice</th><th class="px-3 py-2.5 min-w-[18rem]">Signal</th><th class="px-3 py-2.5 min-w-[16rem]">Next step</th><th class="px-3 py-2.5 w-10 text-center" title="Link to the source, e.g. the NHS Jobs advert">Link</th></tr></thead>
         <tbody id="s-rows" class="divide-y divide-slate-100"></tbody></table></div>
       <div class="p-3 text-center"><button id="s-more" class="hidden text-blue-600 hover:underline text-sm">Show more</button></div></div>
     </section>
@@ -501,7 +501,7 @@ async function openDrawer(p) {
       <span class="text-slate-500 text-sm"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span>
       <div class="text-xs text-slate-600">${c.email ? (c.email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : `<a class="text-blue-600 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : ""} ${esc(c.phone)}</div>
       <div class="mt-0.5">${c.hubspot_status === "Imported" ? chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800") : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-400">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
-  $("dr-signals").outerHTML = sec("Signals", (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-[11px] text-slate-400">${esc(fmtDate(s.detected_at))}</span> <b class="text-xs">${esc(s.headline)}</b><div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</div>`).join("") || '<p class="text-sm italic text-slate-400">No signals for this practice yet.</p>');
+  $("dr-signals").outerHTML = sec("Signals", (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-[11px] text-slate-400">${esc(fmtDate(s.detected_at))}</span> <b class="text-xs">${esc(s.headline)}</b> ${sigLink(s)}<div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700 mt-0.5"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</div>`).join("") || '<p class="text-sm italic text-slate-400">No signals for this practice yet.</p>');
 }
 
 /* ---------- networks ---------- */
@@ -723,6 +723,8 @@ function renderSignals() {
   sigShown = 0; $("s-rows").innerHTML = ""; renderMoreSignals();
   $("s-count").textContent = `${sigList.length.toLocaleString()} signals`;
 }
+const linkIcon = '<svg viewBox="0 0 20 20" class="inline w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M11 3h6v6M17 3l-8 8M8 5H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3"/></svg>';
+const sigLink = s => s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-800" title="Open source: ${esc(s.url)}" aria-label="Open source" onclick="event.stopPropagation()">${linkIcon}</a>` : "";
 const sigTarget = s => {
   if (s.ods_code && byOds.get(s.ods_code)) { const p = byOds.get(s.ods_code); return { kind: "practice", label: p.practice_name, sub: s.ods_code, p }; }
   if (s.org_id) { const n = networks.find(x => x.id === s.org_id); return { kind: "network", label: n ? n.name : "Network", sub: n ? ({ pcn: "PCN / cluster", icb: "ICB", group: "Provider group", federation: "Federation" }[n.kind] || n.kind) : "", n }; }
@@ -737,7 +739,9 @@ function renderMoreSignals() {
     tr.innerHTML = `<td class="px-3 py-2 whitespace-nowrap font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</td>
       <td class="px-3 py-2 whitespace-nowrap">${chip(s.trigger_type.replaceAll("_", " ").toLowerCase(), HOT.includes(s.trigger_type) ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-700")}</td>
       <td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(t.label)}${t.kind === "unlinked" ? " " + chip("unlinked", "bg-amber-100 text-amber-800") : t.kind === "network" ? " " + chip("network", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-[11px] text-slate-500 ${t.kind === "practice" ? "font-mono" : ""}">${esc(t.sub)}</div></td>
-      <td class="px-3 py-2"><div class="font-medium">${esc(s.headline)}</div><div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700 mt-0.5"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</td>`;
+      <td class="px-3 py-2"><div class="font-medium">${esc(s.headline)}</div><div class="text-xs text-slate-500">${esc(s.description)}</div></td>
+      <td class="px-3 py-2 text-xs text-blue-800">${esc(s.action || "")}</td>
+      <td class="px-3 py-2 text-center">${sigLink(s)}</td>`;
     tr.onclick = () => {
       if (t.kind === "practice") { clearFilters(); showTab("practices"); $("f-search").value = t.p.ods_code; applyFilters(); openDrawer(t.p); }
       else if (t.kind === "network" && t.n) { netKind = t.n.kind; showTab("networks"); renderNetworks(); openNetworkProfile(t.n); }
@@ -747,7 +751,7 @@ function renderMoreSignals() {
   }
   $("s-rows").appendChild(frag);
   $("s-more").classList.toggle("hidden", sigShown >= sigList.length);
-  if (!sigList.length) $("s-rows").innerHTML = '<tr><td colspan="4" class="p-6 text-center text-slate-400 italic">No signals yet. They appear when something changes between daily runs (closures, list growth, CQC changes, takeovers…).</td></tr>';
+  if (!sigList.length) $("s-rows").innerHTML = '<tr><td colspan="6" class="p-6 text-center text-slate-400 italic">No signals yet. They appear when something changes between daily runs (closures, list growth, CQC changes, takeovers…).</td></tr>';
 }
 ["s-type", "s-search"].forEach(id => $(id).addEventListener(id === "s-search" ? "input" : "change", renderSignals));
 $("s-more").addEventListener("click", renderMoreSignals);

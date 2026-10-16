@@ -195,6 +195,7 @@ def sync(rest, run_id):
             raise ValueError("NHS_JOBS=0: jobs scan skipped")
         all_practices = list({**existing, **{r["ods_code"]: {**existing.get(r["ods_code"], {}), **r} for r in records}}.values())
         stats.update(jobs.sync(rest, all_practices))
+        stats["job_links_moved"] = jobs.move_links_out_of_descriptions(rest)
     except Exception as e:  # noqa: BLE001  the jobs feed is enrichment: never block the main load
         stats["jobs_error"] = str(e)[:300]
 

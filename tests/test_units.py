@@ -155,3 +155,12 @@ def test_same_name_provider_change_is_not_called_a_takeover():
     r = R()
     assert cqc.repair_provider_signals(r, lambda *a, **k: {}) == 1
     assert r.patched[0]["headline"] == "Bartley Green Medical Practice: new CQC provider record" and "not a takeover" in r.patched[0]["action"]
+
+
+def test_digest_row_has_next_step_and_link_separately():
+    from src import digest
+    p = dict(ods_code="A1", practice_name="P", total_patients=9000, manager_name=None, manager_title=None, manager_email=None, manager_phone=None,
+             manager_email_opt_out=False, clinical_software="EMIS Web", pcn_name="N", lead_status="Cold", status="Active", pcn_code=None, icb_name="I")
+    html = digest.row_html({"trigger_type": "JOB_REPORT_ROLE", "headline": "Hiring: X", "description": "Practice advertised X.", "action": "Offer cover.",
+                            "url": "https://www.jobs.nhs.uk/a/1", "gp_practices": p}, [dict(route="practice", tier=1, threshold=0)])
+    assert "Next step:</b> Offer cover." in html and "Open source" in html and "https://www.jobs.nhs.uk/a/1" in html and "jobs.nhs.uk" not in "Practice advertised X."
