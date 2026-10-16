@@ -139,3 +139,19 @@ def test_provider_change_signal_text_uses_names_not_ids():
     assert cqc.repair_provider_signals(r, lambda path, params=None: {"name": names[path.rsplit("/", 1)[1]]}) == 1
     assert r.patched[0]["description"] == "Bartley Green Medical Practice is now run by Lakeside Healthcare Group (previously Dr A Partners)."
     assert r.patched[0]["headline"] == "Bartley Green Medical Practice changed owner to Lakeside Healthcare Group"
+
+
+def test_same_name_provider_change_is_not_called_a_takeover():
+    from src import cqc
+
+    class R:
+        def __init__(self): self.patched = []; self.kv = {}
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "kv_state": return []
+            return [{"id": "t9", "headline": "Bartley Green Medical Practice changed owner to Bartley Green Medical Practice", "ods_code": "A1",
+                     "description": "Bartley Green Medical Practice is now run by Bartley Green Medical Practice (previously Bartley Green Medical Practice)."}]
+        def upsert(self, *a, **k): pass
+        def patch(self, table, params, body): self.patched.append(body)
+    r = R()
+    assert cqc.repair_provider_signals(r, lambda *a, **k: {}) == 1
+    assert r.patched[0]["headline"] == "Bartley Green Medical Practice: new CQC provider record" and "not a takeover" in r.patched[0]["action"]

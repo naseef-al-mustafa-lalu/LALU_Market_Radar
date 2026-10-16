@@ -177,11 +177,17 @@ def build_rows(rest, practices, found, getj, now, stats):
     return rows, stats
 
 
+def _same_name_change(desc):
+    m = re.match(r".+? is now run by (.+?) \(previously (.+?)\)\.$", desc or "")
+    return bool(m and m.group(1).strip().lower() == m.group(2).strip().lower())
+
+
 def repair_provider_signals(rest, getj):
     """Older CQC_PROVIDER_CHANGE signals quote raw provider IDs (1-123456789): replace them with the operators' names."""
     ids = re.compile(r"\b1-\d{6,}\b")
     bad = [t for t in rest.select_all("sales_triggers", "id,description,headline,ods_code", order="detected_at",
-                                      params={"trigger_type": "eq.CQC_PROVIDER_CHANGE"}) if ids.search(t.get("description") or "")]
+                                      params={"trigger_type": "eq.CQC_PROVIDER_CHANGE"}) if ids.search(t.get("description") or "") or _same_name_change(t.get("description") or "")
+           or (t.get("headline") or "") == "Practice changed operator: likely takeover"]
     if not bad:
         return 0
     names = _kv_get(rest, "cqc_provider_names", {}) or {}
@@ -195,10 +201,15 @@ def repair_provider_signals(rest, getj):
         for pid in ids.findall(txt):
             if names.get(pid):
                 txt = txt.replace(pid, names[pid])
-        if not ids.search(txt):
-            m = re.match(r"(.+?) is now registered with (.+?) \(previously (.+?)\)\.", txt)
+        if not ids.search(txt) and not (t.get("headline") or "").endswith("new CQC provider record"):
+            m = re.match(r"(.+?) is now (?:registered with|run by) (.+?) \(previously (.+?)\)\.", txt)
             if m:
-                new_txt = f"{m.group(1)} is now run by {m.group(2)} (previously {m.group(3)})."
-                rest.patch("sales_triggers", {"id": f"eq.{t['id']}"},
-                           {"description": new_txt, "headline": f"{m.group(1)} changed owner to {m.group(2)}"})
+                same = m.group(2).strip().lower() == m.group(3).strip().lower()
+                new_txt = (f"{m.group(1)} has re-registered with CQC under a new provider record, still named {m.group(2)}." if same
+                           else f"{m.group(1)} is now run by {m.group(2)} (previously {m.group(3)}).")
+                body = {"description": new_txt, "headline": f"{m.group(1)}: new CQC provider record" if same else f"{m.group(1)} changed owner to {m.group(2)}"}
+                if same:
+                    body["action"] = ("Same operator name, new legal entity: usually a partnership change or restructure, not a takeover. "
+                                      "Ask the practice manager what changed; partner changes can reset supplier decisions.")
+                rest.patch("sales_triggers", {"id": f"eq.{t['id']}"}, body)
     return len(bad)
