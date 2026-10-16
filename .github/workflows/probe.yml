@@ -2,7 +2,7 @@ name: Probe data sources
 on:
   workflow_dispatch:
     inputs:
-      which: { description: 'sources | nhsjobs | nhsjobs3 | nhsjobs4', default: 'nhsjobs4' }
+      which: { description: 'sources | nhsjobs | nhsjobs3 | nhsjobs4 | nhsjobs5', default: 'nhsjobs4' }
 permissions: { contents: read }
 jobs:
   probe:
