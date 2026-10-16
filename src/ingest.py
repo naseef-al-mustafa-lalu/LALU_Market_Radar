@@ -4,7 +4,7 @@ import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
 
-from . import cqc, oscar, software, sources
+from . import cqc, jobs, oscar, software, sources
 from .common import Rest, need_env, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
@@ -185,6 +185,14 @@ def sync(rest, run_id):
         elif stale:
             stats["contacts_delete_skipped"] = len(stale)
         stats.update(contacts_changed=len(changed), contacts_removed=len(stale))
+
+    try:
+        if env.get("NHS_JOBS", "1") == "0":
+            raise ValueError("NHS_JOBS=0: jobs scan skipped")
+        all_practices = list({**existing, **{r["ods_code"]: {**existing.get(r["ods_code"], {}), **r} for r in records}}.values())
+        stats.update(jobs.sync(rest, all_practices))
+    except Exception as e:  # noqa: BLE001  the jobs feed is enrichment: never block the main load
+        stats["jobs_error"] = str(e)[:300]
 
     try:
         stats["graph"] = rest.rpc("refresh_org_graph")

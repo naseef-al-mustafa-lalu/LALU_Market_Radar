@@ -49,3 +49,8 @@ def oscar_rows():
         "5,Bad,Code,,Practice Manager,,,,b@nhs.net,No,No,,ICB One,No,ZZZ",
         "x,Bad,Urn,,Practice Manager,,,,b@nhs.net,No,No,,ICB One,No,A10003",
     ]
+
+
+@pytest.fixture(autouse=True)
+def _no_jobs_scan(monkeypatch):
+    monkeypatch.setenv("NHS_JOBS", "0")   # tests never touch the live NHS Jobs feed
