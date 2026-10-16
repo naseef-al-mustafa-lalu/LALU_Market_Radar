@@ -12,6 +12,12 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 4. **GitHub Pages**: Settings -> Pages -> deploy from `main` / root. (Private repos need a paid GitHub plan for Pages.)
 5. Run the **Daily market radar** workflow manually once. The first successful run is a silent *baseline*: it loads everything but raises no triggers and sends no email. From the second run, changes generate signals.
 
+## Inviting users
+1. Supabase > Authentication > URL Configuration: set **Site URL** to the dashboard URL and add it under **Redirect URLs** (invite and reset links return there).
+2. Supabase > Authentication > Users > **Invite user**, then allow them: `insert into allowed_users (email) values ('them@lalu.co.uk');` (emails must be lower case).
+3. They open the link, land on **Choose your password**, set one (10+ characters) and go straight into the dashboard. "Forgot your password?" on the login page uses the same screen.
+Supabase's built-in email sender is for testing only (heavily rate-limited, and I believe restricted to your own team's addresses). For real invites configure custom SMTP (Authentication > SMTP Settings, e.g. Resend) once the sending domain is verified.
+
 ## Dashboard layout
 Five tabs: **Practices** (search, tier and HubSpot filters, "More filters", removable filter chips, sortable columns; click a row for the profile side panel),
 **Networks** (PCN / group / federation / ICB with linked practices, aggregated ARR, engaged and customer status; "View →" jumps to the filtered practice list with a back link),

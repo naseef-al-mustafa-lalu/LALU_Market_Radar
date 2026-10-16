@@ -26,7 +26,7 @@ window.supabase = { createClient: () => {
   const data = %s;
   const q = t => { const r = { select: () => r, order: () => r, range: (a,b) => Promise.resolve({ data: (data[t]||[]).slice(a, b+1) }), eq: () => r, limit: () => Promise.resolve({ data: data[t]||[] }),
     update: () => ({ eq: () => Promise.resolve({ error: null }) }), then: (f) => Promise.resolve({ data: data[t]||[] }).then(f) }; return r; };
-  return { auth: { getSession: async () => ({ data: { session: {} } }), signOut: async () => {}, signInWithPassword: async () => ({}) },
+  return { auth: { getSession: async () => ({ data: { session: { user: { email: 'new@lalu.co.uk' } } } }), signOut: async () => {}, updateUser: async (a) => { (window.__rpc = window.__rpc || []).push(['updateUser', a]); return {}; }, resetPasswordForEmail: async (e, o) => { (window.__rpc = window.__rpc || []).push(['reset', e, o]); return {}; }, signInWithPassword: async () => ({}) },
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async () => ({ data: {} }) } };
 } };
 """ % json.dumps({"gp_practices": PR, "practice_pricing": PP, "network_summary": NETS, "practice_hubspot": HS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [dict(id="s1", ods_code=None, org_id="1", employer_code="W1", trigger_type="JOB_REPORT_ROLE", headline="Hiring: Records Administrator", description="Acclaim PCN advertised", detected_at="2026-10-16T08:00:00Z"), dict(id="s2", ods_code=None, org_id=None, employer_code="A0095", trigger_type="JOB_REPORT_ROLE", headline="Hiring: Medical Secretary", description="Little Common Surgery advertised", detected_at="2026-10-16T08:00:00Z")], "job_employers": [dict(employer_code="A0095", employer_name="Little Common Surgery", postcodes=["TN394SP"], match_status="review", ods_code=None, candidates=[dict(ods_code="A10001", name="Little Common Surgery", postcode="TN39 4SP")]), dict(employer_code="A0001", employer_name="Done Surgery", postcodes=[], match_status="confirmed", ods_code="A10002", candidates=[])], "job_adverts": [dict(advert_id="1", employer_code="A0095", ods_code=None, title="Medical Secretary", matched_role="medical secretary", post_date="2026-10-14", close_date="2026-10-30", url="https://x/1"), dict(advert_id="2", employer_code="A0001", ods_code="A10002", title="Medical Records Administrator", matched_role="records / summarising", post_date="2026-10-13", close_date=None, url="https://x/2")], "signal_settings": [dict(trigger_type="NEW_PRACTICE", label="New practice", source="NHS ODS (daily)", rule="A code appears", why="Greenfield", sort_order=1, enabled=True)], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
@@ -125,5 +125,13 @@ with sync_playwright() as p:
     open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
     up("walp", os.path.join(td, "bad.csv"), "Not recognised")
     pg.screenshot(path="/tmp/claude-0/data.png", full_page=True)
+    # invite link: lands on the set-password screen, not the dashboard
+    pg.goto("about:blank"); pg.goto("file:///home/user/LALU_Market_Radar/index.html#access_token=abc&type=invite")
+    pg.wait_for_selector("#setpw:not(.hidden)"); assert "new@lalu.co.uk" in pg.inner_text("#setpw-who") and pg.is_hidden("#app")
+    pg.fill("#pw1", "correct horse battery"); pg.fill("#pw2", "something else entirely"); pg.click("#setpw-form button"); assert "do not match" in pg.inner_text("#setpw-error")
+    pg.fill("#pw2", "correct horse battery"); pg.click("#setpw-form button"); pg.wait_for_selector("#app:not(.hidden)")
+    assert [c for c in pg.evaluate("window.__rpc.filter(c => c[0] === 'updateUser')")][0][1]["password"] == "correct horse battery"
+    assert "type=invite" not in pg.evaluate("location.href")
+    pg.goto("about:blank"); pg.goto("file:///home/user/LALU_Market_Radar/index.html#error=access_denied&error_description=Email+link+is+invalid+or+has+expired")
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)
