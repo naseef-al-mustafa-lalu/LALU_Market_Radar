@@ -19,7 +19,7 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 Supabase's built-in email sender is for testing only (heavily rate-limited, and I believe restricted to your own team's addresses). For real invites configure custom SMTP (Authentication > SMTP Settings, e.g. Resend) once the sending domain is verified.
 
 ## Dashboard layout
-Five tabs: **Practices** (search, tier and HubSpot filters, "More filters", removable filter chips, sortable columns; click a row for the profile side panel),
+Five tabs (the Data tab has four sub-tabs: Overview, Data sources, Signal settings, Pricing & rate card): **Practices** (search, tier and HubSpot filters, "More filters", removable filter chips, sortable columns; click a row for the profile side panel),
 **Networks** (PCN / group / federation / ICB with linked practices, aggregated ARR, engaged and customer status; "View →" jumps to the filtered practice list with a back link),
 **Revenue** (route totals and route x tier matrix), **Signals** (change-detection feed, live updates) and **Data** (freshness, recent pipeline runs, patient-count upload/runner, rate card).
 `tests/dashboard_smoke.py` exercises all of them against a fake Supabase client.

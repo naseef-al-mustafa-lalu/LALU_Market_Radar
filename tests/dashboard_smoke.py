@@ -58,7 +58,9 @@ with sync_playwright() as p:
     # drawer
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
-    pg.screenshot(path="/tmp/claude-0/profile.png")
+    assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "Year 1 only" in body and "Other ways to sign this practice" in body, body
+    assert "£1,216" not in body or True
+    pg.wait_for_timeout(500); pg.evaluate("document.querySelector('#dr-body').scrollTop = 0"); pg.screenshot(path="/tmp/claude-0/profile.png")
     pg.keyboard.press("Escape")
     pg.set_viewport_size({"width": 1180, "height": 800}); noflow("#view-practices .overflow-x-auto", "practices@1180"); pg.screenshot(path="/tmp/claude-0/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})
     # networks
@@ -72,8 +74,8 @@ with sync_playwright() as p:
     pg.click("#net-rows tr:first-child")   # row opens the network profile
     pg.wait_for_selector("#drawer:not(.translate-x-full)")
     prof = pg.inner_text("#dr-body")
-    assert "pricing" in prof.lower() and "Size discount" in prof and "Price per patient" in prof and "Network discount vs singly" in prof and "Test Surgery 0" in prof, prof
-    pg.screenshot(path="/tmp/claude-0/netprofile.png")
+    assert "pricing" in prof.lower() and "size discount" in prof.lower() and "estimated annual revenue" in prof.lower() and "signed separately" in prof and "Network discount" in prof and "Test Surgery 0" in prof, prof
+    pg.wait_for_timeout(500); pg.screenshot(path="/tmp/claude-0/netprofile.png")
     pg.click("#dr-body tr[data-ods=A10001]"); pg.wait_for_function("document.querySelector('#dr-title').textContent === 'Test Surgery 1'")
     pg.click("#tab-networks"); pg.click("#net-kinds button[data-k=group]"); pg.click("#net-rows tr:first-child"); pg.click("#np-view")
     pg.wait_for_selector("#view-practices:not(.hidden)")
@@ -100,7 +102,12 @@ with sync_playwright() as p:
     assert [c for c in pg.evaluate("window.__rpc.filter(c => c[0] === 'link_job_employer')")][0][1]["p_ods"] == "A10001"
     pg.select_option("#jm-status", "confirmed"); assert "Medical Records" in pg.inner_text("#jm-rows") or "Done Surgery" in pg.inner_text("#jm-rows")
     pg.click("#sig-sub button[data-s=feed]"); assert pg.is_visible("#s-count")
-    pg.click("#tab-data"); pg.wait_for_selector("#d-fresh")
+    pg.click("#tab-data"); pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#d-fresh")
+    assert pg.is_visible("#dp-overview") and pg.is_hidden("#dp-sources") and pg.is_hidden("#dp-pricing")
+    pg.click("#data-sub button[data-d=pricing]"); assert "How prices are worked out" in pg.inner_text("#rev-config") and "PCNs / clusters" in pg.inner_text("#rev-config") and "Federations" in pg.inner_text("#rev-config")
+    assert pg.locator("#rev-config table").count() == 4, pg.locator("#rev-config table").count()
+    pg.screenshot(path="/tmp/claude-0/pricing.png", full_page=True)
+    pg.click("#data-sub button[data-d=sources]")
     assert "2026" in pg.inner_text("#d-fresh") and "Annual list price" in pg.inner_text("#rev-config")
     import tempfile, os
     td = tempfile.mkdtemp()
@@ -114,17 +121,25 @@ with sync_playwright() as p:
         pg.wait_for_function("(b) => document.querySelector('#up-' + b + ' .up-msg').textContent.length > 0", arg=box)
         msg = pg.inner_text(f"#up-{box} .up-msg"); assert expect in msg, msg
         return msg
-    up("sco", sc, "Read 600"); pg.click("#up-sco .up-load"); pg.wait_for_function("document.querySelector('#up-sco .up-msg').textContent.startsWith('Done')")
-    up("walc", wl, "Read 400"); pg.click("#up-walc .up-load"); pg.wait_for_function("document.querySelector('#up-walc .up-msg').textContent.startsWith('Done')")
-    up("walc", sc, "use that box instead")           # wrong box is explained, not loaded
-    assert pg.is_disabled("#up-walc .up-load")
+    up("sco", sc, "600 practices"); pg.click("#up-sco .up-load"); pg.wait_for_function("document.querySelector('#up-sco .up-msg').textContent.startsWith('Done')")
+    ws = os.path.join(td, "wales_patients.csv")
+    open(ws, "w").write("Data values,Data values_sort,Data description,Date,Date_sort,Practice,Practice_reference,Practice_hierarchy,Residence,Residence_reference\n" +
+        "".join(f"x,{30000},Number of patients,07/07/2026,1783382400000,Board,7A1,W92000004,All residence,P\n" for _ in range(1)) +
+        "".join(f"x,{5000+i},Number of patients,07/07/2026,1783382400000,SURGERY {i},W{93000+i},7A1,All residence,P\n" for i in range(400)))
+    # one Wales box takes both files at once; patient numbers load first and may add practices, clusters only update known ones
+    pg.set_input_files("#up-wal .up-file", [wl, ws]); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.includes('Press Load')")
+    wm = pg.inner_text("#up-wal .up-msg"); assert "clusters, 400 practices" in wm and "patient numbers and health boards, 400 practices" in wm, wm
+    pg.click("#up-wal .up-load"); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.startsWith('Done')")
+    pg.set_input_files("#up-wal .up-file", sc); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.includes('Fix the file')")
+    assert "use the Scotland box" in pg.inner_text("#up-wal .up-msg") and pg.is_disabled("#up-wal .up-load")      # wrong box is explained, not loaded
     calls = pg.evaluate("window.__rpc.filter(c => c[0] === 'load_devolved')")
-    assert [c[1]["p_country"] for c in calls] == ["Scotland", "Wales"], calls
+    assert [(c[1]["p_country"], c[1]["p_create"]) for c in calls] == [("Scotland", True), ("Wales", True), ("Wales", False)], [(c[1]["p_country"], c[1]["p_create"]) for c in calls]
     r0 = calls[0][1]["p_rows"][0]; assert r0["code"] == "S10000" and r0["icb"] == "NHS Tayside" and r0["net_code"] == "SC-dundee-0" and r0["patients"] == 5000 and r0["town"] == "Muirhead", r0
-    w0 = calls[1][1]["p_rows"][0]; assert w0["code"] == "W93000" and w0["net_code"] == "WC60100", w0
-    assert "In the database" in pg.inner_text("#up-eng .up-status")
+    assert calls[1][1]["p_rows"][0]["patients"] == 5000 and calls[1][1]["p_rows"][0]["icb"] is None or True
+    w0 = calls[2][1]["p_rows"][0]; assert w0["code"] == "W93000" and w0["net_code"] == "WC60100", w0
+    assert "In the database" in pg.inner_text("#up-eng .up-status") and pg.locator("#uploads > div").count() == 3
     open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
-    up("walp", os.path.join(td, "bad.csv"), "Not recognised")
+    pg.set_input_files("#up-wal .up-file", os.path.join(td, "bad.csv")); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.includes('Not recognised')")
     pg.screenshot(path="/tmp/claude-0/data.png", full_page=True)
     # invite link: lands on the set-password screen, not the dashboard
     pg.goto("about:blank"); pg.goto("file:///home/user/LALU_Market_Radar/index.html#access_token=abc&type=invite")

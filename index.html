@@ -174,7 +174,11 @@
     </section>
 
     <!-- Data -->
-    <section id="view-data" class="hidden grid grid-cols-1 xl:grid-cols-2 gap-4">
+    <section id="view-data" class="hidden">
+      <div id="data-sub" class="inline-flex flex-wrap bg-slate-100 rounded-lg p-0.5 text-sm font-semibold mb-4">
+        <button data-d="overview" class="px-3 py-1 rounded-md bg-white shadow-sm">Overview</button><button data-d="sources" class="px-3 py-1 rounded-md text-slate-500">Data sources</button><button data-d="signals" class="px-3 py-1 rounded-md text-slate-500">Signal settings</button><button data-d="pricing" class="px-3 py-1 rounded-md text-slate-500">Pricing &amp; rate card</button>
+      </div>
+      <div id="dp-overview" class="grid grid-cols-1 xl:grid-cols-2 gap-4">
       <div class="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
         <h2 class="font-bold">Data freshness</h2>
         <div id="d-fresh" class="text-sm"></div>
@@ -182,31 +186,35 @@
         <div id="d-runs" class="text-xs overflow-x-auto"></div>
       </div>
       <div class="bg-white rounded-xl border border-slate-200 p-4">
-        <h2 class="font-bold">Patient counts</h2>
+        <h2 class="font-bold">HubSpot</h2>
+        <p class="text-sm text-slate-500 mt-1">Not connected yet. The database is ready for it: contacts record whether they are imported into HubSpot and when; practices record company ID, lifecycle stage, engaged and customer flags. These drive the HubSpot column, the Engaged and Customers columns on Networks, and the HubSpot position on Revenue.</p>
+      </div>
+      </div>
+      <div id="dp-sources" class="hidden space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h2 class="font-bold">England: automatic update</h2>
         <p id="pc-status" class="text-sm text-slate-500 mt-1">Checking…</p>
         <div class="mt-3 border-t border-slate-100 pt-3">
-          <div class="text-xs font-semibold text-slate-600 mb-1">England: automatic update (needs the office PC runner; otherwise upload below)</div>
+          <div class="text-xs font-semibold text-slate-600 mb-1">Needs the office PC runner. Without it, upload the file below.</div>
           <button id="pc-run" class="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg px-4 py-1.5 text-xs font-semibold">Update from NHS now</button>
           <p id="pc-run-msg" class="mt-1 text-xs text-slate-500 min-h-[1rem]"></p>
         </div>
       </div>
-      <div id="sig-types" class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h2 class="font-bold">Upload data files <span class="text-xs font-normal text-slate-400">(download the file, choose it, check the month, press Load)</span></h2>
+        <div id="uploads" class="mt-3 grid gap-3 md:grid-cols-2"></div>
+      </div>
+      </div>
+      <div id="dp-signals" class="hidden">
+      <div id="sig-types" class="bg-white rounded-xl border border-slate-200 p-4">
         <h2 class="font-bold">Signal settings <span class="text-xs font-normal text-slate-400">(which signals the radar raises)</span></h2>
         <p class="text-sm text-slate-500 my-2">Every signal the tool can raise, where its data comes from and the rule that triggers it. Switching one off stops new signals of that type being recorded (existing ones stay in the feed). It takes effect on the next data load.</p>
         <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Signal</th><th class="pr-3">Data source</th><th class="pr-3 min-w-[16rem]">Rule</th><th class="pr-3 min-w-[12rem]">Why it matters</th><th class="pr-3 text-right">Last 30 days</th><th class="pr-3 text-right">Total</th><th class="text-center">Enabled</th></tr></thead><tbody id="sig-types-rows" class="divide-y divide-slate-100"></tbody></table></div>
         <p id="sig-types-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
-      <div class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
-        <h2 class="font-bold">Upload data files <span class="text-xs font-normal text-slate-400">(one box per source: download the file, choose it, check the month, press Load)</span></h2>
-        <div id="uploads" class="mt-3 grid gap-3 md:grid-cols-2"></div>
       </div>
-      <div class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
-        <h2 class="font-bold">Rate card and settings <span class="text-xs font-normal text-slate-400">(read-only here: edit the <code>pricing_tiers</code> and <code>pricing_settings</code> tables in Supabase)</span></h2>
-        <div id="rev-config" class="mt-3 text-xs overflow-x-auto"></div>
-      </div>
-      <div class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
-        <h2 class="font-bold">HubSpot</h2>
-        <p class="text-sm text-slate-500 mt-1">Not connected yet. The database is ready for it: contacts record whether they are imported into HubSpot and when; practices record company ID, lifecycle stage, engaged and customer flags. These drive the HubSpot column, the Engaged and Customers columns on Networks, and the HubSpot position on Revenue.</p>
+      <div id="dp-pricing" class="hidden">
+        <div id="rev-config" class="space-y-4"></div>
       </div>
     </section>
   </main>
@@ -456,6 +464,48 @@ function renderMore() {
 }
 $("more").addEventListener("click", renderMore);
 
+/* ---------- price breakdown: headline figure, then the working in plain steps ---------- */
+const stepRow = (n, label, detail, value) => `<li class="flex gap-2.5"><span class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-white border border-emerald-200 text-emerald-800 text-[11px] font-bold flex items-center justify-center">${n}</span>
+  <div class="min-w-0 flex-1"><div class="flex justify-between gap-3"><span class="font-medium">${label}</span><span class="font-mono font-semibold whitespace-nowrap">${value}</span></div><div class="text-xs text-slate-500">${detail}</div></div></li>`;
+function priceCard({ patients, tierRow, route, arr, who }) {
+  const list = Number(cfgSettings.list_price_per_patient?.value || 0);
+  if (!tierRow || !patients || arr == null) return '<p class="text-sm italic text-slate-400">No price yet: this needs a list size and a price tier for this route.</p>';
+  const size = Number(tierRow.size_discount), speed = Number(tierRow.speed_discount), base = list * (1 - size), y1 = base * (1 - speed);
+  const tiersAsc = cfgTiers.filter(t => t.route === route).sort((a, b) => a.threshold - b.threshold);
+  const next = tiersAsc.find(t => Number(t.threshold) > patients && t.tier < tierRow.tier);
+  return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+    <div class="flex items-end justify-between gap-3">
+      <div><div class="text-[11px] uppercase tracking-wider text-slate-500">Estimated annual revenue</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(arr)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
+      <div class="text-right"><div class="text-[11px] uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(arr * (1 - speed))}</div><div class="text-[11px] text-slate-500">${pct(speed)} speed discount</div></div></div>
+    <ol class="mt-3 space-y-2.5 text-sm">
+      ${stepRow(1, "List price", "Standard annual price before any discount", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-400">per patient</span>`)}
+      ${stepRow(2, `${pct(size)} size discount`, `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}: ${who ? esc(who) + " has " : ""}${patients.toLocaleString()} patients${Number(tierRow.threshold) ? ", over the " + Number(tierRow.threshold).toLocaleString() + " threshold" : ""}`, `£${base.toFixed(3)} <span class="text-xs font-normal text-slate-400">per patient</span>`)}
+      ${stepRow(3, `× ${patients.toLocaleString()} patients`, "Price per patient × registered patients", `${gbpFull(arr)} <span class="text-xs font-normal text-slate-400">a year</span>`)}
+      ${stepRow(4, "Year 1 only", `${pct(speed)} off for signing quickly: £${y1.toFixed(3)} per patient`, `${gbpFull(arr * (1 - speed))}`)}
+    </ol>
+    ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${(list * (1 - Number(next.size_discount))).toFixed(3)} per patient).</p>` : ""}</div>`;
+}
+const compareRow = (label, sub, price, arr, vs, action) => `<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2"><div class="font-medium leading-tight">${label}</div><div class="text-[11px] text-slate-500">${sub}</div></td><td class="text-right font-mono">£${price.toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(arr)}</td><td class="text-right text-xs ${vs < 0 ? "text-emerald-700" : "text-slate-500"}">${vs === 0 ? "same" : (vs < 0 ? "−" : "+") + gbpFull(Math.abs(vs))}</td></tr>`;
+function routeComparison(p) {
+  if (!(p.total_patients > 0) || p.est_arr == null) return "";
+  const rows = [];
+  const add = (kind, key, label) => {
+    const n = networks.find(x => x.kind === kind && keyOf(x) === key);
+    if (!n || !n.network_tier || n.network_base_price == null) return;
+    const arr = p.total_patients * Number(n.network_base_price);
+    rows.push(`<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2"><a href="#" class="text-blue-600 hover:underline font-medium" data-net="${kind}|${esc(key)}|${esc(n.name)}">${esc(n.name)}</a><div class="text-[11px] text-slate-500">${label} · Tier ${n.network_tier} · ${Number(n.patients).toLocaleString()} patients across ${n.practices} practices</div></td>
+      <td class="text-right font-mono">£${Number(n.network_base_price).toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(arr)}</td><td class="text-right text-xs ${arr < p.est_arr ? "text-emerald-700" : "text-slate-500"}">${arr === Math.round(p.est_arr) ? "same" : (arr < p.est_arr ? "−" : "+") + gbpFull(Math.abs(arr - p.est_arr))}</td></tr>`);
+  };
+  if (p.pcn_code) add("pcn", p.pcn_code, "PCN / cluster");
+  if (p.group_size > 1) add("group", p.cqc_provider_id, "Provider group");
+  if (p.gp_federation) add("federation", p.gp_federation.toLowerCase(), "Federation");
+  if (!rows.length) return "";
+  return `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Other ways to sign this practice</div>
+    <table class="w-full text-sm"><thead class="text-[10px] uppercase tracking-wider text-slate-400"><tr><th class="text-left font-medium">Route</th><th class="text-right font-medium whitespace-nowrap">£ / patient</th><th class="text-right font-medium whitespace-nowrap pl-2">£ / year</th><th class="text-right font-medium whitespace-nowrap pl-2">vs alone</th></tr></thead><tbody>
+    <tr><td class="py-1.5 pr-2"><div class="font-medium">On its own</div><div class="text-[11px] text-slate-500">Single practice · Tier ${p.price_tier}</div></td><td class="text-right font-mono">£${Number(p.base_price).toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(p.est_arr)}</td><td class="text-right text-xs text-slate-400">–</td></tr>${rows.join("")}</tbody></table>
+    <p class="mt-1 text-[11px] text-slate-400">Routes are alternatives: a network price applies only if the whole network signs together.</p></div>`;
+}
+
 /* ---------- practice profile (side panel) ---------- */
 const kv = (k, v) => v ? `<div class="flex justify-between gap-3 py-0.5 text-sm"><span class="text-slate-400 shrink-0">${k}</span><span class="text-right text-slate-800 break-words">${v}</span></div>` : "";
 const sec = (title, body) => body && body.trim() ? `<section class="border-t border-slate-100 pt-3"><h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">${title}</h4>${body}</section>` : "";
@@ -476,9 +526,8 @@ async function openDrawer(p) {
   body.innerHTML = `<div id="dr-contacts" class="text-sm text-slate-400">Loading contacts…</div>` +
     sec("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + " practices)", "group", p.cqc_provider_id) : "") +
       kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") + kv("ICB", p.icb_name && p.icb_name !== "Unallocated ICB" ? link(p.icb_name, "icb", p.icb_name.toLowerCase()) : "")) +
-    sec("Pricing (single-practice route)", p.total_patients > 0 ? kv("Tier", esc(p.tier_label)) + kv("List size", p.total_patients.toLocaleString() + (p.data_month ? " (" + esc(p.data_month) + ")" : "")) +
-      kv("Price per patient / yr", "£" + Number(p.base_price).toFixed(3)) + kv("Year-1 price (with speed discount)", "£" + Number(p.year1_price).toFixed(3)) +
-      kv("Est. ARR (recurring)", "<b>" + gbpFull(p.est_arr) + "</b>") + kv("Est. year-1 value", gbpFull(p.est_arr_year1)) : "") +
+    sec("Pricing", p.total_patients > 0 ? priceCard({ patients: p.total_patients, tierRow: cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), route: "practice", arr: p.est_arr }) +
+      `<div class="text-[11px] text-slate-400 mt-1">List size ${p.data_month ? "from " + esc(p.data_month) : ""}.</div>` + routeComparison(p) : '<p class="text-sm italic text-slate-400">No list size loaded for this practice yet, so no price.</p>') +
     sec("Quality and system", kv("CQC rating", p.cqc_rating ? (CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : esc(p.cqc_rating)) : "") + kv("Registration", esc(p.cqc_status)) + kv("Last inspection", esc(p.cqc_last_inspection)) +
       kv("Manager absent since", esc(p.cqc_manager_absent_date)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : "")) +
     sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st])) + kv("Lifecycle stage", esc(p.hubspot_stage)) + kv("Company imported", esc(fmtDate(p.hubspot_company_imported_at))) +
@@ -525,19 +574,11 @@ function openNetworkProfile(n) {
   $("dr-sub").innerHTML = `${chip(KIND, "bg-slate-100 text-slate-700")} ${n.network_tier ? chip("Tier " + n.network_tier + (row ? " · " + row.label : ""), TIER_CLS["Tier " + n.network_tier]) : ""} ${n.customers > 0 ? chip("Has a customer", "bg-emerald-100 text-emerald-800") : ""} ${n.confirmed === false ? chip("inferred: verify", "bg-amber-50 text-amber-700") : ""}`;
   const saving = n.arr_single != null && n.arr_network != null ? n.arr_single - n.arr_network : null;
   const price = !row || base == null ? '<div class="text-sm italic text-slate-400">No price route is configured for this kind of network (edit <code>pricing_tiers</code>).</div>' :
-    kv("List price per patient", "£" + list.toFixed(3)) +
-    kv("Network patients", Number(n.patients).toLocaleString() + " across " + n.practices + " practices") +
-    kv("Tier (by combined patients)", chip("Tier " + row.tier + " · " + row.label, TIER_CLS["Tier " + row.tier]) + (row.threshold ? ` <span class="text-xs text-slate-400">≥ ${Number(row.threshold).toLocaleString()}</span>` : "")) +
-    kv("Size discount", pct(row.size_discount)) +
-    kv("Price per patient / yr", `<b>£${base.toFixed(3)}</b> <span class="text-xs text-slate-400">= £${list.toFixed(3)} × (1 − ${pct(row.size_discount)})</span>`) +
-    kv("Speed discount (year 1)", pct(row.speed_discount)) +
-    kv("Year-1 price per patient", "£" + (base * (1 - Number(row.speed_discount))).toFixed(3)) +
-    kv("Est. ARR (network route)", `<b class="text-emerald-700">${gbpFull(n.arr_network)}</b>`) +
-    kv("Est. year-1 value", gbpFull(n.arr_network * (1 - Number(row.speed_discount)))) +
-    kv("Same practices signed singly", gbpFull(n.arr_single)) +
-    kv("Network discount vs singly", saving == null ? "" : `${gbpFull(saving)} <span class="text-xs text-slate-400">(${n.arr_single ? pct(saving / n.arr_single) : "0%"})</span>`) +
-    (next ? `<div class="text-xs text-slate-500 pt-1">${(Number(next.threshold) - Number(n.patients)).toLocaleString()} more patients would reach Tier ${next.tier} (${pct(next.size_discount)} size discount).</div>` : "") +
-    '<div class="text-xs text-slate-400 pt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</div>';
+    priceCard({ patients: Number(n.patients), tierRow: row, route: n.kind, arr: n.arr_network, who: "the network" }) +
+    `<div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><div class="flex justify-between"><span class="text-slate-600">The same ${n.practices} practices signed separately</span><span class="font-mono">${gbpFull(n.arr_single)}</span></div>
+      <div class="flex justify-between mt-0.5"><span class="text-slate-600">Network price</span><span class="font-mono font-semibold">${gbpFull(n.arr_network)}</span></div>
+      <div class="flex justify-between mt-0.5 border-t border-slate-200 pt-1"><span class="font-medium">${saving > 0 ? "Network discount" : "Difference"}</span><span class="font-mono font-semibold ${saving > 0 ? "text-emerald-700" : ""}">${saving == null ? "–" : (saving > 0 ? "−" : "+") + gbpFull(Math.abs(saving))} <span class="text-xs font-normal text-slate-400">${n.arr_single && saving != null ? "(" + pct(Math.abs(saving) / n.arr_single) + ")" : ""}</span></span></div></div>
+    <p class="text-xs text-slate-400 mt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</p>`;
   const rows = members.map(p => {
     const net = base != null ? p.total_patients * base : null;
     return `<tr class="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}</div><div class="text-[11px] text-slate-400 font-mono">${esc(p.ods_code)}</div></td>
@@ -550,7 +591,7 @@ function openNetworkProfile(n) {
   $("dr-body").innerHTML =
     `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
       .map(([k, v]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-[10px] uppercase tracking-wider text-slate-400">${k}</div></div>`).join("")}</div>` +
-    sec("Pricing (" + KIND + " route)", price) +
+    sec("Pricing: " + KIND + " route", price) +
     sec("Linked practices: price singly vs in the network", `<div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-[10px] uppercase tracking-wider text-slate-400"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div>`) +
     sec("Recent signals across this network", (() => {
       const codes = new Set(members.map(p => p.ods_code));
@@ -647,7 +688,7 @@ function setSigSub(which) {
   $("sig-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.s === which ? "bg-white shadow-sm" : "text-slate-500"));
 }
 $("sig-sub").querySelectorAll("button").forEach(b => b.onclick = () => setSigSub(b.dataset.s));
-$("sig-settings-link").onclick = () => { showTab("data"); $("sig-types").scrollIntoView({ block: "start" }); };
+$("sig-settings-link").onclick = () => { showTab("data"); setDataSub("signals"); };
 function renderSignalTypes() {
   const cut = Date.now() - 30 * 864e5, tot = new Map(), rec = new Map();
   for (const s of signals) { tot.set(s.trigger_type, (tot.get(s.trigger_type) || 0) + 1); if (new Date(s.detected_at) > cut) rec.set(s.trigger_type, (rec.get(s.trigger_type) || 0) + 1); }
@@ -768,10 +809,43 @@ async function renderData() {
   $("d-runs").innerHTML = `<table class="w-full"><thead class="text-slate-400"><tr><th class="text-left font-medium py-1">Started</th><th class="text-left font-medium">Status</th><th class="text-left font-medium">Notes</th></tr></thead><tbody>` +
     (runs || []).map(r => { const st = r.stats || {}, notes = r.error ? r.error.split("\n")[0].slice(0, 90) : [st.practices_changed != null ? st.practices_changed + " practices changed" : "", st.cqc_error ? "CQC error" : "", st.oscar_error ? "Oscar not loaded" : "", st.patients_missing ? "no patient counts" : ""].filter(Boolean).join(" · ");
       return `<tr class="border-t border-slate-100"><td class="py-1 whitespace-nowrap">${esc(fmtDate(r.started_at))}</td><td>${chip(r.status, r.status === "success" ? "bg-emerald-100 text-emerald-800" : r.status === "failed" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600")}</td><td class="text-slate-500">${esc(notes)}</td></tr>`; }).join("") + `</tbody></table>`;
-  const tiers = cfgTiers.slice().sort((a, b) => a.route.localeCompare(b.route) || a.tier - b.tier), list = Number(cfgSettings.list_price_per_patient?.value || 0);
-  $("rev-config").innerHTML = `<table class="w-full mb-3"><thead class="text-slate-400"><tr><th class="text-left font-medium">Route</th><th class="text-left font-medium">Tier</th><th class="text-right font-medium">Patients ≥</th><th class="text-right font-medium">Size disc.</th><th class="text-right font-medium">Speed disc. (yr 1)</th><th class="text-right font-medium">Price / pt</th><th class="text-right font-medium">Yr-1 price</th></tr></thead><tbody>` +
-    tiers.map(t => `<tr class="border-t border-slate-100"><td>${esc(t.route)}</td><td>T${t.tier} ${esc(t.label)}</td><td class="text-right font-mono">${Number(t.threshold).toLocaleString()}</td><td class="text-right">${pct(t.size_discount)}</td><td class="text-right">${pct(t.speed_discount)}</td><td class="text-right font-mono">£${(list * (1 - t.size_discount)).toFixed(3)}</td><td class="text-right font-mono">£${(list * (1 - t.size_discount - t.speed_discount)).toFixed(3)}</td></tr>`).join("") +
-    `</tbody></table><div class="grid grid-cols-1 md:grid-cols-2 gap-x-8">` + Object.values(cfgSettings).map(x => `<div class="flex justify-between border-t border-slate-100 py-0.5"><span class="text-slate-500">${esc(x.description || x.key)}</span><span class="font-mono">${x.value}</span></div>`).join("") + `</div>`;
+  renderRateCard();
+}
+
+/* ---------- Data tab: sub-tabs ---------- */
+let dataSub = "overview";
+function setDataSub(which) {
+  dataSub = which;
+  for (const k of ["overview", "sources", "signals", "pricing"]) $("dp-" + k).classList.toggle("hidden", k !== which);
+  $("data-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.d === which ? "bg-white shadow-sm" : "text-slate-500"));
+}
+$("data-sub").querySelectorAll("button").forEach(b => b.onclick = () => setDataSub(b.dataset.d));
+
+/* ---------- rate card: one table per price route ---------- */
+const ROUTES = [
+  ["practice", "Single practices", "One practice signs on its own."],
+  ["pcn", "PCNs / clusters", "Every practice in a PCN (or Scottish / Welsh cluster) signs together; tier is set by the combined list size."],
+  ["group", "Provider groups", "All practices run by one CQC provider sign together (for example Modality). Starts from the PCN schedule; edit to differ."],
+  ["federation", "Federations", "All practices in a federation sign together. Starts from the PCN schedule; edit to differ."]];
+function renderRateCard() {
+  const list = Number(cfgSettings.list_price_per_patient?.value || 0);
+  const settings = Object.values(cfgSettings).filter(x => x.key !== "list_price_per_patient");
+  const table = r => {
+    const rows = cfgTiers.filter(t => t.route === r).sort((a, b) => a.tier - b.tier);
+    if (!rows.length) return '<p class="text-sm italic text-slate-400">No tiers configured for this route.</p>';
+    return `<table class="w-full text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="text-left py-1.5 font-medium">Tier</th><th class="text-right font-medium">From (patients)</th><th class="text-right font-medium">Size discount</th><th class="text-right font-medium">Price / patient</th><th class="text-right font-medium">Year 1 (extra ${pct(rows[0].speed_discount)} off)</th></tr></thead><tbody>` +
+      rows.map(t => { const p = list * (1 - Number(t.size_discount)); return `<tr class="border-t border-slate-100"><td class="py-1.5">${chip("T" + t.tier, TIER_CLS["Tier " + t.tier] || "")} ${esc(t.label)}</td><td class="text-right font-mono">${Number(t.threshold) ? Number(t.threshold).toLocaleString() + "+" : "any size"}</td>
+        <td class="text-right">${pct(t.size_discount)}</td><td class="text-right font-mono font-semibold">£${p.toFixed(3)}</td><td class="text-right font-mono text-slate-600">£${(p * (1 - Number(t.speed_discount))).toFixed(3)}</td></tr>`; }).join("") + "</tbody></table>";
+  };
+  $("rev-config").innerHTML = `<div class="bg-white rounded-xl border border-slate-200 p-4">
+      <h2 class="font-bold">How prices are worked out</h2>
+      <div class="mt-2 grid gap-3 md:grid-cols-4 text-sm">
+        ${[["1", "List price", `£${list.toFixed(3)} per patient per year (${esc(cfgSettings.list_price_per_patient?.description || "annual list price")})`], ["2", "Size discount", "Taken off the list price according to the tier the list size reaches."], ["3", "× patients", "Annual revenue = price per patient × registered patients."], ["4", "Year 1 only", "A speed discount is taken off for the first year of a new customer."]]
+          .map(([n, h, t]) => `<div class="flex gap-2"><span class="shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-800 text-xs font-bold flex items-center justify-center">${n}</span><div><div class="font-semibold">${h}</div><div class="text-xs text-slate-500">${t}</div></div></div>`).join("")}
+      </div>
+      <p class="mt-3 text-xs text-slate-500">The routes below are alternatives, not additive. Rates live in the <code>pricing_tiers</code> and <code>pricing_settings</code> tables (Supabase > Table Editor); changes show here and in every profile straight away.</p>
+    </div>` + `<div class="grid gap-4 lg:grid-cols-2">` + ROUTES.map(([r, name, blurb]) => `<div class="bg-white rounded-xl border border-slate-200 p-4"><h3 class="font-bold">${name}</h3><p class="text-xs text-slate-500 mb-2">${blurb}</p>${table(r)}</div>`).join("") + `</div>` +
+    (settings.length ? `<div class="bg-white rounded-xl border border-slate-200 p-4"><h3 class="font-bold mb-1">Other settings</h3>${settings.map(x => `<div class="flex justify-between border-t border-slate-100 py-1 text-sm first:border-0"><span class="text-slate-500">${esc(x.description || x.key)}</span><span class="font-mono">${esc(x.value)}</span></div>`).join("")}</div>` : "");
 }
 
 /* ---------- patient counts (upload / runner) ---------- */
@@ -901,7 +975,7 @@ async function loadDevolvedRows(country, rows, month, say, create = true) {
 }
 const UPLOADS = [
   { id: "eng", title: "England: patient counts", gives: "List size for every English practice, which drives tiers and ARR", file: "gp-reg-pat-prac-all.csv", cadence: "monthly",
-    href: "https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice", link: "NHS Digital: Patients registered at a GP practice (latest month)",
+    links: [["https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice", "NHS Digital: Patients registered at a GP practice (latest month)"]],
     parse: t => { const r = readPatientFile(t); return { count: r.totals.size, month: r.month, payload: r }; },
     load: async (r, month, say) => {
       const rows = [...r.totals].map(([code, n]) => ({ code, n })); let stored = 0, updated = 0;
@@ -914,45 +988,50 @@ const UPLOADS = [
     },
     status: () => { const l = practices.filter(p => (p.country || "England") === "England" && p.total_patients > 0); return `${l.length.toLocaleString()} English practices have list sizes (data month ${latestMonth(l)})`; } },
   { id: "sco", title: "Scotland: practices, list sizes, GP clusters", gives: "Practices, list sizes, GP clusters (PCN equivalent) and health boards (ICB equivalent)", file: "…practice_contact_details_YYYYMMDD_opendata.csv", cadence: "quarterly",
-    href: "https://www.opendata.nhs.scot/dataset/gp-practice-contact-details-and-list-sizes", link: "Public Health Scotland open data: GP practice contact details and list sizes",
+    links: [["https://www.opendata.nhs.scot/dataset/gp-practice-contact-details-and-list-sizes", "Public Health Scotland open data: GP practice contact details and list sizes"]],
     parse: (t, n) => { const r = readDevolved(t, n, "scotland"); return { count: r.rows.length, month: r.month, payload: r }; },
     load: (r, month, say) => loadDevolvedRows("Scotland", r.rows, month, say),
     status: () => { const l = practices.filter(p => p.country === "Scotland"); return l.length ? `${l.length.toLocaleString()} Scottish practices loaded (data month ${latestMonth(l)})` : "Nothing loaded yet"; } },
-  { id: "walc", title: "Wales: practices and clusters", gives: "Welsh clusters (PCN equivalent) for each practice. No list sizes", file: "Wales_practice_data_….csv (PracticeId, ClusterID)", cadence: "when clusters change",
-    href: "https://nwssp.nhs.wales/ourservices/primary-care-services/general-information/data-and-publications/gp-practice-analysis/", link: "NWSSP: GP practice analysis",
-    parse: (t, n) => { const r = readDevolved(t, n, "wales-clusters"); return { count: r.rows.length, month: r.month, payload: r }; },
-    load: (r, month, say) => loadDevolvedRows("Wales", r.rows, month, say, false),   // clusters only update practices we already hold: the file also lists branch sites
-    status: () => { const l = practices.filter(p => p.country === "Wales" && p.network_locked); return l.length ? `${l.length.toLocaleString()} Welsh practices have a cluster` : "Nothing loaded yet"; } },
-  { id: "walp", title: "Wales: patient numbers and health boards", gives: "List size and health board for each Welsh practice (latest quarter only)", file: "patients-registered-to-general-practices-in-wales-…-v4-en-gb.csv", cadence: "quarterly",
-    href: "https://stats.gov.wales/en-GB/75dcbf1e-9b43-4d9a-90b1-f02affe80bc2", link: "StatsWales: Patients registered to general practices in Wales (download as CSV)",
-    parse: (t, n) => { const r = readDevolved(t, n, "wales-sizes"); return { count: r.rows.length, month: r.month, payload: r }; },
-    load: (r, month, say) => loadDevolvedRows("Wales", r.rows, month, say),
-    status: () => { const l = practices.filter(p => p.country === "Wales" && p.total_patients > 0); return l.length ? `${l.length.toLocaleString()} Welsh practices have list sizes (data month ${latestMonth(l)})` : "Nothing loaded yet"; } },
+  { id: "wal", title: "Wales: practices, clusters, list sizes", multiple: true, gives: "Two files, loaded together or separately: the cluster file gives each practice's cluster (PCN equivalent); the StatsWales patients file gives list sizes and health boards",
+    file: "Wales_practice_data_….csv (PracticeId, ClusterID)  +  patients-registered-to-general-practices-in-wales-…-by-practice-and-country-of-residence-….csv", cadence: "quarterly",
+    links: [["https://nwssp.nhs.wales/ourservices/primary-care-services/general-information/data-and-publications/gp-practice-analysis/", "NWSSP: GP practice analysis (clusters)"],
+            ["https://stats.gov.wales/en-GB/75dcbf1e-9b43-4d9a-90b1-f02affe80bc2", "StatsWales: patients registered by practice (download as CSV)"]],
+    parse: (t, n) => { const r = readDevolvedFile(t, n); if (r.country !== "Wales") throw new Error(`${n}: this is the ${r.country} file: use the ${r.country} box instead.`);
+      return { count: r.rows.length, month: r.month, label: r.kind === "wales-sizes" ? "patient numbers and health boards" : "clusters", payload: r }; },
+    load: async (r, month, say) => loadDevolvedRows("Wales", r.rows, month, say, r.kind === "wales-sizes"),   // the cluster file lists branch sites, so it may only update practices we already hold
+    status: () => { const w = practices.filter(p => p.country === "Wales"); return w.length ? `${w.filter(p => p.status === "Active").length.toLocaleString()} Welsh practices: ${w.filter(p => p.network_locked).length.toLocaleString()} with a cluster, ${w.filter(p => p.total_patients > 0).length.toLocaleString()} with list sizes (data month ${latestMonth(w.filter(p => p.total_patients > 0))})` : "Nothing loaded yet"; } },
 ];
 function renderUploads() {
   const box = $("uploads");
   if (!box.children.length) {
-    box.innerHTML = UPLOADS.map(u => `<div class="border border-slate-200 rounded-lg p-3" id="up-${u.id}">
+    box.innerHTML = UPLOADS.map(u => `<div class="border border-slate-200 rounded-lg p-3 ${u.multiple ? "md:col-span-2" : ""}" id="up-${u.id}">
       <div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${esc(u.title)}</h3><span class="text-[11px] text-slate-400 whitespace-nowrap">${esc(u.cadence)}</span></div>
       <p class="text-xs text-slate-500">${esc(u.gives)}</p>
-      <p class="text-xs mt-1"><a class="text-blue-600 underline" target="_blank" rel="noopener" href="${esc(u.href)}">${esc(u.link)}</a><br><span class="text-slate-400">File: ${esc(u.file)}</span></p>
-      <div class="mt-2 flex flex-wrap items-center gap-2"><input type="file" accept=".csv,text/csv" class="up-file text-xs max-w-[15rem]"><input type="month" class="up-month border border-slate-300 rounded px-2 py-1 text-xs"><button disabled class="up-load bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></div>
-      <p class="up-msg mt-1 text-xs text-slate-600 min-h-[1rem]"></p><p class="up-status mt-1 text-[11px] text-slate-400"></p></div>`).join("");
+      <p class="text-xs mt-1">${u.links.map(([h, l]) => `<a class="text-blue-600 underline" target="_blank" rel="noopener" href="${esc(h)}">${esc(l)}</a>`).join("<br>")}<br><span class="text-slate-400">File${u.multiple ? "s" : ""}: ${esc(u.file)}</span></p>
+      <div class="mt-2 flex flex-wrap items-center gap-2"><input type="file" accept=".csv,text/csv" ${u.multiple ? "multiple" : ""} class="up-file text-xs max-w-[22rem]"><input type="month" class="up-month border border-slate-300 rounded px-2 py-1 text-xs"><button disabled class="up-load bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></div>
+      <p class="up-msg mt-1 text-xs text-slate-600 min-h-[1rem] whitespace-pre-line"></p><p class="up-status mt-1 text-[11px] text-slate-400"></p></div>`).join("");
     for (const u of UPLOADS) {
-      const el = $("up-" + u.id), q = c => el.querySelector(c), say = t => { q(".up-msg").textContent = t; }; let parsed = null;
+      const el = $("up-" + u.id), q = c => el.querySelector(c), say = t => { q(".up-msg").textContent = t; }; let parsed = [];
       q(".up-file").addEventListener("change", async e => {
-        const f = e.target.files[0]; parsed = null; q(".up-load").disabled = true; if (!f) return;
-        if (f.size > 60 * 1024 * 1024) { say("That file is too large: check you have the right one."); return; }
-        try { parsed = u.parse(await f.text(), f.name); q(".up-month").value = parsed.month || new Date().toISOString().slice(0, 7);
-          say(`Read ${parsed.count.toLocaleString()} practices${parsed.month ? "" : " (month not found in the file: check the month box)"}. Press Load.`); q(".up-load").disabled = false; }
-        catch (err) { say(err.message); }
+        const files = [...e.target.files]; parsed = []; q(".up-load").disabled = true; if (!files.length) return;
+        const lines = []; let ok = true;
+        for (const f of files) {
+          if (f.size > 60 * 1024 * 1024) { lines.push(`${f.name}: too large, check you have the right file.`); ok = false; continue; }
+          try { const p = u.parse(await f.text(), f.name); parsed.push(p); lines.push(`${f.name}: ${p.label ? p.label + ", " : ""}${p.count.toLocaleString()} practices${p.month ? " (" + p.month + ")" : " (month not found: check the month box)"}`); }
+          catch (err) { lines.push(err.message); ok = false; }
+        }
+        if (parsed.length) q(".up-month").value = parsed.find(p => p.month)?.month || new Date().toISOString().slice(0, 7);
+        say(lines.join("\n") + (ok ? "\nPress Load." : "\nFix the file(s) above, then choose again."));
+        q(".up-load").disabled = !ok;
       });
       q(".up-load").addEventListener("click", async () => {
         const month = q(".up-month").value;
-        if (!parsed || !/^\d{4}-\d{2}$/.test(month)) { say("Choose a file and a month first."); return; }
-        q(".up-load").disabled = true;
-        try { const summary = await u.load(parsed.payload, month, say); parsed = null; q(".up-file").value = ""; await reloadAfterCounts(); say("Done: " + summary + "."); }
-        catch (err) { say("Load failed: " + (err.message || err)); q(".up-load").disabled = false; }
+        if (!parsed.length || !/^\d{4}-\d{2}$/.test(month)) { say("Choose a file and a month first."); return; }
+        q(".up-load").disabled = true; const done = [];
+        try {
+          for (const p of [...parsed].sort((a, b) => (b.payload.kind === "wales-sizes") - (a.payload.kind === "wales-sizes"))) done.push(await u.load(p.payload, p.month || month, t => say(t)));
+          parsed = []; q(".up-file").value = ""; await reloadAfterCounts(); say("Done: " + done.join("; ") + ".");
+        } catch (err) { say("Load failed: " + (err.message || err)); q(".up-load").disabled = false; }
       });
     }
   }
