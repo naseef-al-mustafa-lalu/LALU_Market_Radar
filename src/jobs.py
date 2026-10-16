@@ -175,7 +175,8 @@ def sync(rest, practices, today=None, fetch=fetch_all):
         if (r["post_date"] or "") >= cutoff:        # recent: raise it now, wherever it can be filed (practice, network, or the unlinked list)
             sig = {"trigger_type": "JOB_REPORT_ROLE", "headline": f"Hiring: {r['title']}",
                    "description": f"{emp[r['employer_code']]['employer_name']} advertised \"{r['title']}\" ({r['matched_role']}) on NHS Jobs"
-                                  f"{', closing ' + r['close_date'] if r['close_date'] else ''}. {r['url']}"}
+                                  f"{', closing ' + r['close_date'] if r['close_date'] else ''}. {r['url']}",
+                   "action": "The practice is recruiting for work Lalu can take on. Offer to cover reports and records instead of, or while, they hire."}
             if r["ods_code"]:
                 sig["ods_code"] = r["ods_code"]
             elif r["org_id"]:

@@ -168,6 +168,10 @@ def sync(rest, run_id):
             cqc_rows, cstats = cqc.sync(rest, merged, cqc.make_client(env["CQC_API_KEY"]), now)
             rest.upsert("gp_practices", cqc_rows, "ods_code")
             stats.update(cstats)
+            try:
+                stats["cqc_signals_repaired"] = cqc.repair_provider_signals(rest, cqc.make_client(env["CQC_API_KEY"]))
+            except Exception as e:  # noqa: BLE001  cosmetic: never block
+                stats["cqc_repair_error"] = str(e)[:200]
         except Exception as e:  # noqa: BLE001  CQC is enrichment: never block the main load
             stats["cqc_error"] = str(e)[:300]
 

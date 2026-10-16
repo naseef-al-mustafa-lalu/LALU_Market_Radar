@@ -149,7 +149,10 @@ def build_rows(rest, practices, found, getj, now, stats):
     view = {c: {**p, **found.get(c, {})} for c, p in practices.items()}
     names = _kv_get(rest, "cqc_provider_names", {}) or {}
     _, groups = group_assignments(view, names)
-    need = [pid for pid in groups if pid not in names][:PROVIDER_NAME_CAP]
+    # a practice that changed operator needs both operators' names so the signal can say who took over from whom
+    switched = {c: (practices[c].get("cqc_provider_id"), v["cqc_provider_id"]) for c, v in found.items()
+                if practices[c].get("cqc_provider_id") and v.get("cqc_provider_id") and practices[c]["cqc_provider_id"] != v["cqc_provider_id"]}
+    need = list(dict.fromkeys([pid for pair in switched.values() for pid in pair if pid not in names] + [pid for pid in groups if pid not in names]))[:PROVIDER_NAME_CAP]
     for pid in need:
         d = getj(f"/providers/{pid}") or {}
         names[pid] = d.get("name") or d.get("providerName") or ""
@@ -162,9 +165,40 @@ def build_rows(rest, practices, found, getj, now, stats):
         grp = dict(zip(GROUP_FIELDS, assigned.get(ods, (None, None))))
         if grp["group_name"] == "":
             grp["group_name"] = None
-        changed = any(new[k] != old.get(k) for k in FIELDS) or any(grp[k] != old.get(k) for k in GROUP_FIELDS)
+        moved = switched.get(ods)
+        pname = names.get(new.get("cqc_provider_id")) or old.get("cqc_provider_name")
+        prev = (names.get(moved[0]) or None) if moved else old.get("cqc_prev_provider_name")
+        extra = {"cqc_provider_name": pname or None, "cqc_prev_provider_name": prev or None}
+        changed = any(new[k] != old.get(k) for k in FIELDS) or any(grp[k] != old.get(k) for k in GROUP_FIELDS) or any(extra[k] != old.get(k) for k in extra)
         if changed:  # every row carries the same keys so the bulk upsert never blanks a column
-            rows.append({"ods_code": ods, "practice_name": old["practice_name"], **new, **grp,
+            rows.append({"ods_code": ods, "practice_name": old["practice_name"], **new, **grp, **extra,
                          "cqc_checked_at": now.isoformat() if ods in found else old.get("cqc_checked_at")})
     stats.update(cqc_matched=len(found), cqc_updated=len(rows), cqc_groups=len(groups), cqc_provider_names_fetched=len(need))
     return rows, stats
+
+
+def repair_provider_signals(rest, getj):
+    """Older CQC_PROVIDER_CHANGE signals quote raw provider IDs (1-123456789): replace them with the operators' names."""
+    ids = re.compile(r"\b1-\d{6,}\b")
+    bad = [t for t in rest.select_all("sales_triggers", "id,description,headline,ods_code", order="detected_at",
+                                      params={"trigger_type": "eq.CQC_PROVIDER_CHANGE"}) if ids.search(t.get("description") or "")]
+    if not bad:
+        return 0
+    names = _kv_get(rest, "cqc_provider_names", {}) or {}
+    for pid in {i for t in bad for i in ids.findall(t["description"])}:
+        if pid not in names:
+            d = getj(f"/providers/{pid}") or {}
+            names[pid] = d.get("name") or d.get("providerName") or ""
+    _kv_set(rest, "cqc_provider_names", names)
+    for t in bad:
+        txt = t["description"]
+        for pid in ids.findall(txt):
+            if names.get(pid):
+                txt = txt.replace(pid, names[pid])
+        if not ids.search(txt):
+            m = re.match(r"(.+?) is now registered with (.+?) \(previously (.+?)\)\.", txt)
+            if m:
+                new_txt = f"{m.group(1)} is now run by {m.group(2)} (previously {m.group(3)})."
+                rest.patch("sales_triggers", {"id": f"eq.{t['id']}"},
+                           {"description": new_txt, "headline": f"{m.group(1)} changed owner to {m.group(2)}"})
+    return len(bad)

@@ -6,7 +6,7 @@ from .common import Rest, esc, need_env, recipients, send_email
 
 TIER_RANK = {f"Tier {i}": i for i in range(1, 6)}  # Tier 1 = largest (20,000+ patients) ... Tier 5 = smallest
 MAX_ROWS = 150
-COLS = ("id,trigger_type,headline,description,employer_code,organisations(name,kind),gp_practices(ods_code,practice_name,pcn_name,icb_name,total_patients,"
+COLS = ("id,trigger_type,headline,description,action,employer_code,organisations(name,kind),gp_practices(ods_code,practice_name,pcn_name,icb_name,total_patients,"
         "clinical_software,manager_name,manager_title,manager_email,manager_phone,"
         "manager_email_opt_out,lead_status,status)")
 
@@ -56,7 +56,7 @@ def other_html(others):
     items = "".join(
         f"<tr style='border-bottom:1px solid #e2e8f0'><td style='padding:8px;font-size:13px'><b>{esc((t.get('organisations') or {}).get('name') or 'Unlinked employer ' + str(t.get('employer_code') or ''))}</b>"
         f"<br><span style='color:#64748b;font-size:11px'>{esc((t.get('organisations') or {}).get('kind') or 'link it in Signals > Job matches')}</span></td>"
-        f"<td style='padding:8px;font-size:12px'><b>{esc(t['headline'])}</b><br>{esc(t['description'])}</td></tr>" for t in others[:MAX_ROWS])
+        f"<td style='padding:8px;font-size:12px'><b>{esc(t['headline'])}</b><br>{esc(t['description'])}<br><span style='color:#1d4ed8'><b>Next step:</b> {esc(t.get('action') or '')}</span></td></tr>" for t in others[:MAX_ROWS])
     return ("<h3 style='margin:24px 0 6px;font-size:15px'>Network and unlinked signals</h3>"
             f"<table style='width:100%;border-collapse:collapse;text-align:left'><tbody>{items}</tbody></table>")
 

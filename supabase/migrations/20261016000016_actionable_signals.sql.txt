@@ -1,0 +1,2 @@
+Applied in Supabase as: signal_actions_columns (sales_triggers.action, gp_practices.cqc_provider_name / cqc_prev_provider_name),
+actionable_signal_text (log_sales_triggers rewritten with names, numbers and a "next step" for every signal type; existing rows back-filled).

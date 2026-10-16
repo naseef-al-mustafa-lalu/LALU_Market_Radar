@@ -117,3 +117,25 @@ def test_uploaded_network_is_not_overwritten_by_ods_sync():
     recs, _ = ingest.build_records(ods, {}, "2026-09", {"W93001": old}, {}, None, None, pcn_checked=frozenset({"W93001"}))
     assert not recs or (recs[0]["pcn_code"], recs[0]["pcn_name"], recs[0]["icb_name"]) == ("WC60103", "Wales cluster 60103", "Aneurin Bevan")
     assert ingest.pcn_due({"W93001"}, {"W93001": old}, __import__("datetime").datetime.now(__import__("datetime").timezone.utc)) == []
+
+
+def test_provider_change_signal_text_uses_names_not_ids():
+    from src import cqc
+
+    class R:
+        def __init__(self):
+            self.kv = {}; self.patched = []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "kv_state":
+                return [{"key": k, "value": v} for k, v in self.kv.items() if params and k == params["key"].split(".", 1)[1]]
+            return [{"id": "t1", "headline": "x", "ods_code": "A1", "description":
+                     "Bartley Green Medical Practice is now registered with 1-13654215274 (previously 1-199796905). Group takeovers often bring system consolidation."}]
+        def upsert(self, table, rows, key, batch=500):
+            for r in rows: self.kv[r["key"]] = r["value"]
+        def patch(self, table, params, body):
+            self.patched.append(body)
+    r = R()
+    names = {"1-13654215274": "Lakeside Healthcare Group", "1-199796905": "Dr A Partners"}
+    assert cqc.repair_provider_signals(r, lambda path, params=None: {"name": names[path.rsplit("/", 1)[1]]}) == 1
+    assert r.patched[0]["description"] == "Bartley Green Medical Practice is now run by Lakeside Healthcare Group (previously Dr A Partners)."
+    assert r.patched[0]["headline"] == "Bartley Green Medical Practice changed owner to Lakeside Healthcare Group"

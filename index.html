@@ -137,8 +137,8 @@
     <section id="view-signals" class="hidden bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div class="p-4 border-b border-slate-200 flex flex-wrap items-center gap-2">
         <h2 class="font-bold mr-2">Signals <span id="sig-live" class="text-[11px] font-semibold text-slate-400 ml-1">connecting…</span></h2>
-        <div id="sig-sub" class="bg-slate-100 rounded-lg p-0.5 text-sm"><button data-s="feed" class="px-3 py-1 rounded-md bg-white shadow-sm">Feed</button><button data-s="types" class="px-3 py-1 rounded-md text-slate-500">Signal types</button><button data-s="jobs" class="px-3 py-1 rounded-md text-slate-500">Job matches <span id="jobs-badge" class="hidden text-[10px] bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button></div>
-        <select id="s-type" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All signal types</option></select>
+        <div id="sig-sub" class="bg-slate-100 rounded-lg p-0.5 text-sm"><button data-s="feed" class="px-3 py-1 rounded-md bg-white shadow-sm">Feed</button><button data-s="jobs" class="px-3 py-1 rounded-md text-slate-500">Job matches <span id="jobs-badge" class="hidden text-[10px] bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button></div>
+        <select id="s-type" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All signal types</option></select><button id="sig-settings-link" class="text-xs text-blue-600 hover:underline" title="Turn signal types on or off">Signal settings →</button>
         <input id="s-search" placeholder="Search practice or text…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm min-w-[220px]">
         <span id="s-count" class="text-sm text-slate-500 ml-auto"></span>
       </div>
@@ -154,11 +154,7 @@
         <button id="jm-more" class="hidden mt-2 text-blue-600 hover:underline text-sm">Show more</button>
         <p id="jm-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
-      <div id="sig-types" class="hidden p-4">
-        <p class="text-sm text-slate-500 mb-3">Every signal the tool can raise, where its data comes from and the rule that triggers it. Switching one off stops new signals of that type being recorded (existing ones stay in the feed). It takes effect on the next data load.</p>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Signal</th><th class="pr-3">Data source</th><th class="pr-3 min-w-[16rem]">Rule</th><th class="pr-3 min-w-[12rem]">Why it matters</th><th class="pr-3 text-right">Last 30 days</th><th class="pr-3 text-right">Total</th><th class="text-center">Enabled</th></tr></thead><tbody id="sig-types-rows" class="divide-y divide-slate-100"></tbody></table></div>
-        <p id="sig-types-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
-      </div>
+      
       <div id="sig-feed"><div class="overflow-x-auto max-h-[80vh]"><table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr><th class="px-3 py-2.5 whitespace-nowrap">Date</th><th class="px-3 py-2.5 whitespace-nowrap">Type</th><th class="px-3 py-2.5 min-w-[14rem]">Practice</th><th class="px-3 py-2.5 min-w-[22rem]">Signal</th></tr></thead>
         <tbody id="s-rows" class="divide-y divide-slate-100"></tbody></table></div>
@@ -181,6 +177,12 @@
           <button id="pc-run" class="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg px-4 py-1.5 text-xs font-semibold">Update from NHS now</button>
           <p id="pc-run-msg" class="mt-1 text-xs text-slate-500 min-h-[1rem]"></p>
         </div>
+      </div>
+      <div id="sig-types" class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
+        <h2 class="font-bold">Signal settings <span class="text-xs font-normal text-slate-400">(which signals the radar raises)</span></h2>
+        <p class="text-sm text-slate-500 my-2">Every signal the tool can raise, where its data comes from and the rule that triggers it. Switching one off stops new signals of that type being recorded (existing ones stay in the feed). It takes effect on the next data load.</p>
+        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Signal</th><th class="pr-3">Data source</th><th class="pr-3 min-w-[16rem]">Rule</th><th class="pr-3 min-w-[12rem]">Why it matters</th><th class="pr-3 text-right">Last 30 days</th><th class="pr-3 text-right">Total</th><th class="text-center">Enabled</th></tr></thead><tbody id="sig-types-rows" class="divide-y divide-slate-100"></tbody></table></div>
+        <p id="sig-types-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
       <div class="bg-white rounded-xl border border-slate-200 p-4 xl:col-span-2">
         <h2 class="font-bold">Upload data files <span class="text-xs font-normal text-slate-400">(one box per source: download the file, choose it, check the month, press Load)</span></h2>
@@ -457,7 +459,7 @@ async function openDrawer(p) {
       <span class="text-slate-500 text-sm"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span>
       <div class="text-xs text-slate-600">${c.email ? (c.email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : `<a class="text-blue-600 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : ""} ${esc(c.phone)}</div>
       <div class="mt-0.5">${c.hubspot_status === "Imported" ? chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800") : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-400">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
-  $("dr-signals").outerHTML = sec("Signals", (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-[11px] text-slate-400">${esc(fmtDate(s.detected_at))}</span> <b class="text-xs">${esc(s.headline)}</b><div class="text-xs text-slate-500">${esc(s.description)}</div></div>`).join("") || '<p class="text-sm italic text-slate-400">No signals for this practice yet.</p>');
+  $("dr-signals").outerHTML = sec("Signals", (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-[11px] text-slate-400">${esc(fmtDate(s.detected_at))}</span> <b class="text-xs">${esc(s.headline)}</b><div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</div>`).join("") || '<p class="text-sm italic text-slate-400">No signals for this practice yet.</p>');
 }
 
 /* ---------- networks ---------- */
@@ -598,11 +600,12 @@ async function loadSignalSettings() {
 }
 function setSigSub(which) {
   sigSub = which;
-  $("sig-feed").classList.toggle("hidden", which !== "feed"); $("sig-types").classList.toggle("hidden", which !== "types"); $("sig-jobs").classList.toggle("hidden", which !== "jobs");
-  $("s-type").classList.toggle("hidden", which !== "feed"); $("s-search").classList.toggle("hidden", which !== "feed"); $("s-count").classList.toggle("hidden", which !== "feed");
+  $("sig-feed").classList.toggle("hidden", which !== "feed"); $("sig-jobs").classList.toggle("hidden", which !== "jobs");
+  $("s-type").classList.toggle("hidden", which !== "feed"); $("sig-settings-link").classList.toggle("hidden", which !== "feed"); $("s-search").classList.toggle("hidden", which !== "feed"); $("s-count").classList.toggle("hidden", which !== "feed");
   $("sig-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.s === which ? "bg-white shadow-sm" : "text-slate-500"));
 }
 $("sig-sub").querySelectorAll("button").forEach(b => b.onclick = () => setSigSub(b.dataset.s));
+$("sig-settings-link").onclick = () => { showTab("data"); $("sig-types").scrollIntoView({ block: "start" }); };
 function renderSignalTypes() {
   const cut = Date.now() - 30 * 864e5, tot = new Map(), rec = new Map();
   for (const s of signals) { tot.set(s.trigger_type, (tot.get(s.trigger_type) || 0) + 1); if (new Date(s.detected_at) > cut) rec.set(s.trigger_type, (rec.get(s.trigger_type) || 0) + 1); }
@@ -692,7 +695,7 @@ function renderMoreSignals() {
     tr.innerHTML = `<td class="px-3 py-2 whitespace-nowrap font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</td>
       <td class="px-3 py-2 whitespace-nowrap">${chip(s.trigger_type.replaceAll("_", " ").toLowerCase(), HOT.includes(s.trigger_type) ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-700")}</td>
       <td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(t.label)}${t.kind === "unlinked" ? " " + chip("unlinked", "bg-amber-100 text-amber-800") : t.kind === "network" ? " " + chip("network", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-[11px] text-slate-500 ${t.kind === "practice" ? "font-mono" : ""}">${esc(t.sub)}</div></td>
-      <td class="px-3 py-2"><div class="font-medium">${esc(s.headline)}</div><div class="text-xs text-slate-500">${esc(s.description)}</div></td>`;
+      <td class="px-3 py-2"><div class="font-medium">${esc(s.headline)}</div><div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700 mt-0.5"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</td>`;
     tr.onclick = () => {
       if (t.kind === "practice") { clearFilters(); showTab("practices"); $("f-search").value = t.p.ods_code; applyFilters(); openDrawer(t.p); }
       else if (t.kind === "network" && t.n) { netKind = t.n.kind; showTab("networks"); renderNetworks(); openNetworkProfile(t.n); }
