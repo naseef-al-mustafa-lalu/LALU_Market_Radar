@@ -2,7 +2,7 @@ name: Probe data sources
 on:
   workflow_dispatch:
     inputs:
-      which: { description: 'sources | nhsjobs', default: 'nhsjobs' }
+      which: { description: 'sources | nhsjobs | nhsjobs3 | nhsjobs4', default: 'nhsjobs4' }
 permissions: { contents: read }
 jobs:
   probe:
@@ -12,6 +12,8 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install requests
-      - run: python tools/probe_${{ inputs.which || 'nhsjobs' }}.py
+      - run: python tools/probe_${{ inputs.which || 'nhsjobs4' }}.py
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           COMPANIES_HOUSE_API_KEY: ${{ secrets.COMPANIES_HOUSE_API_KEY }}
