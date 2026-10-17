@@ -125,15 +125,15 @@ with sync_playwright() as p:
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#d-fresh")
     assert pg.is_visible("#dp-overview") and pg.is_hidden("#dp-sources") and pg.is_hidden("#dp-pricing")
     pg.click("#data-sub button[data-d=pricing]"); assert "How prices are worked out" in pg.inner_text("#rev-config") and "PCNs / clusters" in pg.inner_text("#rev-config") and "Federations" in pg.inner_text("#rev-config")
-    CSV = ('DYNAMIC PRICING\nAnnual Sub List Price / Pt (excl. VAT):,£0.080,Practice Speed Incentive %:,5.0%,UK VAT Rate:,20.0%\nNo-Undercut,x,x,x,Absolute Margin Floor / Pt:,£0.050\n\n'
+    CSV = ('DYNAMIC PRICING\nAnnual Sub List Price / Pt (excl. VAT):,£0.085,Monthly Sub List Price / Pt (excl. VAT):,£0.011,Practice Speed Incentive %:,5.0%,UK VAT Rate:,20.0%\nNo-Undercut,x,x,x,Absolute Margin Floor / Pt:,£0.050\n\n'
            '"1. SINGLE PRACTICE DISCOUNT SCHEDULE (Practice-Level Contracts)"\nTier,Classification,Patient Threshold (PuM ≥),Practice Count,Tier 1: Size Discount %,Tier 2: Speed Discount % (Year 1 only)\n'
            'Tier 1,Very Large,"20,000",415,12.0%,5.0%\nTier 4,Medium,"5,000",2532,0.0%,5.0%\n"2. PRIMARY CARE NETWORK (PCN) DISCOUNT SCHEDULE"\nTier,Classification,Patient Threshold (PuM ≥),PCN Count,Tier 1: Size Discount %,Tier 2: Speed Discount %\nTier 5,Small,0,105,12.5%,2.5%\n')
     MATRIX = 'MATRIX\nAnnual List Price / Pt:,£0.080,2-Yr Commitment Disc [EDITABLE]:,2.5%,Practice Speed %:,5.0%\nMonthly List Price / Pt:,£0.010,3-Yr Commitment Disc [EDITABLE]:,5.0%\n'
     pg.set_input_files("#ps-file", [dict(name="a.csv", mimeType="text/csv", buffer=CSV.encode()), dict(name="b.csv", mimeType="text/csv", buffer=MATRIX.encode())])
-    pg.wait_for_selector("#ps-apply:not(.hidden)"); prev = pg.inner_text("#dp-pricing"); assert "size discount" in prev and "12%" in prev and "spreadsheet" in prev.lower(), prev
+    pg.wait_for_selector("#ps-apply:not(.hidden)"); prev = pg.inner_text("#dp-pricing"); assert "£0.085" in prev and "£0.011" in prev and "size discount" in prev and "12%" in prev and "spreadsheet" in prev.lower(), prev
     pg.click("#ps-apply"); pg.wait_for_function("document.querySelector('#ps-msg').textContent.includes('Prices reloaded')")
     sp = pg.evaluate("window.__rpc.filter(c => c[0] === 'sync_pricing')")[0][1]
-    assert sp["p_settings"]["term_discount_3yr"] == 0.05 and sp["p_settings"]["price_floor_per_patient"] == 0.05 and any(t["route"] == "practice" and t["tier"] == 1 and t["size_discount"] == 0.12 and t["threshold"] == 20000 for t in sp["p_tiers"]), sp
+    assert sp["p_settings"]["list_price_per_patient"] == 0.085 and sp["p_settings"]["monthly_list_price_per_patient"] == 0.011 and sp["p_settings"]["term_discount_3yr"] == 0.05 and sp["p_settings"]["price_floor_per_patient"] == 0.05 and any(t["route"] == "practice" and t["tier"] == 1 and t["size_discount"] == 0.12 and t["threshold"] == 20000 for t in sp["p_tiers"]), sp
     assert pg.locator("#rev-config table").count() == 4, pg.locator("#rev-config table").count()
     pg.screenshot(path=SHOTS + "/pricing.png", full_page=True)
     pg.click("#data-sub button[data-d=sources]")
