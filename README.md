@@ -123,3 +123,9 @@ tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Osca
 - Verified from GitHub runners: ODS API and ODS export respond; digital.nhs.uk and OpenPrescribing are blocked by Cloudflare.
 - The GP registration file parser and the practice->PCN lookup (ODS `Rels`, role RO272) follow the published formats but have only been tested on fixtures. Check `ingest_runs.stats` after the first run (`ods_active`, `pcn_mapped`, `pcn_error`); PCN failures degrade gracefully.
 - Oscar has no clinical-system field, so EMIS/SystmOne/Vision is a website-based hint only and mostly "Unknown".
+
+## Security notes
+
+- The Supabase client script is hosted in `assets/vendor/` (version in the file name) rather than loaded from a CDN, so a compromised CDN cannot inject code. To upgrade it, `npm pack @supabase/supabase-js@<version>` and copy `dist/umd/supabase.js` there.
+- The Supabase advisor flags four `SECURITY DEFINER` functions and three tables with RLS but no policy. All are intentional and documented in migration `20261017000018`.
+- Turn on leaked-password protection in the Supabase dashboard (Authentication) so breached passwords are rejected.
