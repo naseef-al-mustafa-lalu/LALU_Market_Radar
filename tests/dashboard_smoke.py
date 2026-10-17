@@ -64,6 +64,9 @@ with sync_playwright() as p:
     # drawer
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
+    assert pg.is_checked("#dr-body .speed-toggle") and "speed discount" in body.lower()  # speed discount is on by default
+    pg.uncheck("#dr-body .speed-toggle"); off = pg.inner_text("#dr-body"); assert "FIRST YEAR" not in off.upper() and "Year 1 only" not in off, off
+    pg.check("#dr-body .speed-toggle"); assert "First year" in pg.inner_text("#dr-body").title() or "FIRST YEAR" in pg.inner_text("#dr-body").upper()
     assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "Year 1 only" in body and "Other ways to sign this practice" in body, body
     assert "£1,216" not in body or True
     pg.wait_for_timeout(500); pg.evaluate("document.querySelector('#dr-body').scrollTop = 0"); pg.screenshot(path=SHOTS + "/profile.png")

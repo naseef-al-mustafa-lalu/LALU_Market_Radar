@@ -99,7 +99,19 @@ $("more").addEventListener("click", renderMore);
 /* ---------- price breakdown: headline figure, then the working in plain steps ---------- */
 const stepRow = (n, label, detail, value) => `<li class="flex gap-2.5"><span class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-white border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center">${n}</span>
   <div class="min-w-0 flex-1"><div class="flex justify-between gap-3"><span class="font-medium">${label}</span><span class="font-mono font-semibold whitespace-nowrap">${value}</span></div><div class="text-xs text-slate-500">${detail}</div></div></li>`;
-function priceCard({ patients, tierRow, route, arr, who }) {
+// The speed discount is not guaranteed, so it is a switch (on by default) shared by every price card.
+let speedOn = true;
+const priceCards = new Map();
+function priceCard(args) {
+  const id = "pc" + priceCards.size; priceCards.set(id, args);
+  return `<div class="price-card" data-pc="${id}">${priceCardBody(args)}</div>`;
+}
+document.addEventListener("change", e => {
+  if (!e.target.matches(".speed-toggle")) return;
+  speedOn = e.target.checked;
+  document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc)); });
+});
+function priceCardBody({ patients, tierRow, route, arr, who }) {
   const list = Number(cfgSettings.list_price_per_patient?.value || 0);
   if (!tierRow || !patients || arr == null) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
   const size = Number(tierRow.size_discount), speed = Number(tierRow.speed_discount), base = list * (1 - size), y1 = base * (1 - speed);
@@ -108,12 +120,13 @@ function priceCard({ patients, tierRow, route, arr, who }) {
   return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
     <div class="flex items-end justify-between gap-3">
       <div><div class="text-xs uppercase tracking-wider text-slate-500">Estimated annual revenue</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(arr)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
-      <div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(arr * (1 - speed))}</div><div class="text-xs text-slate-500">${pct(speed)} speed discount</div></div></div>
+      ${speedOn ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(arr * (1 - speed))}</div><div class="text-xs text-slate-500">${pct(speed)} speed discount</div></div>` : ""}</div>
+    <label class="mt-2 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" class="speed-toggle" ${speedOn ? "checked" : ""}> Include the ${pct(speed)} speed discount <span class="text-slate-400">(not guaranteed)</span></label>
     <ol class="mt-3 space-y-2.5 text-sm">
       ${stepRow(1, "List price", "Standard annual price before any discount", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-500">per patient</span>`)}
       ${stepRow(2, `${pct(size)} size discount`, `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}: ${who ? esc(who) + " has " : ""}${patients.toLocaleString()} patients${Number(tierRow.threshold) ? ", over the " + Number(tierRow.threshold).toLocaleString() + " threshold" : ""}`, `£${base.toFixed(3)} <span class="text-xs font-normal text-slate-500">per patient</span>`)}
       ${stepRow(3, `× ${patients.toLocaleString()} patients`, "Price per patient × registered patients", `${gbpFull(arr)} <span class="text-xs font-normal text-slate-500">a year</span>`)}
-      ${stepRow(4, "Year 1 only", `${pct(speed)} off for signing quickly: £${y1.toFixed(3)} per patient`, `${gbpFull(arr * (1 - speed))}`)}
+      ${speedOn ? stepRow(4, "Year 1 only", `${pct(speed)} off for signing quickly: £${y1.toFixed(3)} per patient`, `${gbpFull(arr * (1 - speed))}`) : ""}
     </ol>
     ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${(list * (1 - Number(next.size_discount))).toFixed(3)} per patient).</p>` : ""}</div>`;
 }
