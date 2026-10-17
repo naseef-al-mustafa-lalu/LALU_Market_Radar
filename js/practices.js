@@ -134,8 +134,11 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
   // Price by year across the contract: the speed discount only applies in year 1, the term discount for every year of the term.
   const yrRows = [], recT = patients * recurring, y1T = patients * year1, N = termYrs;
   const yr = (label, price, total, bold) => `<tr class="border-t border-emerald-100 ${bold ? "font-semibold" : ""}"><td class="py-1 pr-3">${label}</td><td class="py-1 px-2 text-right whitespace-nowrap font-mono">${price}</td><td class="py-1 pl-2 text-right whitespace-nowrap font-mono">${total}</td></tr>`;
-  if (useSpeed) { yrRows.push(yr("Year 1", `£${year1.toFixed(3)}`, gbpFull(y1T))); yrRows.push(yr(N > 2 ? `Years 2–${N}` : N === 2 ? "Year 2" : "Year 2 onwards", `£${recurring.toFixed(3)}`, gbpFull(recT) + (N === 1 ? " /yr" : N > 2 ? " /yr" : ""))); }
-  else if (N > 1) yrRows.push(yr(`Years 1–${N}`, `£${recurring.toFixed(3)}`, gbpFull(recT) + " /yr"));
+  // One row per year of the term (a 1-year term also shows the renewal year when speed makes year 1 differ).
+  if (N > 1 || useSpeed) for (let y = 1; y <= Math.max(N, 2); y++) {
+    const first = y === 1 && useSpeed, label = y > N ? "Year 2 onwards (renewal)" : "Year " + y;
+    yrRows.push(yr(label, `£${(first ? year1 : recurring).toFixed(3)}`, gbpFull(first ? y1T : recT) + (y === 1 ? "" : N === 1 ? " /yr" : "")));
+  }
   if (N > 1) yrRows.push(yr(`Total over ${N} years`, "", gbpFull(y1T + (N - 1) * recT), true));
   const yearTable = yrRows.length ? `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-0.5">Price by year</div><table class="w-full text-sm tabular-nums"><caption class="sr-only">Price per patient and total for each year of the contract</caption><thead class="sr-only"><tr><th>Period</th><th>Per patient</th><th>Total</th></tr></thead><tbody>${yrRows.join("")}</tbody></table>${useSpeed ? '<p class="mt-0.5 text-xs text-slate-500">The speed discount applies in year 1 only.</p>' : ""}</div>` : "";
   const steps = `<table class="mt-3 w-full text-sm tabular-nums"><caption class="sr-only">How the price is built</caption><thead class="sr-only"><tr><th>Step</th><th>Discount</th><th>Per patient</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;

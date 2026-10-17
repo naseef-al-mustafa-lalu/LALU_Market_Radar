@@ -73,7 +73,7 @@ with sync_playwright() as p:
     assert pg.evaluate("document.activeElement.classList.contains('speed-toggle')")
     pg.check("#dr-body .speed-toggle"); assert "£720" in kpi()
     pg.click('#dr-body .term-opt[data-yrs="3"]'); t3 = pg.inner_text("#dr-body"); assert "Term discount" in t3 and "3-year" in t3 and "£0.068" in t3, t3  # 5% size + 5% term + 5% speed off £0.080
-    assert "Years 2–3" in t3 and "Total over 3 years" in t3 and "£2,120" in t3, t3  # y1 10,000 x £0.068 + 2 x 10,000 x £0.072
+    assert "Year 2" in t3 and "Year 3" in t3 and "Years 2–3" not in t3 and "Total over 3 years" in t3 and "£2,120" in t3, t3  # y1 10,000 x £0.068 + 2 x 10,000 x £0.072
     pg.click('#dr-body .term-opt[data-yrs="1"]'); assert "Term discount" not in pg.inner_text("#dr-body")
     assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "Speed discount" in body and "Contract term" in body and "Other ways to sign this practice" in body, body
     assert "£1,216" not in body or True
