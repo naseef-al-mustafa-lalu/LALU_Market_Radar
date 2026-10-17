@@ -97,8 +97,6 @@ function renderMore() {
 $("more").addEventListener("click", renderMore);
 
 /* ---------- price breakdown: headline figure, then the working in plain steps ---------- */
-const stepRow = (n, label, detail, value) => `<li class="flex gap-2.5"><span class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-white border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center">${n}</span>
-  <div class="min-w-0 flex-1"><div class="flex justify-between gap-3"><span class="font-medium">${label}</span><span class="font-mono font-semibold whitespace-nowrap">${value}</span></div><div class="text-xs text-slate-500">${detail}</div></div></li>`;
 // Price = list price less the SUM of the selected discounts (size + term + speed), never below the price floor.
 // Term and speed are choices, not guarantees, so they are switches shared by every price card on the page.
 let speedOn = true, termYrs = 1;
@@ -121,15 +119,20 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
   const sum = size + term + (speedOn ? speed : 0), floored = list * (1 - sum) < floor - 1e-9;
   const tiersAsc = cfgTiers.filter(t => t.route === route).sort((a, b) => a.threshold - b.threshold);
   const next = tiersAsc.find(t => Number(t.threshold) > patients && t.tier < tierRow.tier);
-  let n = 0;
-  const steps = [
-    stepRow(++n, "List price", "Standard annual price before any discount", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-500">per patient</span>`),
-    stepRow(++n, "Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}: ${who ? esc(who) + " has " : ""}${patients.toLocaleString()} patients${Number(tierRow.threshold) ? ", over the " + Number(tierRow.threshold).toLocaleString() + " threshold" : ""}`, "−" + pct(size)),
-    term ? stepRow(++n, "Term discount", `${termYrs}-year commitment`, "−" + pct(term)) : "",
-    speedOn && speed ? stepRow(++n, "Speed discount", "Year 1 only: for signing and going live quickly. Not guaranteed", "−" + pct(speed)) : "",
-    stepRow(++n, "Price per patient", `Discounts add together (${[size, term, speedOn ? speed : 0].filter(x => x).map(pct).join(" + ") || "none"} = ${pct(sum)} off the list price)${floored ? `. Held at the £${floor.toFixed(3)} price floor` : ""}${speedOn && speed ? `. From year 2: £${recurring.toFixed(3)}` : ""}`, `£${year1.toFixed(3)}`),
-    stepRow(++n, `× ${patients.toLocaleString()} patients`, "Price per patient × registered patients", `${gbpFull(patients * year1)} <span class="text-xs font-normal text-slate-500">${speedOn && speed ? "in year 1" : "a year"}</span>`)
+  const sub = t => `<div class="text-xs text-slate-500 font-normal leading-snug">${t}</div>`, amt = x => "−£" + x.toFixed(3);
+  const line = (label, detail, pctText, value, cls = "") => `<tr class="border-t border-emerald-100 ${cls}"><td class="py-1.5 pr-3 align-top"><div class="font-medium leading-snug">${label}</div>${detail ? sub(detail) : ""}</td><td class="py-1.5 px-2 text-right align-top whitespace-nowrap text-slate-600">${pctText}</td><td class="py-1.5 pl-2 text-right align-top whitespace-nowrap font-mono">${value}</td></tr>`;
+  const adj = year1 - list * (1 - sum);
+  const rowsHtml = [
+    line("List price", "", "", `£${list.toFixed(3)}`, "border-t-0"),
+    line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
+    term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
+    speedOn && speed ? line("Speed discount", "Year 1 only, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
+    adj > 1e-9 ? line("Price floor", `Never below £${floor.toFixed(3)}`, "", "+£" + adj.toFixed(3)) : "",
+    line(`Price per patient${speedOn && speed ? " (year 1)" : ""}`, "", `${pct(1 - year1 / list)} off`, `£${year1.toFixed(3)}`, "font-semibold border-t-2 border-emerald-200"),
+    line(`× ${patients.toLocaleString()} patients`, speedOn && speed ? "Year 1 total" : "Per year", "", gbpFull(patients * year1), "font-semibold")
   ].join("");
+  const steps = `<table class="mt-3 w-full text-sm tabular-nums"><caption class="sr-only">How the price is built</caption><thead class="sr-only"><tr><th>Step</th><th>Discount</th><th>Per patient</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    ${speedOn && speed ? `<p class="mt-1 text-xs text-slate-500">From year 2 the speed discount ends: £${recurring.toFixed(3)} per patient, ${gbpFull(patients * recurring)} a year.</p>` : ""}`;
   const opts = [1, 2, 3].map(y => `<button type="button" class="term-opt flex-1 rounded-md border px-2 py-1.5 text-left ${y === termYrs ? "border-emerald-600 bg-white ring-1 ring-emerald-600" : "border-slate-300 bg-white/60 hover:bg-white"}" data-yrs="${y}" aria-pressed="${y === termYrs}">
       <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm">${gbpFull(patients * dealRate(size, termDiscount(y), 0))}<span class="text-xs text-slate-500"> /yr</span></div></button>`).join("");
   return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
@@ -138,7 +141,7 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
       ${speedOn && speed ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(patients * year1)}</div><div class="text-xs text-slate-500">${pct(speed)} speed discount</div></div>` : ""}</div>
     <div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>
     <label class="mt-2 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" class="speed-toggle" ${speedOn ? "checked" : ""}> Include the ${pct(speed)} speed discount <span class="text-slate-400">(not guaranteed)</span></label>
-    <ol class="mt-3 space-y-2.5 text-sm">${steps}</ol>
+    ${steps}
     ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${(list * (1 - Number(next.size_discount))).toFixed(3)} per patient).</p>` : ""}</div>`;
 }
 function routeComparison(p) {
