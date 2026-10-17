@@ -27,7 +27,7 @@ $("data-sub").querySelectorAll("button").forEach(b => b.onclick = () => setDataS
 /* ---------- pricing sync: read rates from CSV exports of the pricing spreadsheet ---------- */
 const num = t => { const n = parseFloat(String(t || "").replace(/[£,%\s]/g, "")); return Number.isFinite(n) ? n : null; };
 const frac = t => { const n = num(t); return n == null ? null : /%/.test(t) ? n / 100 : n; };
-const SHEET_SETTINGS = [["list_price_per_patient", /annual (sub )?list price/i, num], ["monthly_list_price_per_patient", /monthly (sub )?list price/i, num], ["vat_rate", /vat rate/i, frac],
+const SHEET_SETTINGS = [["list_price_per_patient", /annual (sub )?list price/i, num], ["monthly_plan_rate_per_patient_year", /monthly plan rate/i, num], ["vat_rate", /vat rate/i, frac],
   ["price_floor_per_patient", /margin floor/i, num], ["term_discount_2yr", /2-yr commitment disc/i, frac], ["term_discount_3yr", /3-yr commitment disc/i, frac]];
 const SHEET_ROUTES = [["practice", /single practice/i], ["pcn", /primary care network|\bpcn\b/i], ["icb", /integrated care board|\bicb\b/i]];
 // Takes the parsed rows of one or more tabs (the Pricing-Discount-Model tab and/or the Multi-Year-Matrix tab) and returns the values it can find.
@@ -38,6 +38,7 @@ function readPricingSheet(tabs) {
     for (const r of rows) {
       const cells = r.map(c => (c || "").trim());
       cells.forEach((c, i) => {
+        const am = /annualised monthly[^£]*£\s*([0-9.]+)/i.exec(c); if (am && !("monthly_plan_rate_per_patient_year" in settings)) settings.monthly_plan_rate_per_patient_year = parseFloat(am[1]);
         for (const [key, re, conv] of SHEET_SETTINGS) if (re.test(c) && !(key in settings)) { const v = conv(cells.slice(i + 1).find(x => x !== "")); if (v != null) settings[key] = v; }
       });
       const head = cells[0] || "";
@@ -55,7 +56,7 @@ function readPricingSheet(tabs) {
 }
 function pricingChanges(found) {
   const out = [];
-  for (const [k, v] of Object.entries(found.settings)) { const cur = cfgSettings[k] ? Number(cfgSettings[k].value) : null; if (cur != null && Math.abs(cur - v) > 1e-9) out.push({ what: cfgSettings[k]?.description || k, from: cur, to: v, kind: /price/.test(k) ? "gbp" : "pct" }); }
+  for (const [k, v] of Object.entries(found.settings)) { const cur = cfgSettings[k] ? Number(cfgSettings[k].value) : null; if (cur != null && Math.abs(cur - v) > 1e-9) out.push({ what: cfgSettings[k]?.description || k, from: cur, to: v, kind: /price|plan_rate/.test(k) ? "gbp" : "pct" }); }
   for (const t of found.tiers) {
     const cur = cfgTiers.find(x => x.route === t.route && x.tier === t.tier); if (!cur) continue;
     for (const [f, label] of [["threshold", "from (patients)"], ["size_discount", "size discount"], ["speed_discount", "speed discount"]])

@@ -103,8 +103,8 @@ let speedOn = true, termYrs = 1, billing = "annual";   // billing: "annual" (pai
 const priceCards = new Map();
 const setting = k => Number(cfgSettings[k]?.value || 0);
 const termDiscount = yrs => yrs >= 3 ? setting("term_discount_3yr") : yrs === 2 ? setting("term_discount_2yr") : 0;
-// Base rate per patient per year: the annual list price, or the monthly list price x 12 for a monthly plan.
-const baseRate = () => billing === "monthly" ? setting("monthly_list_price_per_patient") * 12 : setting("list_price_per_patient");
+// Base rate per patient per year: the annual plan rate, or the (higher) monthly plan rate, which is also quoted per year.
+const baseRate = () => billing === "monthly" ? setting("monthly_plan_rate_per_patient_year") : setting("list_price_per_patient");
 const dealRate = (size, term, speed) => Math.max(setting("price_floor_per_patient"), baseRate() * (1 - size - term - speed));
 function priceCard(args) {
   const id = "pc" + priceCards.size; priceCards.set(id, args);
@@ -129,7 +129,7 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
   const line = (label, detail, pctText, value, cls = "") => `<tr class="border-t border-emerald-100 ${cls}"><td class="py-1.5 pr-3 align-top"><div class="font-medium leading-snug">${label}</div>${detail ? sub(detail) : ""}</td><td class="py-1.5 px-2 text-right align-top whitespace-nowrap text-slate-600">${pctText}</td><td class="py-1.5 pl-2 text-right align-top whitespace-nowrap font-mono">${value}</td></tr>`;
   const adj = year1 - list * (1 - sum);
   const rowsHtml = [
-    line("List price", monthly ? `Monthly plan: £${setting("monthly_list_price_per_patient").toFixed(3)} per patient per month × 12` : "Annual plan, paid yearly", "", `£${list.toFixed(3)}`, "border-t-0"),
+    line("List price", monthly ? `Monthly plan: billed monthly, £${(list / 12).toFixed(4)} per patient per month` : "Annual plan, paid yearly", "", `£${list.toFixed(3)}`, "border-t-0"),
     line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
     useSpeed ? line("Speed discount", "Year 1 only, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
