@@ -26,14 +26,14 @@ function openNetworkProfile(n) {
       <div class="flex justify-between mt-0.5 border-t border-slate-200 pt-1"><span class="font-medium">${saving > 0 ? "Network discount" : "Difference"}</span><span class="font-mono font-semibold ${saving > 0 ? "text-emerald-700" : ""}">${saving == null ? "–" : (saving > 0 ? "−" : "+") + gbpFull(Math.abs(saving))} <span class="text-xs font-normal text-slate-500">${n.arr_single && saving != null ? "(" + pct(Math.abs(saving) / n.arr_single) + ")" : ""}</span></span></div></div>
     <p class="text-xs text-slate-500 mt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</p>`;
   const rows = members.map(p => {
-    const net = base != null ? p.total_patients * base : null;
+    const net = base != null ? p.total_patients * base * 12 : null;
     return `<tr class="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" tabindex="0" role="button" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}</div><div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)}</div></td>
       <td class="text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : "–"}</td>
       <td class="px-2">${p.price_tier ? chip("T" + p.price_tier, TIER_CLS["Tier " + p.price_tier] || "") : ""}</td>
       <td class="text-right font-mono">${p.base_price != null ? "£" + Number(p.base_price).toFixed(3) : "–"}</td>
       <td class="text-right font-mono">${gbpFull(p.est_arr)}</td>
       <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net) : "–"}</td></tr>`; }).join("");
-  const hdr = ["Practice", "Patients", "Tier", "£/pt singly", "ARR singly", "ARR in network"].map((h, i) => `<th class="${i === 0 ? "text-left" : i === 2 ? "text-left px-2" : "text-right"} font-medium">${h}</th>`).join("");
+  const hdr = ["Practice", "Patients", "Tier", "£/pt/mo singly", "ARR singly", "ARR in network"].map((h, i) => `<th class="${i === 0 ? "text-left" : i === 2 ? "text-left px-2" : "text-right"} font-medium">${h}</th>`).join("");
   $("dr-body").innerHTML =
     `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
       .map(([k, v]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div></div>`).join("")}</div>` +
@@ -107,7 +107,7 @@ function renderRevenue() {
   const routes = routeData(), act = routes[0].list;
   $("rev-routes").innerHTML = routes.map(r => { const pat = sum(r.list, r.pat), arr = sum(r.list, r.val);
     return `<tr><td class="py-2 font-semibold">${r.name}</td><td class="py-2 text-right font-mono">${r.list.length.toLocaleString()}</td><td class="py-2 text-right font-mono">${(pat / 1e6).toFixed(2)}m</td>
-      <td class="py-2 text-right font-mono font-semibold text-emerald-700">${gbp(arr)}</td><td class="py-2 text-right font-mono text-slate-500">£${(arr / Math.max(pat, 1)).toFixed(4)}</td></tr>`; }).join("");
+      <td class="py-2 text-right font-mono font-semibold text-emerald-700">${gbp(arr)}</td><td class="py-2 text-right font-mono text-slate-500">£${(arr / 12 / Math.max(pat, 1)).toFixed(4)}</td></tr>`; }).join("");
   $("rev-metric").innerHTML = [["arr", "Est. ARR"], ["patients", "Patients"], ["count", "Count"]].map(([k, l]) => `<button data-m="${k}" class="px-2.5 py-1 rounded-md ${k === revMetric ? "bg-white shadow-sm" : "text-slate-500"}">${l}</button>`).join("");
   $("rev-metric").querySelectorAll("button").forEach(b => b.onclick = () => { revMetric = b.dataset.m; renderRevenue(); });
   const cell = (r, t) => { const m = r.list.filter(x => r.tierOf(x) === t); return revMetric === "arr" ? sum(m, r.val) : revMetric === "patients" ? sum(m, r.pat) : m.length; };

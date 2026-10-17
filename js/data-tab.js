@@ -27,7 +27,7 @@ $("data-sub").querySelectorAll("button").forEach(b => b.onclick = () => setDataS
 /* ---------- pricing sync: read rates from CSV exports of the pricing spreadsheet ---------- */
 const num = t => { const n = parseFloat(String(t || "").replace(/[£,%\s]/g, "")); return Number.isFinite(n) ? n : null; };
 const frac = t => { const n = num(t); return n == null ? null : /%/.test(t) ? n / 100 : n; };
-const SHEET_SETTINGS = [["list_price_per_patient", /annual (sub )?list price/i, num], ["monthly_plan_rate_per_patient_year", /monthly plan rate/i, num], ["vat_rate", /vat rate/i, frac],
+const SHEET_SETTINGS = [["list_price_per_patient", /annual (sub )?list price/i, num], ["monthly_list_price_per_patient", /monthly (sub )?list price/i, num], ["vat_rate", /vat rate/i, frac],
   ["price_floor_per_patient", /margin floor/i, num], ["term_discount_2yr", /2-yr commitment disc/i, frac], ["term_discount_3yr", /3-yr commitment disc/i, frac]];
 const SHEET_ROUTES = [["practice", /single practice/i], ["pcn", /primary care network|\bpcn\b/i], ["icb", /integrated care board|\bicb\b/i]];
 // Takes the parsed rows of one or more tabs (the Pricing-Discount-Model tab and/or the Multi-Year-Matrix tab) and returns the values it can find.
@@ -38,7 +38,6 @@ function readPricingSheet(tabs) {
     for (const r of rows) {
       const cells = r.map(c => (c || "").trim());
       cells.forEach((c, i) => {
-        const am = /annualised monthly[^£]*£\s*([0-9.]+)/i.exec(c); if (am && !("monthly_plan_rate_per_patient_year" in settings)) settings.monthly_plan_rate_per_patient_year = parseFloat(am[1]);
         for (const [key, re, conv] of SHEET_SETTINGS) if (re.test(c) && !(key in settings)) { const v = conv(cells.slice(i + 1).find(x => x !== "")); if (v != null) settings[key] = v; }
       });
       const head = cells[0] || "";
@@ -56,7 +55,7 @@ function readPricingSheet(tabs) {
 }
 function pricingChanges(found) {
   const out = [];
-  for (const [k, v] of Object.entries(found.settings)) { const cur = cfgSettings[k] ? Number(cfgSettings[k].value) : null; if (cur != null && Math.abs(cur - v) > 1e-9) out.push({ what: cfgSettings[k]?.description || k, from: cur, to: v, kind: /price|plan_rate/.test(k) ? "gbp" : "pct" }); }
+  for (const [k, v] of Object.entries(found.settings)) { const cur = cfgSettings[k] ? Number(cfgSettings[k].value) : null; if (cur != null && Math.abs(cur - v) > 1e-9) out.push({ what: cfgSettings[k]?.description || k, from: cur, to: v, kind: /price/.test(k) ? "gbp" : "pct" }); }
   for (const t of found.tiers) {
     const cur = cfgTiers.find(x => x.route === t.route && x.tier === t.tier); if (!cur) continue;
     for (const [f, label] of [["threshold", "from (patients)"], ["size_discount", "size discount"], ["speed_discount", "speed discount"]])
@@ -100,14 +99,14 @@ function renderRateCard() {
   const table = r => {
     const rows = cfgTiers.filter(t => t.route === r).sort((a, b) => a.tier - b.tier);
     if (!rows.length) return '<p class="text-sm italic text-slate-500">No tiers configured for this route.</p>';
-    return `<table class="w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="text-left py-1.5 font-medium">Tier</th><th class="text-right font-medium">From (patients)</th><th class="text-right font-medium">Size discount</th><th class="text-right font-medium">Price / patient</th><th class="text-right font-medium">Year 1 (${pct(rows[0].speed_discount)} speed discount)</th></tr></thead><tbody>` +
+    return `<table class="w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="text-left py-1.5 font-medium">Tier</th><th class="text-right font-medium">From (patients)</th><th class="text-right font-medium">Size discount</th><th class="text-right font-medium">Price / patient / month</th><th class="text-right font-medium">Year 1 (${pct(rows[0].speed_discount)} speed discount)</th></tr></thead><tbody>` +
       rows.map(t => { const p = list * (1 - Number(t.size_discount)), floor = Number(cfgSettings.price_floor_per_patient?.value || 0), y1 = Math.max(floor, list * (1 - Number(t.size_discount) - Number(t.speed_discount))); return `<tr class="border-t border-slate-100"><td class="py-1.5">${chip("T" + t.tier, TIER_CLS["Tier " + t.tier] || "")} ${esc(t.label)}</td><td class="text-right font-mono">${Number(t.threshold) ? Number(t.threshold).toLocaleString() + "+" : "any size"}</td>
         <td class="text-right">${pct(t.size_discount)}</td><td class="text-right font-mono font-semibold">£${p.toFixed(3)}</td><td class="text-right font-mono text-slate-600">£${y1.toFixed(3)}</td></tr>`; }).join("") + "</tbody></table>";
   };
   $("rev-config").innerHTML = `<div class="bg-white rounded-xl border border-slate-200 p-4">
       <h2 class="font-bold">How prices are worked out</h2>
       <div class="mt-2 grid gap-3 md:grid-cols-4 text-sm">
-        ${[["1", "List price", `£${list.toFixed(3)} per patient per year (${esc(cfgSettings.list_price_per_patient?.description || "annual list price")})`], ["2", "Discounts add together", "Size discount (by tier), plus a term discount for 2 or 3-year commitments, plus a Year 1 speed discount. Their percentages are summed and taken off the list price."], ["3", "Price floor", "The price never drops below the floor price per patient, whatever the discounts add up to."], ["4", "× patients", "Annual revenue = price per patient × registered patients."]]
+        ${[["1", "List price", `£${list.toFixed(3)} per patient per month on the annual plan (${esc(cfgSettings.list_price_per_patient?.description || "annual list price")})`], ["2", "Discounts add together", "Size discount (by tier), plus a term discount for 2 or 3-year commitments, plus a Year 1 speed discount. Their percentages are summed and taken off the list price."], ["3", "Price floor", "The price never drops below the floor price per patient, whatever the discounts add up to."], ["4", "× patients × 12", "Annual revenue = price per patient per month × registered patients × 12."]]
           .map(([n, h, t]) => `<div class="flex gap-2"><span class="shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-800 text-xs font-bold flex items-center justify-center">${n}</span><div><div class="font-semibold">${h}</div><div class="text-xs text-slate-500">${t}</div></div></div>`).join("")}
       </div>
       <p class="mt-3 text-xs text-slate-500">The routes below are alternatives, not additive. Rates live in the <code>pricing_tiers</code> and <code>pricing_settings</code> tables (Supabase > Table Editor); changes show here and in every profile straight away.</p>
