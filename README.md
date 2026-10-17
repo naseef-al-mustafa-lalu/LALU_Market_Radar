@@ -129,3 +129,7 @@ tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Osca
 - The Supabase client script is hosted in `assets/vendor/` (version in the file name) rather than loaded from a CDN, so a compromised CDN cannot inject code. To upgrade it, `npm pack @supabase/supabase-js@<version>` and copy `dist/umd/supabase.js` there.
 - The Supabase advisor flags four `SECURITY DEFINER` functions and three tables with RLS but no policy. All are intentional and documented in migration `20261017000018`.
 - Turn on leaked-password protection in the Supabase dashboard (Authentication) so breached passwords are rejected.
+
+## Updating prices from the pricing spreadsheet
+
+Data > Pricing > "Update rates from the pricing spreadsheet". Download the `Pricing-Discount-Model` tab (and `Multi-Year-Matrix` for the 2/3-year term discounts and price floor) as CSV, choose the file(s), review the list of differences and press Apply. It updates existing rates only (`sync_pricing` in Supabase): list and monthly price, VAT, price floor, term discounts, and the practice / PCN / ICB tier thresholds and discounts. Provider-group and federation tiers are not touched.

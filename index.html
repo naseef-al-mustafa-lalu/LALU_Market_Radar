@@ -217,6 +217,12 @@
       </div>
       </div>
       <div id="dp-pricing" class="hidden">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+          <h2 class="font-bold">Update rates from the pricing spreadsheet</h2>
+          <p class="text-sm text-slate-500 mt-1">In the spreadsheet, open the <b>Pricing-Discount-Model</b> tab, then File &gt; Download &gt; Comma-separated values (.csv). For the 2 and 3-year term discounts and the price floor, do the same for the <b>Multi-Year-Matrix</b> tab. Choose one or both files here: you see what would change before anything is saved.</p>
+          <div class="mt-2 flex flex-wrap items-center gap-3"><input id="ps-file" type="file" accept=".csv,text/csv" multiple class="text-sm" aria-label="Pricing spreadsheet CSV files"><button id="ps-apply" class="hidden bg-blue-600 text-white rounded px-3 py-1.5 text-sm font-semibold">Apply</button></div>
+          <p id="ps-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]" aria-live="polite"></p><div id="ps-preview"></div>
+        </div>
         <div id="rev-config" class="space-y-4"></div>
       </div>
     </section>

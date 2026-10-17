@@ -24,6 +24,69 @@ function setDataSub(which) {
 }
 $("data-sub").querySelectorAll("button").forEach(b => b.onclick = () => setDataSub(b.dataset.d));
 
+/* ---------- pricing sync: read rates from CSV exports of the pricing spreadsheet ---------- */
+const num = t => { const n = parseFloat(String(t || "").replace(/[£,%\s]/g, "")); return Number.isFinite(n) ? n : null; };
+const frac = t => { const n = num(t); return n == null ? null : /%/.test(t) ? n / 100 : n; };
+const SHEET_SETTINGS = [["list_price_per_patient", /annual (sub )?list price/i, num], ["monthly_list_price_per_patient", /monthly (sub )?list price/i, num], ["vat_rate", /vat rate/i, frac],
+  ["price_floor_per_patient", /margin floor/i, num], ["term_discount_2yr", /2-yr commitment disc/i, frac], ["term_discount_3yr", /3-yr commitment disc/i, frac]];
+const SHEET_ROUTES = [["practice", /single practice/i], ["pcn", /primary care network|\bpcn\b/i], ["icb", /integrated care board|\bicb\b/i]];
+// Takes the parsed rows of one or more tabs (the Pricing-Discount-Model tab and/or the Multi-Year-Matrix tab) and returns the values it can find.
+function readPricingSheet(tabs) {
+  const settings = {}, tiers = {};
+  for (const rows of tabs) {
+    let route = null, cols = null;
+    for (const r of rows) {
+      const cells = r.map(c => (c || "").trim());
+      cells.forEach((c, i) => {
+        for (const [key, re, conv] of SHEET_SETTINGS) if (re.test(c) && !(key in settings)) { const v = conv(cells.slice(i + 1).find(x => x !== "")); if (v != null) settings[key] = v; }
+      });
+      const head = cells[0] || "";
+      if (/^\d\.\s/.test(head) && /schedule/i.test(head)) { route = (SHEET_ROUTES.find(([, re]) => re.test(head)) || [])[0] || null; cols = null; continue; }
+      const low = cells.map(c => c.toLowerCase());
+      if (low.includes("tier") && low.some(c => c.includes("patient threshold"))) { cols = { th: low.findIndex(c => c.includes("patient threshold")), size: low.findIndex(c => c.includes("size discount")), speed: low.findIndex(c => c.includes("speed discount")) }; continue; }
+      const m = /^Tier (\d)$/.exec(head);
+      if (route && cols && m) {
+        const size = frac(cells[cols.size]), speed = frac(cells[cols.speed]), th = num(cells[cols.th]);
+        if (size != null && speed != null && th != null) tiers[route + m[1]] = { route, tier: Number(m[1]), threshold: th, size_discount: size, speed_discount: speed };
+      }
+    }
+  }
+  return { settings, tiers: Object.values(tiers) };
+}
+function pricingChanges(found) {
+  const out = [];
+  for (const [k, v] of Object.entries(found.settings)) { const cur = cfgSettings[k] ? Number(cfgSettings[k].value) : null; if (cur != null && Math.abs(cur - v) > 1e-9) out.push({ what: cfgSettings[k]?.description || k, from: cur, to: v, kind: /price/.test(k) ? "gbp" : "pct" }); }
+  for (const t of found.tiers) {
+    const cur = cfgTiers.find(x => x.route === t.route && x.tier === t.tier); if (!cur) continue;
+    for (const [f, label] of [["threshold", "from (patients)"], ["size_discount", "size discount"], ["speed_discount", "speed discount"]])
+      if (Math.abs(Number(cur[f]) - t[f]) > 1e-9) out.push({ what: `${t.route} tier ${t.tier}: ${label}`, from: Number(cur[f]), to: t[f], kind: f === "threshold" ? "n" : "pct" });
+  }
+  return out;
+}
+let pricingFound = null;
+async function readPricingFiles(files) {
+  const msg = $("ps-msg"), box = $("ps-preview"); pricingFound = null; box.innerHTML = ""; $("ps-apply").classList.add("hidden");
+  try {
+    const tabs = []; for (const f of files) tabs.push(parseCsv((await f.text()).replace(/^\uFEFF/, "")));
+    const found = readPricingSheet(tabs);
+    if (!Object.keys(found.settings).length && !found.tiers.length) throw new Error("No pricing values found. Export the Pricing-Discount-Model tab (and Multi-Year-Matrix for term discounts) as CSV.");
+    const ch = pricingChanges(found), fmt = (v, k) => v == null ? "none" : k === "gbp" ? "£" + v.toFixed(3) : k === "pct" ? pct(v) : v.toLocaleString();
+    msg.textContent = `Read ${Object.keys(found.settings).length} settings and ${found.tiers.length} tier rows. ${ch.length ? ch.length + " differ from what the dashboard holds." : "Everything already matches."}`;
+    box.innerHTML = ch.length ? `<table class="mt-2 w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="text-left font-medium py-1">Value</th><th class="text-right font-medium">Now</th><th class="text-right font-medium">Spreadsheet</th></tr></thead><tbody>${ch.map(c => `<tr class="border-t border-slate-100"><td class="py-1">${esc(c.what)}</td><td class="text-right font-mono text-slate-500">${esc(fmt(c.from, c.kind))}</td><td class="text-right font-mono font-semibold">${esc(fmt(c.to, c.kind))}</td></tr>`).join("")}</tbody></table>` : "";
+    if (ch.length) { pricingFound = found; $("ps-apply").classList.remove("hidden"); $("ps-apply").textContent = `Apply ${ch.length} change${ch.length > 1 ? "s" : ""}`; }
+  } catch (e) { msg.textContent = e.message || String(e); }
+}
+$("ps-file").addEventListener("change", e => { if (e.target.files.length) readPricingFiles([...e.target.files]); e.target.value = ""; });
+$("ps-apply").addEventListener("click", async () => {
+  if (!pricingFound) return; const btn = $("ps-apply"); btn.disabled = true; $("ps-msg").textContent = "Applying…";
+  const { data, error } = await db.rpc("sync_pricing", { p_settings: pricingFound.settings, p_tiers: pricingFound.tiers });
+  btn.disabled = false;
+  if (error) { $("ps-msg").textContent = "Could not apply: " + (error.message || error); return; }
+  pricingFound = null; btn.classList.add("hidden"); $("ps-preview").innerHTML = "";
+  $("ps-msg").textContent = `Updated ${data?.settings_changed ?? 0} settings and ${data?.tiers_changed ?? 0} tier rows. Reloading prices…`;
+  await loadConfig(); await loadPractices(); applyFilters(); loadNetworks(); renderRateCard(); $("ps-msg").textContent = $("ps-msg").textContent.replace("Reloading prices…", "Prices reloaded.");
+});
+
 /* ---------- rate card: one table per price route ---------- */
 const ROUTES = [
   ["practice", "Single practices", "One practice signs on its own."],
