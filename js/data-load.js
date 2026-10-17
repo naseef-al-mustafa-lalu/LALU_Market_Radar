@@ -1,21 +1,22 @@
 // Loading data, the loading pop-up, shareable URL state and tabs.
 /* ---------- data ---------- */
-/* Reads a whole table or view. PostgREST caps a response at 1,000 rows, so: one request that also returns the total, then the remaining pages four at a time. */
+/* Reads a whole table or view. PostgREST caps a response at 1,000 rows, so: one request that also returns a row count, then the remaining pages in parallel.
+   Exact counts are cheap on a plain table (gp_practices) but make a view run twice, so views use the planner's estimate, which only sizes the first wave;
+   any further pages are fetched in waves until a short page says the data has ended. */
 const PAGE_N = 1000;
-async function fetchAll(table, columns, order) {
-  const page = from => db.from(table).select(columns, { count: "exact" }).order(order).range(from, from + PAGE_N - 1);
-  const first = await page(0); if (first.error) throw first.error;
-  const out = first.data || [];
+async function fetchAll(table, columns, order, hint = "planned") {
+  const page = (from, count) => db.from(table).select(columns, count ? { count } : {}).order(order).range(from, from + PAGE_N - 1);
+  const first = await page(0, hint); if (first.error) throw first.error;
+  const out = [...(first.data || [])];
   if (out.length < PAGE_N) return out;
-  if (typeof first.count !== "number") {                                   // total unknown: walk the pages in order
-    for (let from = PAGE_N; ; from += PAGE_N) { const r = await page(from); if (r.error) throw r.error; out.push(...r.data); if (r.data.length < PAGE_N) return out; }
+  let next = 1, wave = typeof first.count === "number" ? Math.min(6, Math.max(1, Math.ceil(first.count / PAGE_N) - 1)) : 4;
+  for (;;) {
+    const rs = await Promise.all(Array.from({ length: wave }, (_, i) => page((next + i) * PAGE_N)));
+    let ended = false;
+    for (const r of rs) { if (r.error) throw r.error; out.push(...r.data); if (r.data.length < PAGE_N) ended = true; }
+    if (ended) return out;
+    next += wave; wave = 4;
   }
-  const starts = []; for (let f = PAGE_N; f < first.count; f += PAGE_N) starts.push(f);
-  for (let i = 0; i < starts.length; i += 4) {
-    const rs = await Promise.all(starts.slice(i, i + 4).map(page));
-    for (const r of rs) { if (r.error) throw r.error; out.push(...r.data); }
-  }
-  return out;
 }
 // only the columns the screens read (the full table has ~60; fetching all of them for ~8,000 rows was most of the login wait)
 const PRACTICE_COLS = "ods_code,practice_name,postcode,website,pcn_code,pcn_name,icb_name,total_patients,status,clinical_software,manager_name,manager_title,manager_email,manager_phone,manager_email_opt_out,lead_status,data_month,address,town,county,region,main_phone,main_email,main_email_opt_out,num_employees,annual_spend,org_notes,nhs_num_gp,gp_federation,oscar_categories,cqc_location_id,cqc_provider_id,cqc_status,cqc_rating,cqc_last_inspection,cqc_manager_absent_date,group_name,group_size,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer,hubspot_synced_at,country,network_locked";
@@ -23,7 +24,7 @@ const PRICING_COLS = "ods_code,price_tier,tier_label,base_price,year1_price,est_
 const HS_COLS = "ods_code,hs_contacts,hs_imported,hs_primary_imported,hs_last_imported_at,hs_primary_imported_at";
 const NET_COLS = "id,kind,name,source_key,practices,patients,tier1,tier2,tier3,tier4,tier5,emis,systmone,cqc_concern,engaged,customers,hs_imported,arr_single,arr_customers,confirmed,network_tier,network_tier_label,network_base_price,arr_network";
 async function loadPractices() {
-  const [base, pp, hs] = await Promise.all([fetchAll("gp_practices", PRACTICE_COLS, "ods_code"), fetchAll("practice_pricing", PRICING_COLS, "ods_code"), fetchAll("practice_hubspot", HS_COLS, "ods_code")]);
+  const [base, pp, hs] = await Promise.all([fetchAll("gp_practices", PRACTICE_COLS, "ods_code", "exact"), fetchAll("practice_pricing", PRICING_COLS, "ods_code"), fetchAll("practice_hubspot", HS_COLS, "ods_code")]);
   const m = new Map(pp.map(r => [r.ods_code, r])), h = new Map(hs.map(r => [r.ods_code, r]));
   practices = base.map(p => ({ ...p, ...(m.get(p.ods_code) || {}), ...(h.get(p.ods_code) || {}) }));
   byOds = new Map(practices.map(p => [p.ods_code, p]));
