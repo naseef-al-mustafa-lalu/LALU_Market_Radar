@@ -4,7 +4,7 @@ import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
 
-from . import cqc, jobs, oscar, software, sources
+from . import cqc, jobs, maintenance, oscar, software, sources
 from .common import Rest, need_env, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
@@ -198,6 +198,11 @@ def sync(rest, run_id):
         stats["job_links_moved"] = jobs.move_links_out_of_descriptions(rest)
     except Exception as e:  # noqa: BLE001  the jobs feed is enrichment: never block the main load
         stats["jobs_error"] = str(e)[:300]
+
+    try:
+        stats["junk_rows_removed"] = maintenance.purge_never_loaded_closed(rest)
+    except Exception as e:  # noqa: BLE001  housekeeping: never block the run
+        stats["maintenance_error"] = str(e)[:200]
 
     try:
         stats["graph"] = rest.rpc("refresh_org_graph")

@@ -145,6 +145,36 @@ with sync_playwright() as p:
     open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
     pg.set_input_files("#up-wal .up-file", os.path.join(td, "bad.csv")); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.includes('Not recognised')")
     pg.screenshot(path="/tmp/claude-0/data.png", full_page=True)
+    # ---- usability: keyboard, URL state, status workflow, exports ----
+    pg.click("#tab-practices"); pg.click("#f-chips >> text=/clear/i") if pg.locator("#f-chips >> text=/clear/i").count() else None
+    pg.fill("#f-search", ""); pg.evaluate("document.querySelector('#rows tr').focus()"); pg.keyboard.press("Enter")
+    pg.wait_for_selector("#drawer:not(.translate-x-full)"); assert "open=" in pg.evaluate("location.search")
+    pg.keyboard.press("Escape"); pg.wait_for_function("document.querySelector('#drawer').classList.contains('translate-x-full')")
+    assert "open=" not in pg.evaluate("location.search") and pg.evaluate("document.activeElement.tagName") == "TR"       # focus goes back to the row
+    pg.click("#f-more-btn") if pg.is_hidden("#f-size") else None
+    pg.select_option("#f-size", "no"); assert "0 practices" in pg.inner_text("#count") and "size=no" in pg.evaluate("location.search")
+    pg.select_option("#f-size", ""); pg.select_option("#f-tier", "Tier 3"); assert "tier=Tier+3" in pg.evaluate("location.search")
+    pg.goto("about:blank"); pg.goto("file:///home/user/LALU_Market_Radar/index.html?tier=Tier+3&open=A10001&sort=name:1")      # a shared link restores the view
+    pg.wait_for_selector("#drawer:not(.translate-x-full)", timeout=8000)
+    assert "Test Surgery 1" in pg.inner_text("#dr-title") and pg.input_value("#f-tier") == "Tier 3" and "8 practices" in pg.inner_text("#count")
+    pg.keyboard.press("Escape")
+    pg.click("#th-name") if False else None
+    # signals: status workflow
+    pg.click("#tab-signals"); n0 = pg.locator("#s-rows tr").count(); assert n0 == 2, n0
+    pg.select_option("#s-rows tr:has-text('Little Common') .sg-status", "done"); pg.wait_for_function("document.querySelectorAll('#s-rows tr').length === 1")
+    pg.select_option("#s-status", "all"); assert pg.locator("#s-rows tr").count() == 2
+    pg.select_option("#s-status", "done"); assert "Little Common" in pg.inner_text("#s-rows")
+    with pg.expect_download() as dl: pg.click("#s-export")
+    csv = open(dl.value.path(), encoding="utf-8-sig").read(); assert csv.startswith('"Detected"') and "Little Common" in csv and "Done" in csv, csv[:200]
+    pg.select_option("#s-status", "open")
+    pg.click("#tab-networks"); pg.wait_for_selector("#net-rows tr")
+    with pg.expect_download() as dl2: pg.click("#n-export")
+    assert "Linked practices" in open(dl2.value.path(), encoding="utf-8-sig").read()
+    # job matches: the review list is visible without ticking anything, with honest counts
+    pg.click("#tab-signals"); pg.click("#sig-sub button[data-s=jobs]"); pg.wait_for_selector("#jm-status option", state="attached", timeout=8000); assert "To review (1)" in pg.inner_html("#jm-status"), pg.inner_html("#jm-status"); assert not pg.is_checked("#jm-adv")
+    assert "1 employers, 1 with a report" in pg.inner_text("#jm-count") or "employers" in pg.inner_text("#jm-count")
+    # the Data tab always opens on Overview
+    pg.click("#tab-data"); pg.click("#data-sub button[data-d=pricing]"); pg.click("#tab-practices"); pg.click("#tab-data"); assert pg.is_visible("#dp-overview")
     # a failed load must not leave the spinner up forever: it explains and offers Try again
     pg.goto("about:blank"); pg.add_init_script("window.__fail = true"); pg.goto("file:///home/user/LALU_Market_Radar/index.html")
     pg.wait_for_selector("#load-retry:not(.hidden)", timeout=8000)

@@ -12,6 +12,9 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 4. **GitHub Pages**: Settings -> Pages -> deploy from `main` / root. (Private repos need a paid GitHub plan for Pages.)
 5. Run the **Daily market radar** workflow manually once. The first successful run is a silent *baseline*: it loads everything but raises no triggers and sends no email. From the second run, changes generate signals.
 
+## Signals workflow and shareable views
+Each signal has a status (New, In progress, Done, Dismissed) and a note, set in the Signals feed (the feed shows open signals by default). The web address carries the tab, filters, sort, selected network and open practice, so any view can be bookmarked or shared. Rows, headers and the side panel work from the keyboard (Tab, Enter / Space, Esc).
+
 ## Inviting users
 1. Supabase > Authentication > URL Configuration: set **Site URL** to the dashboard URL and add it under **Redirect URLs** (invite and reset links return there).
 2. Supabase > Authentication > Users > **Invite user**, then allow them: `insert into allowed_users (email) values ('them@lalu.co.uk');` (emails must be lower case).

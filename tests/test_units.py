@@ -164,3 +164,23 @@ def test_digest_row_has_next_step_and_link_separately():
     html = digest.row_html({"trigger_type": "JOB_REPORT_ROLE", "headline": "Hiring: X", "description": "Practice advertised X.", "action": "Offer cover.",
                             "url": "https://www.jobs.nhs.uk/a/1", "gp_practices": p}, [dict(route="practice", tier=1, threshold=0)])
     assert "Next step:</b> Offer cover." in html and "Open source" in html and "https://www.jobs.nhs.uk/a/1" in html and "jobs.nhs.uk" not in "Practice advertised X."
+
+
+def test_purge_only_removes_never_loaded_closed_welsh_rows():
+    from src import maintenance
+
+    class R:
+        def __init__(self): self.deleted = []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            assert params == {"status": "eq.Closed", "country": "eq.Wales", "total_patients": "eq.0", "data_month": "is.null"}      # the filter is the safety
+            return [{"ods_code": "W00001"}, {"ods_code": "W00003"}]
+        def delete_in(self, table, column, values, chunk=200): self.deleted.append((table, column, list(values)))
+    r = R()
+    assert maintenance.purge_never_loaded_closed(r) == 2
+    assert r.deleted == [("organisations", "ods_code", ["W00001", "W00003"]), ("gp_practices", "ods_code", ["W00001", "W00003"])]
+
+    class Big(R):
+        def select_all(self, *a, **k): return [{"ods_code": f"W{i:05d}"} for i in range(1500)]
+    import pytest
+    with pytest.raises(RuntimeError):
+        maintenance.purge_never_loaded_closed(Big())

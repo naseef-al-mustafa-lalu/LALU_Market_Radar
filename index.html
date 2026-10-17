@@ -10,8 +10,9 @@
 <style>
   thead th { position: sticky; top: 0; z-index: 1; }
   th[data-sort] { cursor: pointer; user-select: none; }
+  tr[tabindex]:focus-visible, th[data-sort]:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; border-radius: 4px; }
   th[data-sort]:hover { color: #1e293b; }
-  .chip { display:inline-flex; align-items:center; gap:.25rem; padding:.05rem .5rem; border-radius:9999px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .chip { display:inline-flex; align-items:center; gap:.25rem; padding:.05rem .5rem; border-radius:9999px; font-size:12px; font-weight:600; white-space:nowrap; }
   .chip.hidden { display: none; }
   #drawer { transition: transform .18s ease-out; }
 </style>
@@ -85,6 +86,7 @@
           <select id="f-sw" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any system</option><option>EMIS Web</option><option>SystmOne</option><option>Vision</option><option>Unknown</option></select>
           <select id="f-cqc" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any CQC rating</option><option>Outstanding</option><option>Good</option><option>Requires improvement</option><option>Inadequate</option><option value="None">Not rated / unknown</option></select>
           <select id="f-country" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All countries</option><option>England</option><option>Wales</option><option>Scotland</option></select>
+          <select id="f-size" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" aria-label="List size"><option value="">Any list size</option><option value="yes">Has a list size</option><option value="no">No NHS list size</option></select>
           <select id="f-icb" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm max-w-[220px]"><option value="">All ICBs</option></select>
           <label class="flex items-center gap-2 text-sm ml-2"><input id="f-sig" type="checkbox"> Has recent signals</label>
           <label class="flex items-center gap-2 text-sm"><input id="f-grp" type="checkbox"> Group-run only</label>
@@ -93,7 +95,7 @@
       </div>
       <div class="overflow-x-auto max-h-[80vh]">
         <table class="w-full text-left text-sm">
-          <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
+          <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
             <th data-sort="name" class="px-3 py-2.5 whitespace-nowrap min-w-[13rem]">Practice</th>
             <th data-sort="patients" class="px-3 py-2.5 whitespace-nowrap text-right min-w-[8rem]">List size</th>
             <th data-sort="arr" class="px-3 py-2.5 whitespace-nowrap text-right min-w-[6rem]">Est. ARR</th>
@@ -117,12 +119,12 @@
           <input id="n-search" placeholder="Search networks…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[200px] max-w-sm">
           <select id="n-sort" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="open">Most unengaged practices</option><option value="arr">Highest est. ARR</option><option value="practices">Most practices</option><option value="patients">Most patients</option></select>
           <label class="flex items-center gap-2 text-sm"><input id="n-multi" type="checkbox" checked> 3+ practices only</label>
-          <span id="n-count" class="text-sm text-slate-500"></span>
+          <span id="n-count" class="text-sm text-slate-500"></span><button id="n-export" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 text-sm font-semibold ml-auto">Export CSV</button>
         </div>
       </div>
       <div class="overflow-x-auto max-h-[80vh]">
         <table class="w-full text-left text-sm">
-          <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
+          <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
             <th class="px-3 py-2.5 whitespace-nowrap min-w-[14rem]">Network</th>
             <th class="px-3 py-2.5 whitespace-nowrap text-right min-w-[7.5rem]">Linked practices</th>
             <th class="px-3 py-2.5 whitespace-nowrap text-right min-w-[5.5rem]">Patients</th>
@@ -142,15 +144,15 @@
       <div class="bg-white rounded-xl border border-slate-200 p-4">
         <h2 class="font-bold">Estimated annual recurring revenue (ARR) by route</h2>
         <p class="text-sm text-slate-500 mt-1">Patients under management × the tier price per patient. A network route is the <b>aggregate of its linked practices&rsquo; patients</b>. Routes are alternative ways to sell to the same patients, so do not add them together.</p>
-        <div class="overflow-x-auto mt-3"><table class="w-full text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-1.5 text-left">Route</th><th class="py-1.5 text-right">Entities</th><th class="py-1.5 text-right">Patients</th><th class="py-1.5 text-right">Est. ARR</th><th class="py-1.5 text-right">Avg £ / patient</th></tr></thead><tbody id="rev-routes" class="divide-y divide-slate-100"></tbody></table></div>
+        <div class="overflow-x-auto mt-3"><table class="w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="py-1.5 text-left">Route</th><th class="py-1.5 text-right">Entities</th><th class="py-1.5 text-right">Patients</th><th class="py-1.5 text-right">Est. ARR</th><th class="py-1.5 text-right">Avg £ / patient</th></tr></thead><tbody id="rev-routes" class="divide-y divide-slate-100"></tbody></table></div>
       </div>
       <div class="bg-white rounded-xl border border-slate-200 p-4">
         <div class="flex flex-wrap items-center gap-3 mb-2"><h3 class="font-bold">Route × tier</h3>
           <div id="rev-metric" class="flex gap-1 bg-slate-100 rounded-lg p-1 text-xs font-semibold"></div></div>
-        <div class="overflow-x-auto"><table class="w-full text-sm"><thead id="rev-matrix-head" class="text-[11px] uppercase tracking-wider text-slate-500"></thead><tbody id="rev-matrix" class="divide-y divide-slate-100"></tbody></table></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm"><thead id="rev-matrix-head" class="text-xs uppercase tracking-wider text-slate-500"></thead><tbody id="rev-matrix" class="divide-y divide-slate-100"></tbody></table></div>
       </div>
       <div class="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 class="font-bold mb-2">HubSpot position <span class="text-xs font-normal text-slate-400">(single-practice route, from HubSpot data)</span></h3>
+        <h3 class="font-bold mb-2">HubSpot position <span class="text-xs font-normal text-slate-500">(single-practice route, from HubSpot data)</span></h3>
         <div id="rev-pipeline" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
       </div>
     </section>
@@ -158,27 +160,28 @@
     <!-- Signals -->
     <section id="view-signals" class="hidden bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div class="p-4 border-b border-slate-200 flex flex-wrap items-center gap-2">
-        <h2 class="font-bold mr-2">Signals <span id="sig-live" class="text-[11px] font-semibold text-slate-400 ml-1">connecting…</span></h2>
-        <div id="sig-sub" class="bg-slate-100 rounded-lg p-0.5 text-sm"><button data-s="feed" class="px-3 py-1 rounded-md bg-white shadow-sm">Feed</button><button data-s="jobs" class="px-3 py-1 rounded-md text-slate-500">Job matches <span id="jobs-badge" class="hidden text-[10px] bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button></div>
+        <h2 class="font-bold mr-2">Signals <span id="sig-live" class="text-xs font-semibold text-slate-500 ml-1">connecting…</span></h2>
+        <div id="sig-sub" class="bg-slate-100 rounded-lg p-0.5 text-sm"><button data-s="feed" class="px-3 py-1 rounded-md bg-white shadow-sm">Feed</button><button data-s="jobs" class="px-3 py-1 rounded-md text-slate-500">Job matches <span id="jobs-badge" title="Employers waiting for a link that have a report / records advert" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button></div>
         <select id="s-type" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All signal types</option></select><button id="sig-settings-link" class="text-xs text-blue-600 hover:underline" title="Turn signal types on or off">Signal settings →</button>
-        <input id="s-search" placeholder="Search practice or text…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm min-w-[220px]">
-        <span id="s-count" class="text-sm text-slate-500 ml-auto"></span>
+        <select id="s-status" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" aria-label="Signal status"><option value="open">Open (new + in progress)</option><option value="all">All statuses</option><option value="new">New</option><option value="in_progress">In progress</option><option value="done">Done</option><option value="dismissed">Dismissed</option></select>
+        <input id="s-search" placeholder="Search practice or text…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm min-w-[220px]" aria-label="Search signals">
+        <span id="s-count" class="text-sm text-slate-500 ml-auto"></span><button id="s-export" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 text-sm font-semibold">Export CSV</button>
       </div>
       <div id="sig-jobs" class="hidden p-4">
         <p class="text-sm text-slate-500 mb-3">The NHS Jobs feed is scanned daily. Each practice employer is linked to a practice once: automatically only when postcode <b>and</b> name match exactly, otherwise it waits here for you to confirm or reject. Confirmed links never change.</p>
         <div class="flex flex-wrap items-center gap-2 mb-2">
-          <select id="jm-status" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="review">To review</option><option value="network">PCNs / federations (not linked)</option><option value="auto">Auto-matched</option><option value="confirmed">Confirmed</option><option value="rejected">Rejected</option></select>
+          <select id="jm-status" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" aria-label="Link status"></select>
           <input id="jm-search" placeholder="Search employer…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm min-w-[200px]">
-          <label class="text-sm"><input type="checkbox" id="jm-adv" checked> only employers with a report / records advert</label>
+          <label class="text-sm"><input type="checkbox" id="jm-adv"> only employers with a report / records advert</label>
           <span id="jm-count" class="text-sm text-slate-500 ml-auto"></span>
         </div>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Employer</th><th class="pr-3">Adverts</th><th class="pr-3 min-w-[16rem]">Link to practice</th><th></th></tr></thead><tbody id="jm-rows" class="divide-y divide-slate-100"></tbody></table></div><datalist id="jm-netlist"></datalist>
+        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Employer</th><th class="pr-3">Adverts</th><th class="pr-3 min-w-[16rem]">Link to practice</th><th></th></tr></thead><tbody id="jm-rows" class="divide-y divide-slate-100"></tbody></table></div><datalist id="jm-netlist"></datalist>
         <button id="jm-more" class="hidden mt-2 text-blue-600 hover:underline text-sm">Show more</button>
         <p id="jm-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
       
       <div id="sig-feed"><div class="overflow-x-auto max-h-[80vh]"><table class="w-full text-left text-sm">
-        <thead class="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr><th class="px-3 py-2.5 whitespace-nowrap">Date</th><th class="px-3 py-2.5 whitespace-nowrap">Type</th><th class="px-3 py-2.5 min-w-[14rem]">Practice</th><th class="px-3 py-2.5 min-w-[18rem]">Signal</th><th class="px-3 py-2.5 min-w-[16rem]">Next step</th><th class="px-3 py-2.5 w-10 text-center" title="Link to the source, e.g. the NHS Jobs advert">Link</th></tr></thead>
+        <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr><th class="px-3 py-2.5 whitespace-nowrap">Date</th><th class="px-3 py-2.5 whitespace-nowrap">Type</th><th class="px-3 py-2.5 min-w-[14rem]">Practice</th><th class="px-3 py-2.5 min-w-[18rem]">Signal</th><th class="px-3 py-2.5 min-w-[16rem]">Next step</th><th class="px-3 py-2.5 min-w-[11rem]">Status</th><th class="px-3 py-2.5 w-10 text-center" title="Link to the source, e.g. the NHS Jobs advert">Link</th></tr></thead>
         <tbody id="s-rows" class="divide-y divide-slate-100"></tbody></table></div>
       <div class="p-3 text-center"><button id="s-more" class="hidden text-blue-600 hover:underline text-sm">Show more</button></div></div>
     </section>
@@ -211,15 +214,15 @@
         </div>
       </div>
       <div class="bg-white rounded-xl border border-slate-200 p-4">
-        <h2 class="font-bold">Upload data files <span class="text-xs font-normal text-slate-400">(download the file, choose it, check the month, press Load)</span></h2>
+        <h2 class="font-bold">Upload data files <span class="text-xs font-normal text-slate-500">(download the file, choose it, check the month, press Load)</span></h2>
         <div id="uploads" class="mt-3 grid gap-3 md:grid-cols-2"></div>
       </div>
       </div>
       <div id="dp-signals" class="hidden">
       <div id="sig-types" class="bg-white rounded-xl border border-slate-200 p-4">
-        <h2 class="font-bold">Signal settings <span class="text-xs font-normal text-slate-400">(which signals the radar raises)</span></h2>
+        <h2 class="font-bold">Signal settings <span class="text-xs font-normal text-slate-500">(which signals the radar raises)</span></h2>
         <p class="text-sm text-slate-500 my-2">Every signal the tool can raise, where its data comes from and the rule that triggers it. Switching one off stops new signals of that type being recorded (existing ones stay in the feed). It takes effect on the next data load.</p>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Signal</th><th class="pr-3">Data source</th><th class="pr-3 min-w-[16rem]">Rule</th><th class="pr-3 min-w-[12rem]">Why it matters</th><th class="pr-3 text-right">Last 30 days</th><th class="pr-3 text-right">Total</th><th class="text-center">Enabled</th></tr></thead><tbody id="sig-types-rows" class="divide-y divide-slate-100"></tbody></table></div>
+        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Signal</th><th class="pr-3">Data source</th><th class="pr-3 min-w-[16rem]">Rule</th><th class="pr-3 min-w-[12rem]">Why it matters</th><th class="pr-3 text-right">Last 30 days</th><th class="pr-3 text-right">Total</th><th class="text-center">Enabled</th></tr></thead><tbody id="sig-types-rows" class="divide-y divide-slate-100"></tbody></table></div>
         <p id="sig-types-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
       </div>
@@ -231,10 +234,10 @@
 </div>
 
 <!-- Practice profile (side panel) -->
-<aside id="drawer" class="fixed top-0 right-0 h-full w-full sm:w-[34rem] bg-white shadow-2xl border-l border-slate-200 translate-x-full z-30 flex flex-col">
+<aside id="drawer" role="dialog" aria-modal="false" aria-labelledby="dr-title" class="fixed top-0 right-0 h-full w-full sm:w-[34rem] bg-white shadow-2xl border-l border-slate-200 translate-x-full z-30 flex flex-col">
   <div class="p-4 border-b border-slate-200 flex items-start gap-3">
     <div class="min-w-0 flex-1"><h2 id="dr-title" class="text-lg font-bold leading-tight"></h2><div id="dr-sub" class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500"></div></div>
-    <button id="dr-close" class="text-slate-400 hover:text-slate-700 text-xl leading-none" title="Close (Esc)">✕</button>
+    <button id="dr-close" class="text-slate-500 hover:text-slate-700 text-xl leading-none" title="Close (Esc)">✕</button>
   </div>
   <div id="dr-body" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
 </aside>
@@ -258,10 +261,13 @@ const gbpFull = n => n == null ? "–" : "£" + Math.round(n).toLocaleString(); 
 const pct = n => (Number(n) * 100).toFixed(n * 1000 % 10 ? 1 : 0).replace(/\.0$/, "") + "%";
 const fmtDate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 const tier = p => p.price_tier ? "Tier " + p.price_tier : "";
+const noSizeReason = p => p.country === "Wales" ? "No list size yet: load the StatsWales patients file (Data > Data sources)."
+  : p.country === "Scotland" ? "No list size in the Scottish file for this practice."
+  : "Not in the monthly NHS patient register. Usually a service rather than a registering practice (walk-in centre, hub, federation), or a practice too new to be published.";
 const TIER_CLS = { "Tier 1": "bg-purple-200 text-purple-900", "Tier 2": "bg-purple-100 text-purple-800", "Tier 3": "bg-violet-50 text-violet-700", "Tier 4": "bg-slate-100 text-slate-600", "Tier 5": "bg-slate-50 text-slate-500" };
 const CQC_CHIP = { "Outstanding": "bg-emerald-100 text-emerald-800", "Requires improvement": "bg-amber-100 text-amber-800", "Inadequate": "bg-rose-100 text-rose-800" };   // "Good" is the norm: plain text
 const CQC_RANK = { "Inadequate": 1, "Requires improvement": 2, "Good": 3, "Outstanding": 4 };
-const HS_CLS = { customer: "bg-emerald-100 text-emerald-800", engaged: "bg-blue-100 text-blue-800", imported: "bg-slate-100 text-slate-700", none: "bg-slate-50 text-slate-400" };
+const HS_CLS = { customer: "bg-emerald-100 text-emerald-800", engaged: "bg-blue-100 text-blue-800", imported: "bg-slate-100 text-slate-700", none: "bg-slate-50 text-slate-500" };
 const HS_LABEL = { customer: "Customer", engaged: "Engaged", imported: "In HubSpot", none: "Not in HubSpot" };
 const HS_RANK = { customer: 1, engaged: 2, imported: 3, none: 4 };
 const hsState = p => p.hubspot_customer ? "customer" : p.hubspot_engaged ? "engaged" : p.hs_imported > 0 ? "imported" : "none";
@@ -315,17 +321,30 @@ $("signout").addEventListener("click", async () => {
 });
 
 /* ---------- data ---------- */
+/* Reads a whole table or view. PostgREST caps a response at 1,000 rows, so: one request that also returns the total, then the remaining pages four at a time. */
+const PAGE_N = 1000;
 async function fetchAll(table, columns, order) {
-  const out = [];
-  for (let from = 0; ; from += 1000) {            // PostgREST caps responses at 1000 rows
-    const { data, error } = await db.from(table).select(columns).order(order).range(from, from + 999);
-    if (error) throw error;
-    out.push(...data);
-    if (data.length < 1000) return out;
+  const page = from => db.from(table).select(columns, { count: "exact" }).order(order).range(from, from + PAGE_N - 1);
+  const first = await page(0); if (first.error) throw first.error;
+  const out = first.data || [];
+  if (out.length < PAGE_N) return out;
+  if (typeof first.count !== "number") {                                   // total unknown: walk the pages in order
+    for (let from = PAGE_N; ; from += PAGE_N) { const r = await page(from); if (r.error) throw r.error; out.push(...r.data); if (r.data.length < PAGE_N) return out; }
   }
+  const starts = []; for (let f = PAGE_N; f < first.count; f += PAGE_N) starts.push(f);
+  for (let i = 0; i < starts.length; i += 4) {
+    const rs = await Promise.all(starts.slice(i, i + 4).map(page));
+    for (const r of rs) { if (r.error) throw r.error; out.push(...r.data); }
+  }
+  return out;
 }
+// only the columns the screens read (the full table has ~60; fetching all of them for ~8,000 rows was most of the login wait)
+const PRACTICE_COLS = "ods_code,practice_name,postcode,website,pcn_code,pcn_name,icb_name,total_patients,status,clinical_software,manager_name,manager_title,manager_email,manager_phone,manager_email_opt_out,lead_status,data_month,address,town,county,region,main_phone,main_email,main_email_opt_out,num_employees,annual_spend,org_notes,nhs_num_gp,gp_federation,oscar_categories,cqc_location_id,cqc_provider_id,cqc_status,cqc_rating,cqc_last_inspection,cqc_manager_absent_date,group_name,group_size,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer,hubspot_synced_at,country,network_locked";
+const PRICING_COLS = "ods_code,price_tier,tier_label,base_price,year1_price,est_arr,est_arr_year1";
+const HS_COLS = "ods_code,hs_contacts,hs_imported,hs_primary_imported,hs_last_imported_at,hs_primary_imported_at";
+const NET_COLS = "id,kind,name,source_key,practices,patients,tier1,tier2,tier3,tier4,tier5,emis,systmone,cqc_concern,engaged,customers,hs_imported,arr_single,arr_customers,confirmed,network_tier,network_tier_label,network_base_price,arr_network";
 async function loadPractices() {
-  const [base, pp, hs] = await Promise.all([fetchAll("gp_practices", "*", "ods_code"), fetchAll("practice_pricing", "*", "ods_code"), fetchAll("practice_hubspot", "*", "ods_code")]);
+  const [base, pp, hs] = await Promise.all([fetchAll("gp_practices", PRACTICE_COLS, "ods_code"), fetchAll("practice_pricing", PRICING_COLS, "ods_code"), fetchAll("practice_hubspot", HS_COLS, "ods_code")]);
   const m = new Map(pp.map(r => [r.ods_code, r])), h = new Map(hs.map(r => [r.ods_code, r]));
   practices = base.map(p => ({ ...p, ...(m.get(p.ods_code) || {}), ...(h.get(p.ods_code) || {}) }));
   byOds = new Map(practices.map(p => [p.ods_code, p]));
@@ -345,11 +364,12 @@ async function loadSignals() {
 function indexSignals() {
   signalCodes = new Set(signals.map(s => s.ods_code)); signalCounts = new Map();
   signals.forEach(s => signalCounts.set(s.ods_code, (signalCounts.get(s.ods_code) || 0) + 1));
-  const recent = signals.filter(s => Date.now() - new Date(s.detected_at) < 7 * 864e5).length;
+  const recent = signals.filter(s => (s.status || "new") === "new" && Date.now() - new Date(s.detected_at) < 7 * 864e5).length;
   $("sig-badge").textContent = recent; $("sig-badge").classList.toggle("hidden", !recent);
 }
-async function loadNetworks() {
-  try { networks = await fetchAll("network_summary", "*", "id"); renderNetworks(); renderRevenue(); fillNetList(); renderSignals(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
+let netPrefetch = null;
+async function loadNetworks(prefetched) {
+  try { networks = prefetched || await fetchAll("network_summary", NET_COLS, "id"); renderNetworks(); renderRevenue(); fillNetList(); renderSignals(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
 }
 /* ---------- loading pop-up (so a slow first load never looks like a crash) ---------- */
 let slowTimer = null;
@@ -368,28 +388,70 @@ async function startApp() {
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
   loading(true, "Checking your sign-in and loading the price list…");
   try {
-    await loadConfig(); loadStep("Loading practices (about 6,000 of them)…"); await loadPractices(); loadStep("Loading signals…");
-    if (!practices.length) $("rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">No data yet, or your account is not authorised.</td></tr>';
+    loadStep("Loading practices, networks and the price list…"); await Promise.all([loadConfig(), loadPractices(), netPrefetch = fetchAll("network_summary", NET_COLS, "id").catch(() => null)]); loadStep("Loading signals…");
+    if (!practices.length) $("rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-500 italic">No data yet, or your account is not authorised.</td></tr>';
     const icbs = [...new Set(practices.map(p => p.icb_name))].sort();
     $("f-icb").innerHTML = '<option value="">All ICBs</option>' + icbs.map(i => `<option>${esc(i)}</option>`).join("");
     await loadSignals(); await loadSignalSettings(); loadJobs().catch(() => {});
     const { data: run } = await db.from("ingest_runs").select("finished_at").eq("status", "success").order("id", { ascending: false }).limit(1);
     lastRunDate = run && run[0] ? fmtDate(run[0].finished_at) : null;
     $("refresh-badge").textContent = "Refreshed " + (lastRunDate || "never");
-    loadStep("Loading networks…"); await loadNetworks(); loadStep("Preparing the dashboard…"); applyFilters(); showTab(currentTab); loading(false);
+    await loadNetworks(await netPrefetch); loadStep("Preparing the dashboard…"); const openCode = stateFromUrl(); applyFilters(); showTab(currentTab, true); loading(false);
+    if (openCode && byOds.get(openCode)) openDrawer(byOds.get(openCode));
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signals.unshift(p.new); indexSignals(); renderSignals(); if (currentTab === "practices") applyFilters(); })
       .subscribe(s => { $("sig-live").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); loadFailed(err); }
 }
 
+/* keyboard: Enter or Space activates a focused row or sortable header, exactly like a click */
+document.addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("tr[tabindex], th[data-sort]") && !e.target.closest("#loading")) { e.preventDefault(); e.target.click(); }
+});
+
+/* ---------- shareable state: tab, filters, sort, network and open practice live in the web address ---------- */
+const STATE_FIELDS = { q: "f-search", tier: "f-tier", hs: "f-hs", sw: "f-sw", cqc: "f-cqc", icb: "f-icb", country: "f-country", size: "f-size" };
+let restoringUrl = false;
+function stateToUrl(push) {
+  if (restoringUrl || !$("view-practices")) return;
+  const u = new URLSearchParams();
+  if (currentTab !== "practices") u.set("tab", currentTab);
+  for (const [k, id] of Object.entries(STATE_FIELDS)) if ($(id).value) u.set(k, $(id).value);
+  if ($("f-sig").checked) u.set("sig", "1"); if ($("f-grp").checked) u.set("grp", "1");
+  if (sort.key !== "patients" || sort.dir !== -1) u.set("sort", sort.key + ":" + sort.dir);
+  if (netFilter) u.set("net", [netFilter.kind, netFilter.key, netFilter.label].join("|"));
+  if (currentTab === "networks" && netKind !== "pcn") u.set("nk", netKind);
+  if (currentTab === "data" && dataSub !== "overview") u.set("ds", dataSub);
+  if (currentTab === "signals" && sigSub !== "feed") u.set("ss", sigSub);
+  if (drawerCode) u.set("open", drawerCode);
+  const qs = u.toString(), url = location.pathname + (qs ? "?" + qs : "") + location.hash;
+  if (url !== location.pathname + location.search + location.hash) history[push ? "pushState" : "replaceState"](null, "", url);
+}
+function stateFromUrl() {
+  const u = new URLSearchParams(location.search); restoringUrl = true;
+  try {
+    for (const [k, id] of Object.entries(STATE_FIELDS)) { const el = $(id); el.value = u.get(k) || ""; if (el.value !== (u.get(k) || "")) el.value = ""; }
+    $("f-sig").checked = u.get("sig") === "1"; $("f-grp").checked = u.get("grp") === "1";
+    const [k, d] = (u.get("sort") || "patients:-1").split(":"); sort = { key: SORTERS[k] ? k : "patients", dir: Number(d) === 1 ? 1 : -1 };
+    const nf = (u.get("net") || "").split("|"); netFilter = nf.length === 3 && nf[0] ? { kind: nf[0], key: nf[1], label: nf[2] } : null;
+    netKind = ["pcn", "group", "federation", "icb"].includes(u.get("nk")) ? u.get("nk") : "pcn";
+    currentTab = TABS.includes(u.get("tab")) ? u.get("tab") : "practices";
+    setDataSub(["overview", "sources", "signals", "pricing"].includes(u.get("ds")) ? u.get("ds") : "overview");
+    setSigSub(["feed", "jobs"].includes(u.get("ss")) ? u.get("ss") : "feed");
+  } finally { restoringUrl = false; }
+  return u.get("open");
+}
+window.addEventListener("popstate", () => { if (!$("app").classList.contains("hidden")) { const open = stateFromUrl(); applyFilters(); renderNetworks(); showTab(currentTab, true); if (open && byOds.get(open)) openDrawer(byOds.get(open)); else closeDrawer(); } });
+
 /* ---------- tabs ---------- */
 const TABS = ["practices", "networks", "revenue", "signals", "data"]; let currentTab = "practices";
-function showTab(which) {
-  currentTab = which;
+function showTab(which, fromUrl) {
+  if (which === "data" && currentTab !== "data") setDataSub("overview");
+  const changed = currentTab !== which; currentTab = which;
   for (const t of TABS) { $("view-" + t).classList.toggle("hidden", t !== which); $("tab-" + t).className = "px-3 py-1 rounded-md " + (t === which ? "bg-white shadow-sm" : "text-slate-500"); }
   if (which === "revenue") renderRevenue();
   if (which === "data") renderData();
   if (which !== "practices") closeDrawer();
+  if (!fromUrl) stateToUrl(changed);
 }
 for (const t of TABS) $("tab-" + t).onclick = () => { fromNetworks = false; showTab(t); };
 
@@ -401,10 +463,10 @@ const SORTERS = {
   cqc: p => CQC_RANK[p.cqc_rating] || 9, hubspot: p => HS_RANK[hsState(p)] };
 function applyFilters() {
   const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, hs = $("f-hs").value,
-        cqcf = $("f-cqc").value, icb = $("f-icb").value, ctry = $("f-country").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
+        cqcf = $("f-cqc").value, icb = $("f-icb").value, ctry = $("f-country").value, sz = $("f-size").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
   filtered = practices.filter(p =>
     p.status === "Active" && netMatch(p, netFilter) && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!hs || hsState(p) === hs) &&
-    (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) && (!ctry || (p.country || "England") === ctry) &&
+    (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) && (!ctry || (p.country || "England") === ctry) && (!sz || (sz === "yes") === (p.total_patients > 0)) &&
     (!sig || signalCodes.has(p.ods_code)) && (!grp || p.group_size > 1) &&
     (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(q))));
   const f = SORTERS[sort.key], by = (a, b) => { const x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || b.total_patients - a.total_patients; };
@@ -412,6 +474,7 @@ function applyFilters() {
   renderChips(); renderSortHeaders();
   shown = 0; $("rows").innerHTML = ""; renderMore();
   $("count").textContent = `${filtered.length.toLocaleString()} practices`;
+  stateToUrl();
 }
 function renderChips() {
   const box = $("f-chips"); box.innerHTML = "";
@@ -422,7 +485,7 @@ function renderChips() {
     add((NET_KINDS[netFilter.kind] || "").replace(/s$/, "") + ": " + netFilter.label, () => { netFilter = null; fromNetworks = false; applyFilters(); });
   }
   if ($("f-search").value.trim()) add("Search: " + $("f-search").value.trim(), () => { $("f-search").value = ""; applyFilters(); });
-  sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country");
+  sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country"); sel("f-size", "List size");
   if ($("f-sig").checked) add("Has recent signals", () => { $("f-sig").checked = false; applyFilters(); });
   if ($("f-grp").checked) add("Group-run only", () => { $("f-grp").checked = false; applyFilters(); });
   if (box.children.length > 1 || (box.children.length === 1 && !netFilter)) {
@@ -431,11 +494,12 @@ function renderChips() {
   }
 }
 function clearFilters() {
-  for (const id of ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country"]) $(id).value = "";
+  for (const id of ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size"]) $(id).value = "";
   $("f-sig").checked = false; $("f-grp").checked = false; netFilter = null; fromNetworks = false; applyFilters();
 }
 function renderSortHeaders() {
   document.querySelectorAll("#view-practices th[data-sort]").forEach(th => {
+    th.tabIndex = 0; th.setAttribute("role", "button"); th.setAttribute("aria-sort", th.dataset.sort === sort.key ? (sort.dir === 1 ? "ascending" : "descending") : "none");
     th.querySelector(".arrow")?.remove();
     if (th.dataset.sort === sort.key) th.insertAdjacentHTML("beforeend", `<span class="arrow ml-1 text-slate-700">${sort.dir === 1 ? "▲" : "▼"}</span>`);
   });
@@ -443,7 +507,7 @@ function renderSortHeaders() {
 document.querySelectorAll("#view-practices th[data-sort]").forEach(th => th.onclick = () => {
   const k = th.dataset.sort; sort = { key: k, dir: sort.key === k ? -sort.dir : (k === "name" || k === "cqc" || k === "hubspot" ? 1 : -1) }; applyFilters(); });
 $("f-more-btn").onclick = () => { const m = $("f-more"); m.classList.toggle("hidden"); $("f-more-btn").textContent = m.classList.contains("hidden") ? "More filters ▾" : "Fewer filters ▴"; };
-["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
+["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
 
 /* ---------- practices: compact rows ---------- */
 function networkCell(p) {
@@ -466,45 +530,45 @@ function renderMore() {
   const slice = filtered.slice(shown, shown + PAGE); shown += slice.length;
   const frag = document.createDocumentFragment();
   for (const p of slice) {
-    const tr = document.createElement("tr"); tr.dataset.ods = p.ods_code;
+    const tr = document.createElement("tr"); tr.dataset.ods = p.ods_code; tr.tabIndex = 0; tr.setAttribute("role", "button");
     tr.className = "hover:bg-blue-50/50 cursor-pointer" + (p.ods_code === drawerCode ? " bg-blue-50" : "");
     const sig = signalCounts.get(p.ods_code), hasN = p.total_patients > 0;
     tr.innerHTML = `
       <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}</div>
-        <div class="text-[11px] text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}</div></td>
-      <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-slate-300" title="No patient count loaded">${p.country === "Wales" ? "Wales" : "–"}</span>`}</td>
+        <div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}</div></td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-xs text-slate-500 underline decoration-dotted cursor-help" title="${esc(noSizeReason(p))}">No list size</span>`}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold text-emerald-700" title="£${Number(p.base_price).toFixed(3)} per patient">${gbpFull(p.est_arr)}</span>` : '<span class="text-slate-300">–</span>'}</td>
       <td class="px-3 py-2">${networkCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap">${cqcCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-600">${SYS[p.clinical_software] || '<span class="text-slate-300">–</span>'}</td>
-      <td class="px-3 py-2">${p.manager_name ? `<div class="font-medium leading-tight">${esc(p.manager_name)}</div><div class="text-[11px] text-slate-500">${esc(p.manager_title)}</div>` : '<span class="text-xs text-slate-300">no contact yet</span>'}</td>
+      <td class="px-3 py-2">${p.manager_name ? `<div class="font-medium leading-tight">${esc(p.manager_name)}</div><div class="text-xs text-slate-500">${esc(p.manager_title)}</div>` : '<span class="text-xs text-slate-300">no contact yet</span>'}</td>
       <td class="px-3 py-2 whitespace-nowrap">${hsCell(p)}</td>`;
     tr.onclick = () => openDrawer(p);
     frag.appendChild(tr);
   }
   $("rows").appendChild(frag);
   $("more").classList.toggle("hidden", shown >= filtered.length);
-  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-400 italic">No practices match these filters.</td></tr>';
+  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-500 italic">No practices match these filters.</td></tr>';
 }
 $("more").addEventListener("click", renderMore);
 
 /* ---------- price breakdown: headline figure, then the working in plain steps ---------- */
-const stepRow = (n, label, detail, value) => `<li class="flex gap-2.5"><span class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-white border border-emerald-200 text-emerald-800 text-[11px] font-bold flex items-center justify-center">${n}</span>
+const stepRow = (n, label, detail, value) => `<li class="flex gap-2.5"><span class="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-white border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center">${n}</span>
   <div class="min-w-0 flex-1"><div class="flex justify-between gap-3"><span class="font-medium">${label}</span><span class="font-mono font-semibold whitespace-nowrap">${value}</span></div><div class="text-xs text-slate-500">${detail}</div></div></li>`;
 function priceCard({ patients, tierRow, route, arr, who }) {
   const list = Number(cfgSettings.list_price_per_patient?.value || 0);
-  if (!tierRow || !patients || arr == null) return '<p class="text-sm italic text-slate-400">No price yet: this needs a list size and a price tier for this route.</p>';
+  if (!tierRow || !patients || arr == null) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
   const size = Number(tierRow.size_discount), speed = Number(tierRow.speed_discount), base = list * (1 - size), y1 = base * (1 - speed);
   const tiersAsc = cfgTiers.filter(t => t.route === route).sort((a, b) => a.threshold - b.threshold);
   const next = tiersAsc.find(t => Number(t.threshold) > patients && t.tier < tierRow.tier);
   return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
     <div class="flex items-end justify-between gap-3">
-      <div><div class="text-[11px] uppercase tracking-wider text-slate-500">Estimated annual revenue</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(arr)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
-      <div class="text-right"><div class="text-[11px] uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(arr * (1 - speed))}</div><div class="text-[11px] text-slate-500">${pct(speed)} speed discount</div></div></div>
+      <div><div class="text-xs uppercase tracking-wider text-slate-500">Estimated annual revenue</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(arr)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
+      <div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(arr * (1 - speed))}</div><div class="text-xs text-slate-500">${pct(speed)} speed discount</div></div></div>
     <ol class="mt-3 space-y-2.5 text-sm">
-      ${stepRow(1, "List price", "Standard annual price before any discount", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-400">per patient</span>`)}
-      ${stepRow(2, `${pct(size)} size discount`, `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}: ${who ? esc(who) + " has " : ""}${patients.toLocaleString()} patients${Number(tierRow.threshold) ? ", over the " + Number(tierRow.threshold).toLocaleString() + " threshold" : ""}`, `£${base.toFixed(3)} <span class="text-xs font-normal text-slate-400">per patient</span>`)}
-      ${stepRow(3, `× ${patients.toLocaleString()} patients`, "Price per patient × registered patients", `${gbpFull(arr)} <span class="text-xs font-normal text-slate-400">a year</span>`)}
+      ${stepRow(1, "List price", "Standard annual price before any discount", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-500">per patient</span>`)}
+      ${stepRow(2, `${pct(size)} size discount`, `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}: ${who ? esc(who) + " has " : ""}${patients.toLocaleString()} patients${Number(tierRow.threshold) ? ", over the " + Number(tierRow.threshold).toLocaleString() + " threshold" : ""}`, `£${base.toFixed(3)} <span class="text-xs font-normal text-slate-500">per patient</span>`)}
+      ${stepRow(3, `× ${patients.toLocaleString()} patients`, "Price per patient × registered patients", `${gbpFull(arr)} <span class="text-xs font-normal text-slate-500">a year</span>`)}
       ${stepRow(4, "Year 1 only", `${pct(speed)} off for signing quickly: £${y1.toFixed(3)} per patient`, `${gbpFull(arr * (1 - speed))}`)}
     </ol>
     ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${(list * (1 - Number(next.size_discount))).toFixed(3)} per patient).</p>` : ""}</div>`;
@@ -516,7 +580,7 @@ function routeComparison(p) {
     const n = networks.find(x => x.kind === kind && keyOf(x) === key);
     if (!n || !n.network_tier || n.network_base_price == null) return;
     const arr = p.total_patients * Number(n.network_base_price);
-    rows.push(`<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2"><a href="#" class="text-blue-600 hover:underline font-medium" data-net="${kind}|${esc(key)}|${esc(n.name)}">${esc(n.name)}</a><div class="text-[11px] text-slate-500">${label} · Tier ${n.network_tier} · ${Number(n.patients).toLocaleString()} patients across ${n.practices} practices</div></td>
+    rows.push(`<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2"><a href="#" class="text-blue-600 hover:underline font-medium" data-net="${kind}|${esc(key)}|${esc(n.name)}">${esc(n.name)}</a><div class="text-xs text-slate-500">${label} · Tier ${n.network_tier} · ${Number(n.patients).toLocaleString()} patients across ${n.practices} practices</div></td>
       <td class="text-right font-mono">£${Number(n.network_base_price).toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(arr)}</td><td class="text-right text-xs ${arr < p.est_arr ? "text-emerald-700" : "text-slate-500"}">${arr === Math.round(p.est_arr) ? "same" : (arr < p.est_arr ? "−" : "+") + gbpFull(Math.abs(arr - p.est_arr))}</td></tr>`);
   };
   if (p.pcn_code) add("pcn", p.pcn_code, "PCN / cluster");
@@ -524,44 +588,47 @@ function routeComparison(p) {
   if (p.gp_federation) add("federation", p.gp_federation.toLowerCase(), "Federation");
   if (!rows.length) return "";
   return `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Other ways to sign this practice</div>
-    <table class="w-full text-sm"><thead class="text-[10px] uppercase tracking-wider text-slate-400"><tr><th class="text-left font-medium">Route</th><th class="text-right font-medium whitespace-nowrap">£ / patient</th><th class="text-right font-medium whitespace-nowrap pl-2">£ / year</th><th class="text-right font-medium whitespace-nowrap pl-2">vs alone</th></tr></thead><tbody>
-    <tr><td class="py-1.5 pr-2"><div class="font-medium">On its own</div><div class="text-[11px] text-slate-500">Single practice · Tier ${p.price_tier}</div></td><td class="text-right font-mono">£${Number(p.base_price).toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(p.est_arr)}</td><td class="text-right text-xs text-slate-400">–</td></tr>${rows.join("")}</tbody></table>
-    <p class="mt-1 text-[11px] text-slate-400">Routes are alternatives: a network price applies only if the whole network signs together.</p></div>`;
+    <table class="w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="text-left font-medium">Route</th><th class="text-right font-medium whitespace-nowrap">£ / patient</th><th class="text-right font-medium whitespace-nowrap pl-2">£ / year</th><th class="text-right font-medium whitespace-nowrap pl-2">vs alone</th></tr></thead><tbody>
+    <tr><td class="py-1.5 pr-2"><div class="font-medium">On its own</div><div class="text-xs text-slate-500">Single practice · Tier ${p.price_tier}</div></td><td class="text-right font-mono">£${Number(p.base_price).toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(p.est_arr)}</td><td class="text-right text-xs text-slate-500">–</td></tr>${rows.join("")}</tbody></table>
+    <p class="mt-1 text-xs text-slate-500">Routes are alternatives: a network price applies only if the whole network signs together.</p></div>`;
 }
 
 /* ---------- practice profile (side panel) ---------- */
-const kv = (k, v) => v ? `<div class="flex justify-between gap-3 py-0.5 text-sm"><span class="text-slate-400 shrink-0">${k}</span><span class="text-right text-slate-800 break-words">${v}</span></div>` : "";
-const sec = (title, body) => body && body.trim() ? `<section class="border-t border-slate-100 pt-3"><h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">${title}</h4>${body}</section>` : "";
-function closeDrawer() { drawerCode = null; $("drawer").classList.add("translate-x-full"); document.querySelectorAll("#rows tr.bg-blue-50").forEach(r => r.classList.remove("bg-blue-50")); }
+const kv = (k, v) => v ? `<div class="flex justify-between gap-3 py-0.5 text-sm"><span class="text-slate-500 shrink-0">${k}</span><span class="text-right text-slate-800 break-words">${v}</span></div>` : "";
+const sec = (title, body) => body && body.trim() ? `<section class="border-t border-slate-100 pt-3"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">${title}</h4>${body}</section>` : "";
+let drawerOpener = null;
+function drawerOpened() { if (!drawerOpener || !document.body.contains(drawerOpener)) drawerOpener = document.activeElement; $("dr-close").focus({ preventScroll: true }); }
+function closeDrawer() { const was = !$("drawer").classList.contains("translate-x-full"); drawerCode = null; $("drawer").classList.add("translate-x-full");
+  if (was && drawerOpener && document.body.contains(drawerOpener)) drawerOpener.focus({ preventScroll: true }); drawerOpener = null; stateToUrl(); document.querySelectorAll("#rows tr.bg-blue-50").forEach(r => r.classList.remove("bg-blue-50")); }
 $("dr-close").onclick = closeDrawer;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 async function openDrawer(p) {
   drawerCode = p.ods_code;
   document.querySelectorAll("#rows tr").forEach(r => r.classList.toggle("bg-blue-50", r.dataset.ods === p.ods_code));
-  $("drawer").classList.remove("translate-x-full");
-  $("dr-title").textContent = p.practice_name;
+  drawerOpened(); $("drawer").classList.remove("translate-x-full");
+  $("dr-title").textContent = p.practice_name; stateToUrl();
   const st = hsState(p);
   $("dr-sub").innerHTML = `<span class="font-mono">${esc(p.ods_code)}</span>${p.town ? " · " + esc(p.town) : ""} ${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${p.cqc_rating && CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : ""} ${st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st]) : ""}`;
   const link = (label, kind, key) => `<a href="#" class="text-blue-600 hover:underline" data-net="${kind}|${esc(key)}|${esc(label)}">${esc(label)}</a>`;
   const web = p.website ? `<a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(/^https?:/.test(p.website) ? p.website : "https://" + p.website)}">${esc(p.website)}</a>` : "";
   const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
   const body = $("dr-body");
-  body.innerHTML = `<div id="dr-contacts" class="text-sm text-slate-400">Loading contacts…</div>` +
+  body.innerHTML = `<div id="dr-contacts" class="text-sm text-slate-500">Loading contacts…</div>` +
     sec("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + " practices)", "group", p.cqc_provider_id) : "") +
       kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") + kv("ICB", p.icb_name && p.icb_name !== "Unallocated ICB" ? link(p.icb_name, "icb", p.icb_name.toLowerCase()) : "")) +
     sec("Pricing", p.total_patients > 0 ? priceCard({ patients: p.total_patients, tierRow: cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), route: "practice", arr: p.est_arr }) +
-      `<div class="text-[11px] text-slate-400 mt-1">List size ${p.data_month ? "from " + esc(p.data_month) : ""}.</div>` + routeComparison(p) : '<p class="text-sm italic text-slate-400">No list size loaded for this practice yet, so no price.</p>') +
+      `<div class="text-xs text-slate-500 mt-1">List size ${p.data_month ? "from " + esc(p.data_month) : ""}.</div>` + routeComparison(p) : `<p class="text-sm text-slate-600">No list size, so no price. ${esc(noSizeReason(p))}</p>`) +
     sec("Quality and system", kv("CQC rating", p.cqc_rating ? (CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : esc(p.cqc_rating)) : "") + kv("Registration", esc(p.cqc_status)) + kv("Last inspection", esc(p.cqc_last_inspection)) +
       kv("Manager absent since", esc(p.cqc_manager_absent_date)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : "")) +
     sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st])) + kv("Lifecycle stage", esc(p.hubspot_stage)) + kv("Company imported", esc(fmtDate(p.hubspot_company_imported_at))) +
       kv("Contacts imported", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + kv("Last contact import", esc(fmtDate(p.hs_last_imported_at))) + kv("Last synced", esc(fmtDate(p.hubspot_synced_at))) +
-      (!p.hubspot_synced_at && !p.hs_imported ? '<div class="text-xs text-slate-400 italic py-0.5">Not synced yet: filled in by the HubSpot integration.</div>' : "")) +
+      (!p.hubspot_synced_at && !p.hs_imported ? '<div class="text-xs text-slate-500 italic py-0.5">Not synced yet: filled in by the HubSpot integration.</div>' : "")) +
     sec("Practice details", kv("Address", addr) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Region", esc(p.region)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
       kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)) + kv("Categories", esc(p.oscar_categories))) +
     sec("Notes (Oscar)", p.org_notes ? `<div class="text-sm text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : "") +
     sec("Hiring: report / records roles (NHS Jobs)", jobAdverts.filter(j => j.ods_code === p.ods_code).sort((a, b) => (b.post_date || "").localeCompare(a.post_date || "")).slice(0, 8).map(j =>
       `<div class="py-1 border-t border-slate-100 first:border-0 text-sm"><a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(j.url)}">${esc(j.title)}</a>
-       <div class="text-[11px] text-slate-500">${esc(j.matched_role)} · posted ${esc(fmtDate(j.post_date))}${j.close_date ? " · closes " + esc(fmtDate(j.close_date)) : ""}</div></div>`).join("")) +
+       <div class="text-xs text-slate-500">${esc(j.matched_role)} · posted ${esc(fmtDate(j.post_date))}${j.close_date ? " · closes " + esc(fmtDate(j.close_date)) : ""}</div></div>`).join("")) +
     `<div id="dr-signals"></div>`;
   body.scrollTop = 0;
   body.onclick = ev => { const a = ev.target.closest("a[data-net]"); if (a) { ev.preventDefault(); const [kind, key, label] = a.dataset.net.split("|"); openNetwork(kind, key, label); } };
@@ -569,11 +636,11 @@ async function openDrawer(p) {
     db.from("contacts").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
     db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10)]);
   if (drawerCode !== p.ods_code) return;   // user moved on
-  $("dr-contacts").outerHTML = `<section><h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Contacts</h4>` + ((cs || []).map(c => `<div class="py-1.5 border-t border-slate-100 first:border-0"><b>${esc(c.full_name)}</b>${c.is_primary ? ' <span class="text-amber-500" title="Primary contact">★</span>' : ""}
+  $("dr-contacts").outerHTML = `<section><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Contacts</h4>` + ((cs || []).map(c => `<div class="py-1.5 border-t border-slate-100 first:border-0"><b>${esc(c.full_name)}</b>${c.is_primary ? ' <span class="text-amber-500" title="Primary contact">★</span>' : ""}
       <span class="text-slate-500 text-sm"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span>
       <div class="text-xs text-slate-600">${c.email ? (c.email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : `<a class="text-blue-600 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : ""} ${esc(c.phone)}</div>
-      <div class="mt-0.5">${c.hubspot_status === "Imported" ? chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800") : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-400">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
-  $("dr-signals").outerHTML = sec("Signals", (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-[11px] text-slate-400">${esc(fmtDate(s.detected_at))}</span> <b class="text-xs">${esc(s.headline)}</b> ${sigLink(s)}<div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700 mt-0.5"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</div>`).join("") || '<p class="text-sm italic text-slate-400">No signals for this practice yet.</p>');
+      <div class="mt-0.5">${c.hubspot_status === "Imported" ? chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800") : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-500">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
+  $("dr-signals").outerHTML = sec("Signals", (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</span> <b class="text-xs">${esc(s.headline)}</b> ${chip(SIG_STATUS[s.status || "new"], s.status === "done" ? "bg-emerald-100 text-emerald-800" : s.status === "in_progress" ? "bg-blue-100 text-blue-800" : s.status === "dismissed" ? "bg-slate-100 text-slate-500" : "bg-amber-100 text-amber-800")} ${sigLink(s)}<div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700 mt-0.5"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</div>`).join("") || '<p class="text-sm italic text-slate-500">No signals for this practice yet.</p>');
 }
 
 /* ---------- networks ---------- */
@@ -596,15 +663,15 @@ function openNetworkProfile(n) {
   $("dr-title").textContent = n.name;
   $("dr-sub").innerHTML = `${chip(KIND, "bg-slate-100 text-slate-700")} ${n.network_tier ? chip("Tier " + n.network_tier + (row ? " · " + row.label : ""), TIER_CLS["Tier " + n.network_tier]) : ""} ${n.customers > 0 ? chip("Has a customer", "bg-emerald-100 text-emerald-800") : ""} ${n.confirmed === false ? chip("inferred: verify", "bg-amber-50 text-amber-700") : ""}`;
   const saving = n.arr_single != null && n.arr_network != null ? n.arr_single - n.arr_network : null;
-  const price = !row || base == null ? '<div class="text-sm italic text-slate-400">No price route is configured for this kind of network (edit <code>pricing_tiers</code>).</div>' :
+  const price = !row || base == null ? '<div class="text-sm italic text-slate-500">No price route is configured for this kind of network (edit <code>pricing_tiers</code>).</div>' :
     priceCard({ patients: Number(n.patients), tierRow: row, route: n.kind, arr: n.arr_network, who: "the network" }) +
     `<div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><div class="flex justify-between"><span class="text-slate-600">The same ${n.practices} practices signed separately</span><span class="font-mono">${gbpFull(n.arr_single)}</span></div>
       <div class="flex justify-between mt-0.5"><span class="text-slate-600">Network price</span><span class="font-mono font-semibold">${gbpFull(n.arr_network)}</span></div>
-      <div class="flex justify-between mt-0.5 border-t border-slate-200 pt-1"><span class="font-medium">${saving > 0 ? "Network discount" : "Difference"}</span><span class="font-mono font-semibold ${saving > 0 ? "text-emerald-700" : ""}">${saving == null ? "–" : (saving > 0 ? "−" : "+") + gbpFull(Math.abs(saving))} <span class="text-xs font-normal text-slate-400">${n.arr_single && saving != null ? "(" + pct(Math.abs(saving) / n.arr_single) + ")" : ""}</span></span></div></div>
-    <p class="text-xs text-slate-400 mt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</p>`;
+      <div class="flex justify-between mt-0.5 border-t border-slate-200 pt-1"><span class="font-medium">${saving > 0 ? "Network discount" : "Difference"}</span><span class="font-mono font-semibold ${saving > 0 ? "text-emerald-700" : ""}">${saving == null ? "–" : (saving > 0 ? "−" : "+") + gbpFull(Math.abs(saving))} <span class="text-xs font-normal text-slate-500">${n.arr_single && saving != null ? "(" + pct(Math.abs(saving) / n.arr_single) + ")" : ""}</span></span></div></div>
+    <p class="text-xs text-slate-500 mt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</p>`;
   const rows = members.map(p => {
     const net = base != null ? p.total_patients * base : null;
-    return `<tr class="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}</div><div class="text-[11px] text-slate-400 font-mono">${esc(p.ods_code)}</div></td>
+    return `<tr class="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" tabindex="0" role="button" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}</div><div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)}</div></td>
       <td class="text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : "–"}</td>
       <td class="px-2">${p.price_tier ? chip("T" + p.price_tier, TIER_CLS["Tier " + p.price_tier] || "") : ""}</td>
       <td class="text-right font-mono">${p.base_price != null ? "£" + Number(p.base_price).toFixed(3) : "–"}</td>
@@ -613,23 +680,23 @@ function openNetworkProfile(n) {
   const hdr = ["Practice", "Patients", "Tier", "£/pt singly", "ARR singly", "ARR in network"].map((h, i) => `<th class="${i === 0 ? "text-left" : i === 2 ? "text-left px-2" : "text-right"} font-medium">${h}</th>`).join("");
   $("dr-body").innerHTML =
     `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
-      .map(([k, v]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-[10px] uppercase tracking-wider text-slate-400">${k}</div></div>`).join("")}</div>` +
+      .map(([k, v]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div></div>`).join("")}</div>` +
     sec("Pricing: " + KIND + " route", price) +
-    sec("Linked practices: price singly vs in the network", `<div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-[10px] uppercase tracking-wider text-slate-400"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div>`) +
+    sec("Linked practices: price singly vs in the network", `<div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div>`) +
     sec("Recent signals across this network", (() => {
       const codes = new Set(members.map(p => p.ods_code));
-      return signals.filter(x => (x.ods_code && codes.has(x.ods_code)) || x.org_id === n.id).slice(0, 8).map(x => `<div class="py-1 border-t border-slate-100 first:border-0 text-sm"><span class="font-mono text-[11px] text-slate-400">${esc(fmtDate(x.detected_at))}</span> <b class="text-xs">${esc(x.headline)}</b>
-        <div class="text-[11px] text-slate-500">${esc(x.ods_code ? (byOds.get(x.ods_code)?.practice_name || x.ods_code) : "network-level")} · ${esc(x.trigger_type.replaceAll("_", " ").toLowerCase())}</div></div>`).join("");
+      return signals.filter(x => (x.ods_code && codes.has(x.ods_code)) || x.org_id === n.id).slice(0, 8).map(x => `<div class="py-1 border-t border-slate-100 first:border-0 text-sm"><span class="font-mono text-xs text-slate-500">${esc(fmtDate(x.detected_at))}</span> <b class="text-xs">${esc(x.headline)}</b>
+        <div class="text-xs text-slate-500">${esc(x.ods_code ? (byOds.get(x.ods_code)?.practice_name || x.ods_code) : "network-level")} · ${esc(x.trigger_type.replaceAll("_", " ").toLowerCase())}</div></div>`).join("");
     })()) +
     `<button id="np-view" class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;
   $("dr-body").onclick = ev => { const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
-  $("drawer").classList.remove("translate-x-full");
+  drawerOpened(); $("drawer").classList.remove("translate-x-full");
 }
 function renderNetworks() {
   $("net-kinds").innerHTML = Object.entries(NET_KINDS).map(([k, label]) =>
-    `<button data-k="${k}" class="px-3 py-1 rounded-md ${k === netKind ? "bg-white shadow-sm" : "text-slate-500"}">${label} <span class="text-xs text-slate-400">${networks.filter(n => n.kind === k).length}</span></button>`).join("");
-  $("net-kinds").querySelectorAll("button").forEach(b => b.onclick = () => { netKind = b.dataset.k; renderNetworks(); });
+    `<button data-k="${k}" class="px-3 py-1 rounded-md ${k === netKind ? "bg-white shadow-sm" : "text-slate-500"}">${label} <span class="text-xs text-slate-500">${networks.filter(n => n.kind === k).length}</span></button>`).join("");
+  $("net-kinds").querySelectorAll("button").forEach(b => b.onclick = () => { netKind = b.dataset.k; renderNetworks(); stateToUrl(); });
   const q = $("n-search").value.trim().toLowerCase(), srt = $("n-sort").value, multi = $("n-multi").checked;
   netList = networks.filter(n => n.kind === netKind && (!multi || n.practices >= 3) && (!q || n.name.toLowerCase().includes(q)))
     .sort((a, b) => srt === "patients" ? b.patients - a.patients : srt === "arr" ? (b.arr_network || b.arr_single) - (a.arr_network || a.arr_single) : srt === "practices" ? b.practices - a.practices
@@ -645,18 +712,18 @@ function renderMoreNetworks() {
     const open = n.practices - n.engaged, tot = Math.max(n.practices, 1);
     const bar = (v, cls) => v ? `<div class="${cls}" style="width:${(v / tot) * 100}%" title="${v}"></div>` : "";
     const KIND = { pcn: "PCN", icb: "ICB", group: "group", federation: "federation" }[n.kind] || n.kind;
-    const tr = document.createElement("tr"); tr.className = "hover:bg-blue-50/50 cursor-pointer";
+    const tr = document.createElement("tr"); tr.className = "hover:bg-blue-50/50 cursor-pointer"; tr.tabIndex = 0; tr.setAttribute("role", "button");
     tr.innerHTML = `<td class="px-3 py-2 align-top"><div class="font-semibold leading-tight">${esc(n.name)}</div>
-        <div class="text-[11px] text-slate-500">EMIS ${n.emis} · SystmOne ${n.systmone}${n.cqc_concern ? " · " + chip(n.cqc_concern + " CQC flagged", "bg-amber-100 text-amber-800") : ""}${n.confirmed === false ? " · " + chip("inferred: verify", "bg-amber-50 text-amber-700") : ""}</div></td>
+        <div class="text-xs text-slate-500">EMIS ${n.emis} · SystmOne ${n.systmone}${n.cqc_concern ? " · " + chip(n.cqc_concern + " CQC flagged", "bg-amber-100 text-amber-800") : ""}${n.confirmed === false ? " · " + chip("inferred: verify", "bg-amber-50 text-amber-700") : ""}</div></td>
       <td class="px-3 py-2 text-right font-mono align-top">${n.practices}</td>
       <td class="px-3 py-2 text-right font-mono align-top">${n.patients ? Number(n.patients).toLocaleString() : "–"}</td>
       <td class="px-3 py-2 whitespace-nowrap align-top">${n.network_tier ? chip("Tier " + n.network_tier, TIER_CLS["Tier " + n.network_tier]) : '<span class="text-slate-300">–</span>'}</td>
-      <td class="px-3 py-2 text-right whitespace-nowrap align-top">${n.network_tier ? `<div class="font-mono font-semibold text-emerald-700">${gbpFull(n.arr_network)}</div><div class="text-[11px] text-slate-400">as ${KIND} · ${gbpFull(n.arr_single)} singly</div>`
-        : `<div class="font-mono text-slate-500">${gbpFull(n.arr_single)}</div><div class="text-[11px] text-slate-400">no ${esc(KIND)} price route set</div>`}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap align-top">${n.network_tier ? `<div class="font-mono font-semibold text-emerald-700">${gbpFull(n.arr_network)}</div><div class="text-xs text-slate-500">as ${KIND} · ${gbpFull(n.arr_single)} singly</div>`
+        : `<div class="font-mono text-slate-500">${gbpFull(n.arr_single)}</div><div class="text-xs text-slate-500">no ${esc(KIND)} price route set</div>`}</td>
       <td class="px-3 py-2 align-top"><div class="flex h-2 rounded overflow-hidden bg-slate-100">${bar(n.tier1, "bg-purple-700")}${bar(n.tier2, "bg-purple-500")}${bar(n.tier3, "bg-violet-300")}${bar(n.tier4, "bg-slate-300")}${bar(n.tier5, "bg-slate-200")}</div>
-        <div class="text-[11px] text-slate-400 mt-0.5">${[n.tier1, n.tier2, n.tier3, n.tier4, n.tier5].map((v, i) => v ? "T" + (i + 1) + " " + v : "").filter(Boolean).join(" · ")}</div></td>
-      <td class="px-3 py-2 text-xs whitespace-nowrap align-top"><div class="font-semibold">${n.engaged} of ${n.practices}</div>${open > 0 ? `<div class="text-[11px] text-slate-400">${open} to approach</div>` : '<div class="text-[11px] text-emerald-700">all engaged</div>'}</td>
-      <td class="px-3 py-2 whitespace-nowrap align-top">${n.customers > 0 ? chip("Has " + (n.customers === 1 ? "a customer" : n.customers + " customers"), "bg-emerald-100 text-emerald-800") + `<div class="text-[11px] text-slate-400 mt-0.5">${gbpFull(n.arr_customers)}/yr live</div>` : '<span class="text-[11px] text-slate-300">no customers</span>'}</td>
+        <div class="text-xs text-slate-500 mt-0.5">${[n.tier1, n.tier2, n.tier3, n.tier4, n.tier5].map((v, i) => v ? "T" + (i + 1) + " " + v : "").filter(Boolean).join(" · ")}</div></td>
+      <td class="px-3 py-2 text-xs whitespace-nowrap align-top"><div class="font-semibold">${n.engaged} of ${n.practices}</div>${open > 0 ? `<div class="text-xs text-slate-500">${open} to approach</div>` : '<div class="text-xs text-emerald-700">all engaged</div>'}</td>
+      <td class="px-3 py-2 whitespace-nowrap align-top">${n.customers > 0 ? chip("Has " + (n.customers === 1 ? "a customer" : n.customers + " customers"), "bg-emerald-100 text-emerald-800") + `<div class="text-xs text-slate-500 mt-0.5">${gbpFull(n.arr_customers)}/yr live</div>` : '<span class="text-xs text-slate-300">no customers</span>'}</td>
       <td class="px-3 py-2 text-right align-top"><button class="text-blue-600 hover:underline text-xs whitespace-nowrap">View →</button></td>`;
     tr.onclick = () => openNetworkProfile(n);
     tr.querySelector("button").onclick = e => { e.stopPropagation(); openNetwork(n.kind, keyOf(n), n.name); };
@@ -664,7 +731,7 @@ function renderMoreNetworks() {
   }
   $("net-rows").appendChild(frag);
   $("n-more").classList.toggle("hidden", netShown >= netList.length);
-  if (!netList.length) $("net-rows").innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400 italic">Nothing here yet. Federations appear once a source for them is loaded (currently the Oscar file).</td></tr>';
+  if (!netList.length) $("net-rows").innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-500 italic">Nothing here yet. Federations appear once a source for them is loaded (currently the Oscar file).</td></tr>';
 }
 ["n-search", "n-sort", "n-multi"].forEach(id => $(id).addEventListener(id === "n-search" ? "input" : "change", renderNetworks));
 $("n-more").addEventListener("click", renderMoreNetworks);
@@ -709,16 +776,17 @@ function setSigSub(which) {
   $("sig-feed").classList.toggle("hidden", which !== "feed"); $("sig-jobs").classList.toggle("hidden", which !== "jobs");
   $("s-type").classList.toggle("hidden", which !== "feed"); $("sig-settings-link").classList.toggle("hidden", which !== "feed"); $("s-search").classList.toggle("hidden", which !== "feed"); $("s-count").classList.toggle("hidden", which !== "feed");
   $("sig-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.s === which ? "bg-white shadow-sm" : "text-slate-500"));
+  stateToUrl();
 }
 $("sig-sub").querySelectorAll("button").forEach(b => b.onclick = () => setSigSub(b.dataset.s));
 $("sig-settings-link").onclick = () => { showTab("data"); setDataSub("signals"); };
 function renderSignalTypes() {
   const cut = Date.now() - 30 * 864e5, tot = new Map(), rec = new Map();
   for (const s of signals) { tot.set(s.trigger_type, (tot.get(s.trigger_type) || 0) + 1); if (new Date(s.detected_at) > cut) rec.set(s.trigger_type, (rec.get(s.trigger_type) || 0) + 1); }
-  $("sig-types-rows").innerHTML = sigSettings.map(t => `<tr class="align-top ${t.enabled ? "" : "opacity-60"}"><td class="py-2 pr-3"><div class="font-semibold leading-tight">${esc(t.label)}</div><div class="font-mono text-[10px] text-slate-400">${esc(t.trigger_type)}</div></td>
+  $("sig-types-rows").innerHTML = sigSettings.map(t => `<tr class="align-top ${t.enabled ? "" : "opacity-60"}"><td class="py-2 pr-3"><div class="font-semibold leading-tight">${esc(t.label)}</div><div class="font-mono text-xs text-slate-500">${esc(t.trigger_type)}</div></td>
     <td class="pr-3 text-xs text-slate-700">${esc(t.source)}</td><td class="pr-3 text-xs text-slate-600">${esc(t.rule)}</td><td class="pr-3 text-xs text-slate-500">${esc(t.why)}</td>
     <td class="pr-3 text-right font-mono">${rec.get(t.trigger_type) || 0}</td><td class="pr-3 text-right font-mono">${tot.get(t.trigger_type) || 0}</td>
-    <td class="text-center"><input type="checkbox" class="h-4 w-4 accent-blue-600" data-t="${esc(t.trigger_type)}" ${t.enabled ? "checked" : ""} aria-label="Enable ${esc(t.label)}"></td></tr>`).join("") || '<tr><td colspan="7" class="py-4 text-slate-400 italic">No signal catalogue found.</td></tr>';
+    <td class="text-center"><input type="checkbox" class="h-4 w-4 accent-blue-600" data-t="${esc(t.trigger_type)}" ${t.enabled ? "checked" : ""} aria-label="Enable ${esc(t.label)}"></td></tr>`).join("") || '<tr><td colspan="7" class="py-4 text-slate-500 italic">No signal catalogue found.</td></tr>';
 }
 $("sig-types-rows").addEventListener("change", async e => {
   const cb = e.target.closest("input[data-t]"); if (!cb) return;
@@ -740,26 +808,30 @@ function fillNetList() {
   $("jm-netlist").innerHTML = networks.filter(n => ["pcn", "federation", "group"].includes(n.kind)).sort((x, y) => x.name.localeCompare(y.name)).map(n => `<option value="${esc(n.name)} (${esc(n.kind)})">`).join("");
 }
 function renderJobMatches() {
-  const st = $("jm-status").value, q = $("jm-search").value.trim().toLowerCase(), onlyAdv = $("jm-adv").checked;
-  const adv = new Map(); jobAdverts.forEach(j => (adv.get(j.employer_code) || adv.set(j.employer_code, []).get(j.employer_code)).push(j));
+  const adv = new Map();
+  const LABEL = { review: "To review", network: "PCNs / federations (not linked)", auto: "Auto-matched", confirmed: "Confirmed", rejected: "Rejected" };
+  const cur = $("jm-status").value || "review", count = k => jobEmployers.filter(e => e.match_status === k).length;
+  $("jm-status").innerHTML = Object.entries(LABEL).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${v} (${count(k).toLocaleString()})</option>`).join("");
+  const st = $("jm-status").value, q = $("jm-search").value.trim().toLowerCase(), onlyAdv = $("jm-adv").checked; jobAdverts.forEach(j => (adv.get(j.employer_code) || adv.set(j.employer_code, []).get(j.employer_code)).push(j));
   jmList = jobEmployers.filter(e => e.match_status === st && (!q || e.employer_name.toLowerCase().includes(q)) && (!onlyAdv || adv.has(e.employer_code)))
     .sort((a, b) => (adv.get(b.employer_code) || []).length - (adv.get(a.employer_code) || []).length || a.employer_name.localeCompare(b.employer_name));
   jmShown = 0; $("jm-rows").innerHTML = ""; $("jm-rows").dataset.adv = ""; window.__adv = adv; renderMoreJobMatches();
-  $("jm-count").textContent = `${jmList.length.toLocaleString()} employers`;
+  const withAdv = jmList.filter(e => adv.has(e.employer_code)).length;
+  $("jm-count").textContent = `${jmList.length.toLocaleString()} employers, ${withAdv} with a report / records advert`;
 }
 function renderMoreJobMatches() {
   const slice = jmList.slice(jmShown, jmShown + 50); jmShown += slice.length; const adv = window.__adv;
   $("jm-rows").insertAdjacentHTML("beforeend", slice.map(e => {
     const ads = adv.get(e.employer_code) || [], cur = e.ods_code ? byOds.get(e.ods_code) : null;
     const linkedNet = e.org_id ? networks.find(n => n.id === e.org_id) : null; const opts = (e.candidates || []).map(c => `<option value="${esc(c.ods_code)}" ${c.ods_code === e.ods_code ? "selected" : ""}>${esc(c.name)} (${esc(c.ods_code)})</option>`).join("");
-    return `<tr class="align-top" data-c="${esc(e.employer_code)}"><td class="py-2 pr-3"><div class="font-semibold leading-tight">${esc(e.employer_name)}</div><div class="font-mono text-[10px] text-slate-400">${esc(e.employer_code)} · ${esc((e.postcodes || []).slice(0, 3).join(", "))}</div></td>
-      <td class="pr-3 text-xs">${ads.length ? ads.slice(0, 3).map(j => `<div><a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(j.url)}">${esc(j.title)}</a> <span class="text-slate-400">${esc(fmtDate(j.post_date))}</span></div>`).join("") + (ads.length > 3 ? `<div class="text-slate-400">+${ads.length - 3} more</div>` : "") : '<span class="text-slate-300">none</span>'}</td>
-      <td class="pr-3 text-xs">${e.match_status === "confirmed" || e.match_status === "auto" ? `<b>${esc(cur ? cur.practice_name : linkedNet ? linkedNet.name : (e.ods_code || e.org_id || ""))}</b> <span class="text-slate-400">${esc(e.ods_code || (linkedNet ? linkedNet.kind : ""))}</span>` :
+    return `<tr class="align-top" data-c="${esc(e.employer_code)}"><td class="py-2 pr-3"><div class="font-semibold leading-tight">${esc(e.employer_name)}</div><div class="font-mono text-xs text-slate-500">${esc(e.employer_code)} · ${esc((e.postcodes || []).slice(0, 3).join(", "))}</div></td>
+      <td class="pr-3 text-xs">${ads.length ? ads.slice(0, 3).map(j => `<div><a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(j.url)}">${esc(j.title)}</a> <span class="text-slate-500">${esc(fmtDate(j.post_date))}</span></div>`).join("") + (ads.length > 3 ? `<div class="text-slate-500">+${ads.length - 3} more</div>` : "") : '<span class="text-slate-300">none</span>'}</td>
+      <td class="pr-3 text-xs">${e.match_status === "confirmed" || e.match_status === "auto" ? `<b>${esc(cur ? cur.practice_name : linkedNet ? linkedNet.name : (e.ods_code || e.org_id || ""))}</b> <span class="text-slate-500">${esc(e.ods_code || (linkedNet ? linkedNet.kind : ""))}</span>` :
         `<select class="jm-pick border border-slate-300 rounded px-2 py-1 text-xs max-w-[18rem]"><option value="">${opts ? "Choose the practice…" : "No practice at this postcode"}</option>${opts}</select><div class="mt-1 flex gap-1"><input class="jm-ods border border-slate-300 rounded px-2 py-0.5 text-xs w-24" placeholder="or ODS code"><input list="jm-netlist" class="jm-net border border-slate-300 rounded px-2 py-0.5 text-xs w-44" placeholder="or PCN / federation / group"></div>`}</td>
       <td class="whitespace-nowrap text-xs">${e.match_status === "confirmed" || e.match_status === "auto" || e.match_status === "rejected" ? `<button data-a="reopen" class="jm-act text-slate-500 hover:underline">Reopen</button>` :
         `<button data-a="confirm" class="jm-act bg-blue-600 text-white rounded px-2 py-1 mr-1">Confirm</button><button data-a="reject" class="jm-act text-slate-500 hover:underline">Not a practice</button>`}</td></tr>`; }).join(""));
   $("jm-more").classList.toggle("hidden", jmShown >= jmList.length);
-  if (!jmList.length) $("jm-rows").innerHTML = '<tr><td colspan="4" class="py-4 text-slate-400 italic">Nothing here.</td></tr>';
+  if (!jmList.length) $("jm-rows").innerHTML = '<tr><td colspan="4" class="py-4 text-slate-500 italic">Nothing here.</td></tr>';
 }
 $("jm-rows").addEventListener("click", async ev => {
   const b = ev.target.closest(".jm-act"); if (!b) return;
@@ -782,13 +854,23 @@ $("jm-rows").addEventListener("click", async ev => {
 function renderSignals() {
   const types = [...new Set(signals.map(s => s.trigger_type))].sort(), cur = $("s-type").value;
   $("s-type").innerHTML = '<option value="">All signal types</option>' + types.map(t => `<option value="${t}" ${t === cur ? "selected" : ""}>${esc(t.replaceAll("_", " ").toLowerCase())}</option>`).join("");
-  const q = $("s-search").value.trim().toLowerCase(), ty = $("s-type").value;
-  sigList = signals.filter(s => (!ty || s.trigger_type === ty) && (!q || [s.headline, s.description, s.ods_code, sigTarget(s).label].some(v => (v || "").toLowerCase().includes(q))));
+  const q = $("s-search").value.trim().toLowerCase(), ty = $("s-type").value, st = $("s-status").value;
+  sigList = signals.filter(s => (!ty || s.trigger_type === ty) && (st === "all" || (st === "open" ? ["new", "in_progress"].includes(s.status || "new") : (s.status || "new") === st)) && (!q || [s.headline, s.description, s.ods_code, sigTarget(s).label].some(v => (v || "").toLowerCase().includes(q))));
   sigShown = 0; $("s-rows").innerHTML = ""; renderMoreSignals();
   $("s-count").textContent = `${sigList.length.toLocaleString()} signals`;
 }
 const linkIcon = '<svg viewBox="0 0 20 20" class="inline w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M11 3h6v6M17 3l-8 8M8 5H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3"/></svg>';
 const sigLink = s => s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-800" title="Open source: ${esc(s.url)}" aria-label="Open source" onclick="event.stopPropagation()">${linkIcon}</a>` : "";
+const SIG_STATUS = { new: "New", in_progress: "In progress", done: "Done", dismissed: "Dismissed" };
+const SIG_STATUS_CLS = { new: "bg-white", in_progress: "bg-blue-50", done: "bg-emerald-50", dismissed: "bg-slate-100 text-slate-500" };
+async function saveSignal(id, patch) {
+  const s = signals.find(x => String(x.id) === String(id)); if (!s) return;
+  const before = { status: s.status, note: s.note, handled_at: s.handled_at };
+  Object.assign(s, patch);
+  const { error } = await db.from("sales_triggers").update(patch).eq("id", id);
+  if (error) { Object.assign(s, before); $("s-count").textContent = "Could not save: " + (error.message || error); renderSignals(); return false; }
+  indexSignals(); return true;
+}
 const sigTarget = s => {
   if (s.ods_code && byOds.get(s.ods_code)) { const p = byOds.get(s.ods_code); return { kind: "practice", label: p.practice_name, sub: s.ods_code, p }; }
   if (s.org_id) { const n = networks.find(x => x.id === s.org_id); return { kind: "network", label: n ? n.name : "Network", sub: n ? ({ pcn: "PCN / cluster", icb: "ICB", group: "Provider group", federation: "Federation" }[n.kind] || n.kind) : "", n }; }
@@ -799,14 +881,17 @@ function renderMoreSignals() {
   const slice = sigList.slice(sigShown, sigShown + PAGE); sigShown += slice.length;
   const frag = document.createDocumentFragment();
   for (const s of slice) {
-    const t = sigTarget(s), tr = document.createElement("tr"); tr.className = "hover:bg-blue-50/50 cursor-pointer align-top";
+    const t = sigTarget(s), tr = document.createElement("tr"); tr.className = "hover:bg-blue-50/50 cursor-pointer align-top"; tr.tabIndex = 0; tr.setAttribute("role", "button");
     tr.innerHTML = `<td class="px-3 py-2 whitespace-nowrap font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</td>
       <td class="px-3 py-2 whitespace-nowrap">${chip(s.trigger_type.replaceAll("_", " ").toLowerCase(), HOT.includes(s.trigger_type) ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-700")}</td>
-      <td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(t.label)}${t.kind === "unlinked" ? " " + chip("unlinked", "bg-amber-100 text-amber-800") : t.kind === "network" ? " " + chip("network", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-[11px] text-slate-500 ${t.kind === "practice" ? "font-mono" : ""}">${esc(t.sub)}</div></td>
+      <td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(t.label)}${t.kind === "unlinked" ? " " + chip("unlinked", "bg-amber-100 text-amber-800") : t.kind === "network" ? " " + chip("network", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-xs text-slate-500 ${t.kind === "practice" ? "font-mono" : ""}">${esc(t.sub)}</div></td>
       <td class="px-3 py-2"><div class="font-medium">${esc(s.headline)}</div><div class="text-xs text-slate-500">${esc(s.description)}</div></td>
       <td class="px-3 py-2 text-xs text-blue-800">${esc(s.action || "")}</td>
+      <td class="px-3 py-2 sg-ctl" data-id="${esc(s.id)}"><select class="sg-status border border-slate-300 rounded px-1.5 py-1 text-xs w-full ${SIG_STATUS_CLS[s.status || "new"]}" aria-label="Status of ${esc(s.headline)}">${Object.entries(SIG_STATUS).map(([k, v]) => `<option value="${k}" ${k === (s.status || "new") ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <input class="sg-note mt-1 border border-slate-200 rounded px-1.5 py-1 text-xs w-full" placeholder="Add a note…" value="${esc(s.note || "")}" maxlength="500" aria-label="Note for ${esc(s.headline)}"></td>
       <td class="px-3 py-2 text-center">${sigLink(s)}</td>`;
-    tr.onclick = () => {
+    tr.onclick = ev => {
+      if (ev.target.closest(".sg-ctl")) return;
       if (t.kind === "practice") { clearFilters(); showTab("practices"); $("f-search").value = t.p.ods_code; applyFilters(); openDrawer(t.p); }
       else if (t.kind === "network" && t.n) { netKind = t.n.kind; showTab("networks"); renderNetworks(); openNetworkProfile(t.n); }
       else if (t.kind === "unlinked") { setSigSub("jobs"); $("jm-status").value = t.e ? t.e.match_status : "review"; $("jm-search").value = t.label; renderJobMatches(); }
@@ -815,9 +900,14 @@ function renderMoreSignals() {
   }
   $("s-rows").appendChild(frag);
   $("s-more").classList.toggle("hidden", sigShown >= sigList.length);
-  if (!sigList.length) $("s-rows").innerHTML = '<tr><td colspan="6" class="p-6 text-center text-slate-400 italic">No signals yet. They appear when something changes between daily runs (closures, list growth, CQC changes, takeovers…).</td></tr>';
+  if (!sigList.length) $("s-rows").innerHTML = '<tr><td colspan="7" class="p-6 text-center text-slate-500 italic">No signals match. They appear when something changes between daily runs (closures, list growth, CQC changes, takeovers…).</td></tr>';
 }
-["s-type", "s-search"].forEach(id => $(id).addEventListener(id === "s-search" ? "input" : "change", renderSignals));
+$("s-rows").addEventListener("change", async e => {
+  const td = e.target.closest(".sg-ctl"); if (!td) return;
+  if (e.target.matches(".sg-status")) { const st = e.target.value; await saveSignal(td.dataset.id, { status: st, handled_at: st === "new" ? null : new Date().toISOString() }); renderSignals(); }
+  else if (e.target.matches(".sg-note")) await saveSignal(td.dataset.id, { note: e.target.value.trim() || null });
+});
+["s-type", "s-status", "s-search"].forEach(id => $(id).addEventListener(id === "s-search" ? "input" : "change", renderSignals));
 $("s-more").addEventListener("click", renderMoreSignals);
 
 /* ---------- data tab ---------- */
@@ -829,7 +919,7 @@ async function renderData() {
     ["Practices with a CQC match", withCqc.toLocaleString() + " of " + practices.length.toLocaleString()], ["Practices with a contact", practices.filter(p => p.manager_name).length.toLocaleString()],
     ["Provider groups", new Set(practices.filter(p => p.group_size > 1).map(p => p.cqc_provider_id)).size.toLocaleString()]].map(([k, v]) => `<div class="flex justify-between py-0.5 border-b border-slate-50"><span class="text-slate-500">${k}</span><span class="font-medium">${esc(v)}</span></div>`).join("");
   const { data: runs } = await db.from("ingest_runs").select("id,started_at,finished_at,status,error,stats").order("id", { ascending: false }).limit(6);
-  $("d-runs").innerHTML = `<table class="w-full"><thead class="text-slate-400"><tr><th class="text-left font-medium py-1">Started</th><th class="text-left font-medium">Status</th><th class="text-left font-medium">Notes</th></tr></thead><tbody>` +
+  $("d-runs").innerHTML = `<table class="w-full"><thead class="text-slate-500"><tr><th class="text-left font-medium py-1">Started</th><th class="text-left font-medium">Status</th><th class="text-left font-medium">Notes</th></tr></thead><tbody>` +
     (runs || []).map(r => { const st = r.stats || {}, notes = r.error ? r.error.split("\n")[0].slice(0, 90) : [st.practices_changed != null ? st.practices_changed + " practices changed" : "", st.cqc_error ? "CQC error" : "", st.oscar_error ? "Oscar not loaded" : "", st.patients_missing ? "no patient counts" : ""].filter(Boolean).join(" · ");
       return `<tr class="border-t border-slate-100"><td class="py-1 whitespace-nowrap">${esc(fmtDate(r.started_at))}</td><td>${chip(r.status, r.status === "success" ? "bg-emerald-100 text-emerald-800" : r.status === "failed" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600")}</td><td class="text-slate-500">${esc(notes)}</td></tr>`; }).join("") + `</tbody></table>`;
   renderRateCard();
@@ -841,6 +931,7 @@ function setDataSub(which) {
   dataSub = which;
   for (const k of ["overview", "sources", "signals", "pricing"]) $("dp-" + k).classList.toggle("hidden", k !== which);
   $("data-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.d === which ? "bg-white shadow-sm" : "text-slate-500"));
+  stateToUrl();
 }
 $("data-sub").querySelectorAll("button").forEach(b => b.onclick = () => setDataSub(b.dataset.d));
 
@@ -855,8 +946,8 @@ function renderRateCard() {
   const settings = Object.values(cfgSettings).filter(x => x.key !== "list_price_per_patient");
   const table = r => {
     const rows = cfgTiers.filter(t => t.route === r).sort((a, b) => a.tier - b.tier);
-    if (!rows.length) return '<p class="text-sm italic text-slate-400">No tiers configured for this route.</p>';
-    return `<table class="w-full text-sm"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="text-left py-1.5 font-medium">Tier</th><th class="text-right font-medium">From (patients)</th><th class="text-right font-medium">Size discount</th><th class="text-right font-medium">Price / patient</th><th class="text-right font-medium">Year 1 (extra ${pct(rows[0].speed_discount)} off)</th></tr></thead><tbody>` +
+    if (!rows.length) return '<p class="text-sm italic text-slate-500">No tiers configured for this route.</p>';
+    return `<table class="w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="text-left py-1.5 font-medium">Tier</th><th class="text-right font-medium">From (patients)</th><th class="text-right font-medium">Size discount</th><th class="text-right font-medium">Price / patient</th><th class="text-right font-medium">Year 1 (extra ${pct(rows[0].speed_discount)} off)</th></tr></thead><tbody>` +
       rows.map(t => { const p = list * (1 - Number(t.size_discount)); return `<tr class="border-t border-slate-100"><td class="py-1.5">${chip("T" + t.tier, TIER_CLS["Tier " + t.tier] || "")} ${esc(t.label)}</td><td class="text-right font-mono">${Number(t.threshold) ? Number(t.threshold).toLocaleString() + "+" : "any size"}</td>
         <td class="text-right">${pct(t.size_discount)}</td><td class="text-right font-mono font-semibold">£${p.toFixed(3)}</td><td class="text-right font-mono text-slate-600">£${(p * (1 - Number(t.speed_discount))).toFixed(3)}</td></tr>`; }).join("") + "</tbody></table>";
   };
@@ -1028,11 +1119,11 @@ function renderUploads() {
   const box = $("uploads");
   if (!box.children.length) {
     box.innerHTML = UPLOADS.map(u => `<div class="border border-slate-200 rounded-lg p-3 ${u.multiple ? "md:col-span-2" : ""}" id="up-${u.id}">
-      <div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${esc(u.title)}</h3><span class="text-[11px] text-slate-400 whitespace-nowrap">${esc(u.cadence)}</span></div>
+      <div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${esc(u.title)}</h3><span class="text-xs text-slate-500 whitespace-nowrap">${esc(u.cadence)}</span></div>
       <p class="text-xs text-slate-500">${esc(u.gives)}</p>
-      <p class="text-xs mt-1">${u.links.map(([h, l]) => `<a class="text-blue-600 underline" target="_blank" rel="noopener" href="${esc(h)}">${esc(l)}</a>`).join("<br>")}<br><span class="text-slate-400">File${u.multiple ? "s" : ""}: ${esc(u.file)}</span></p>
+      <p class="text-xs mt-1">${u.links.map(([h, l]) => `<a class="text-blue-600 underline" target="_blank" rel="noopener" href="${esc(h)}">${esc(l)}</a>`).join("<br>")}<br><span class="text-slate-500">File${u.multiple ? "s" : ""}: ${esc(u.file)}</span></p>
       <div class="mt-2 flex flex-wrap items-center gap-2"><input type="file" accept=".csv,text/csv" ${u.multiple ? "multiple" : ""} class="up-file text-xs max-w-[22rem]"><input type="month" class="up-month border border-slate-300 rounded px-2 py-1 text-xs"><button disabled class="up-load bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></div>
-      <p class="up-msg mt-1 text-xs text-slate-600 min-h-[1rem] whitespace-pre-line"></p><p class="up-status mt-1 text-[11px] text-slate-400"></p></div>`).join("");
+      <p class="up-msg mt-1 text-xs text-slate-600 min-h-[1rem] whitespace-pre-line"></p><p class="up-status mt-1 text-xs text-slate-500"></p></div>`).join("");
     for (const u of UPLOADS) {
       const el = $("up-" + u.id), q = c => el.querySelector(c), say = t => { q(".up-msg").textContent = t; }; let parsed = [];
       q(".up-file").addEventListener("change", async e => {
@@ -1080,6 +1171,11 @@ $("pc-run").addEventListener("click", async () => {
 });
 
 /* ---------- export ---------- */
+function downloadCsv(name, head, lines) {
+  const blob = new Blob(["﻿" + head.map(csvCell).join(",") + "\r\n" + lines.map(r => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${name}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+}
 const csvCell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replaceAll('"', '""') + '"'; };
 $("btn-export").addEventListener("click", () => {
   const rows = filtered.filter(p => p.lead_status !== "Do-Not-Contact");   // never export do-not-contact leads
@@ -1091,6 +1187,10 @@ $("btn-export").addEventListener("click", () => {
   a.href = URL.createObjectURL(blob); a.download = `Lalu_Leads_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 });
+$("s-export").addEventListener("click", () => downloadCsv("Lalu_Signals", ["Detected", "Type", "Practice or network", "Code", "Signal", "Detail", "Next step", "Status", "Note", "Link"],
+  sigList.map(s => { const t = sigTarget(s); return [s.detected_at ? s.detected_at.slice(0, 10) : "", s.trigger_type, t.label, s.ods_code || "", s.headline, s.description, s.action, SIG_STATUS[s.status || "new"], s.note, s.url]; })));
+$("n-export").addEventListener("click", () => downloadCsv("Lalu_Networks_" + netKind, ["Name", "Kind", "Linked practices", "Patients", "Tier", "Est ARR (network route)", "Est ARR (signed separately)", "Engaged", "Customers", "Confirmed"],
+  netList.map(n => [n.name, n.kind, n.practices, n.patients, n.network_tier ? "Tier " + n.network_tier : "", n.arr_network, n.arr_single, n.engaged, n.customers, n.confirmed === false ? "inferred" : "confirmed"])));
 boot();
 </script>
 </body>
