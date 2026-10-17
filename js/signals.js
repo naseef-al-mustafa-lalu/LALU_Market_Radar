@@ -44,7 +44,7 @@ function fillNetList() {
 function renderJobMatches() {
   const adv = new Map();
   const LABEL = { review: "To review", network: "PCNs / federations (not linked)", auto: "Auto-matched", confirmed: "Confirmed", rejected: "Rejected" };
-  const cur = $("jm-status").value || "review";
+  const cur = $("jm-status").value || "auto";   // opens on the auto-matched employers
   jobAdverts.forEach(j => (adv.get(j.employer_code) || adv.set(j.employer_code, []).get(j.employer_code)).push(j));
   // Employers with no current advert have nothing to act on, so only confirmed / rejected ones (which can be reopened) show without one.
   const relevant = e => adv.has(e.employer_code) || e.match_status === "confirmed" || e.match_status === "rejected", count = k => jobEmployers.filter(e => e.match_status === k && relevant(e)).length;
