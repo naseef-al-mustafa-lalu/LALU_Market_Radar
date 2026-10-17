@@ -16,6 +16,7 @@ const gbp = n => n == null ? "–" : n >= 1e6 ? "£" + (n / 1e6).toFixed(2) + "m
 const gbpFull = n => n == null ? "–" : "£" + Math.round(n).toLocaleString();                                                                                    // table cells
 const pct = n => (Number(n) * 100).toFixed(n * 1000 % 10 ? 1 : 0).replace(/\.0$/, "") + "%";
 const fmtDate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+const isClosed = p => p.status === "Closed" || !!p.closure_confirmed_at;
 const tier = p => p.price_tier ? "Tier " + p.price_tier : "";
 const noSizeReason = p => p.merged_into ? "Merged into another practice: its patients are counted in that practice's list."
   : p.country === "Wales" ? "No list size yet: load the StatsWales patients file (Data > Data sources)."

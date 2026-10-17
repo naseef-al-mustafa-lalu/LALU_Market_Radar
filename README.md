@@ -134,8 +134,13 @@ tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Osca
 
 Data > Pricing > "Update rates from the pricing spreadsheet". Download the `Pricing-Discount-Model` tab (and `Multi-Year-Matrix` for the 2/3-year term discounts and price floor) as CSV, choose the file(s), review the list of differences and press Apply. It updates existing rates only (`sync_pricing` in Supabase): annual and monthly plan list prices (both per patient per **month**: 0.08 and 0.10; annual revenue is patients × rate × 12), VAT, price floor, term discounts, and the practice / PCN / ICB tier thresholds and discounts. Provider-group and federation tiers are not touched.
 
-## Mergers and closures
+## Closures and mergers
 
-- **Closed:** a practice that drops off the ODS active GP list is marked `Closed` by the daily pipeline (with a "closed" signal). Closed and merged practices are hidden from the main Practices list; use the Status filter to see them.
-- **Merged:** ODS has no successor links, so a practice that merged into another stays Active on ODS with no NHS list size (its patients are counted in the practice that absorbed it). The database suggests likely mergers (`practice_merge_suggestions`: same postcode as a practice that has a list size; ODS "Y" codes are marked low confidence). Review them in **Signals > Mergers** or on the practice profile: *Confirm merger*, *Not a merger*, or mark one manually. Confirming (`set_practice_merge`) records `merged_into`, a note, who and when, and raises a `MERGER_DETECTED` signal when a customer or engaged practice is involved. Nothing is merged automatically.
-- Network counts still include merged practices as members (they have no patients, so revenue is unaffected).
+- **ODS closed:** a practice that drops off the ODS active GP list is marked `Closed` by the daily pipeline (with a "closed" signal).
+- **Closed or merged but still Active on ODS:** ODS has no successor links and closes practices late, so such a practice usually shows no NHS list size. The database suggests likely cases and a person decides in **Signals > Closures & mergers** or on the practice profile (nothing is automatic):
+  - `practice_merge_suggestions`: no list size and a practice with a list size at the same postcode (ODS "Y" codes are low confidence). Buttons: *Merged*, *Closed*, *Neither*, or mark a different practice manually.
+  - `practice_closure_candidates`: no list size, CQC *Deregistered*, no absorber at its postcode.
+- **Confirm merger** (`set_practice_merge`): records `merged_into`, who and when; raises `MERGER_DETECTED` if a customer or engaged practice is involved.
+- **Confirm closed** (`set_practice_closed`): records `closure_confirmed_at`; raises one `PRACTICE_CLOSED` signal on the practice's **PCN** listing its nearest practices (the signal can be turned off in Data > Signal settings).
+- Closed and merged practices are hidden from the main list (Status filter shows them). CQC *Deregistered* on its own only raises a signal for practices with no list size (978 practices with patients show Deregistered, which is mostly re-registrations).
+- Network counts still include merged and closed practices as members (they have no patients, so revenue is unaffected).

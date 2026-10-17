@@ -8,10 +8,12 @@ def prac(i, **kw):
              manager_name="Ann Lee", manager_title="Practice Manager", manager_email="a@nhs.net", town="Leeds", postcode="LS1 1AA", gp_federation="Fed One" if i == 1 else None,
              cqc_last_inspection="2025-01-02", org_notes="Good client", data_month="2026-09")
     d.update(kw); return d
-PR = [prac(i) for i in range(11)]
+PR = [prac(i) for i in range(12)]
 PR[8].update(practice_name="Test Old Surgery", total_patients=0, merged_into="A10001", merged_note="Merged 2025", merged_at="2026-01-01T00:00:00Z", merged_by="boss@lalu.co.uk")
 PR[9].update(practice_name="Test Annex A", total_patients=0)
 PR[10].update(practice_name="Test Annex B", total_patients=0)
+PR[11].update(practice_name="Test Closed Candidate", total_patients=0, cqc_status="Deregistered", cqc_last_inspection="2016-06-16")
+CLOSE = [dict(ods_code="A10011", cqc_last_inspection="2016-06-16")]
 SUGG = [dict(ods_code="A10009", into_code="A10003", into_name="Test Surgery 3", into_patients=12000, n_candidates=1, confidence="high"), dict(ods_code="A10010", into_code="A10005", into_name="Test Surgery 5", into_patients=14000, n_candidates=2, confidence="medium")]
 PR[3]["gp_federation"] = "Fed One"
 for p_ in PR:
@@ -35,7 +37,7 @@ window.supabase = { createClient: () => {
   return { auth: { getSession: async () => ({ data: { session: { user: { email: 'new@lalu.co.uk' } } } }), signOut: async () => {}, updateUser: async (a) => { (window.__rpc = window.__rpc || []).push(['updateUser', a]); return {}; }, resetPasswordForEmail: async (e, o) => { (window.__rpc = window.__rpc || []).push(['reset', e, o]); return {}; }, signInWithPassword: async () => ({}) },
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async () => ({ data: {} }) } };
 } };
-""" % json.dumps({"gp_practices": PR, "practice_merge_suggestions": SUGG, "practice_pricing": PP, "network_summary": NETS, "practice_hubspot": HS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [dict(id="s1", ods_code=None, org_id="1", employer_code="W1", trigger_type="JOB_REPORT_ROLE", headline="Hiring: Records Administrator", description="Acclaim PCN advertised", detected_at="2026-10-16T08:00:00Z"), dict(id="s2", ods_code=None, org_id=None, employer_code="A0095", trigger_type="JOB_REPORT_ROLE", headline="Hiring: Medical Secretary", description="Little Common Surgery advertised", action="Offer cover for reports.", url="https://www.jobs.nhs.uk/candidate/jobadvert/A0095-26-0006", detected_at="2026-10-16T08:00:00Z")], "job_employers": [dict(employer_code="A0095", employer_name="Little Common Surgery", postcodes=["TN394SP"], match_status="review", ods_code=None, candidates=[dict(ods_code="A10001", name="Little Common Surgery", postcode="TN39 4SP")]), dict(employer_code="A0001", employer_name="Done Surgery", postcodes=[], match_status="confirmed", ods_code="A10002", candidates=[])], "job_adverts": [dict(advert_id="1", employer_code="A0095", ods_code=None, title="Medical Secretary", matched_role="medical secretary", post_date="2026-10-14", close_date="2026-10-30", url="https://x/1"), dict(advert_id="2", employer_code="A0001", ods_code="A10002", title="Medical Records Administrator", matched_role="records / summarising", post_date="2026-10-13", close_date=None, url="https://x/2")], "signal_settings": [dict(trigger_type="NEW_PRACTICE", label="New practice", source="NHS ODS (daily)", rule="A code appears", why="Greenfield", sort_order=1, enabled=True)], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
+""" % json.dumps({"gp_practices": PR, "practice_merge_suggestions": SUGG, "practice_closure_candidates": CLOSE, "practice_pricing": PP, "network_summary": NETS, "practice_hubspot": HS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [dict(id="s1", ods_code=None, org_id="1", employer_code="W1", trigger_type="JOB_REPORT_ROLE", headline="Hiring: Records Administrator", description="Acclaim PCN advertised", detected_at="2026-10-16T08:00:00Z"), dict(id="s2", ods_code=None, org_id=None, employer_code="A0095", trigger_type="JOB_REPORT_ROLE", headline="Hiring: Medical Secretary", description="Little Common Surgery advertised", action="Offer cover for reports.", url="https://www.jobs.nhs.uk/candidate/jobadvert/A0095-26-0006", detected_at="2026-10-16T08:00:00Z")], "job_employers": [dict(employer_code="A0095", employer_name="Little Common Surgery", postcodes=["TN394SP"], match_status="review", ods_code=None, candidates=[dict(ods_code="A10001", name="Little Common Surgery", postcode="TN39 4SP")]), dict(employer_code="A0001", employer_name="Done Surgery", postcodes=[], match_status="confirmed", ods_code="A10002", candidates=[])], "job_adverts": [dict(advert_id="1", employer_code="A0095", ods_code=None, title="Medical Secretary", matched_role="medical secretary", post_date="2026-10-14", close_date="2026-10-30", url="https://x/1"), dict(advert_id="2", employer_code="A0001", ods_code="A10002", title="Medical Records Administrator", matched_role="records / summarising", post_date="2026-10-13", close_date=None, url="https://x/2")], "signal_settings": [dict(trigger_type="NEW_PRACTICE", label="New practice", source="NHS ODS (daily)", rule="A code appears", why="Greenfield", sort_order=1, enabled=True)], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
 import os
 errors = []
 with sync_playwright() as p:
@@ -52,8 +54,8 @@ with sync_playwright() as p:
     assert "Loading" in pg.inner_text("#loading") and pg.is_visible("#load-spin")
     pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     pg.evaluate("window.__slow = 0")
-    assert pg.locator("#rows tr").count() == 10, pg.locator("#rows tr").count()   # 11 fixtures, one merged and hidden by default
-    assert "10 practices" in pg.inner_text("#count")
+    assert pg.locator("#rows tr").count() == 11, pg.locator("#rows tr").count()   # 12 fixtures, one merged and hidden by default
+    assert "11 practices" in pg.inner_text("#count")
     def noflow(sel, name):
         b_ = pg.evaluate("(s => { const w = document.querySelector(s); return [w.scrollWidth, w.clientWidth]; })(%r)" % sel)
         assert b_[0] <= b_[1] + 2, f"{name} overflows: {b_}"
@@ -63,7 +65,7 @@ with sync_playwright() as p:
     pg.click("#f-more-btn"); pg.check("#f-grp")
     assert "3 practices" in pg.inner_text("#count"), pg.inner_text("#count")
     assert "clear" in pg.inner_text("#f-chips").lower()
-    pg.click("#f-chips >> text=/clear/i"); assert "10 practices" in pg.inner_text("#count")
+    pg.click("#f-chips >> text=/clear/i"); assert "11 practices" in pg.inner_text("#count")
     pg.click("th[data-sort=patients]"); pg.click("th[data-sort=patients]")
     # drawer
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
@@ -181,11 +183,11 @@ with sync_playwright() as p:
     pg.keyboard.press("Escape"); pg.wait_for_function("document.querySelector('#drawer').classList.contains('translate-x-full')")
     assert "open=" not in pg.evaluate("location.search") and pg.evaluate("document.activeElement.tagName") == "TR"       # focus goes back to the row
     pg.click("#f-more-btn") if pg.is_hidden("#f-size") else None
-    pg.select_option("#f-size", "no"); assert "2 practices" in pg.inner_text("#count") and "size=no" in pg.evaluate("location.search")
+    pg.select_option("#f-size", "no"); assert "3 practices" in pg.inner_text("#count") and "size=no" in pg.evaluate("location.search")
     pg.select_option("#f-size", ""); pg.select_option("#f-tier", "Tier 3"); assert "tier=Tier+3" in pg.evaluate("location.search")
     pg.goto("about:blank"); pg.goto(INDEX + "?tier=Tier+3&open=A10001&sort=name:1")      # a shared link restores the view
     pg.wait_for_selector("#drawer:not(.translate-x-full)", timeout=8000)
-    assert "Test Surgery 1" in pg.inner_text("#dr-title") and pg.input_value("#f-tier") == "Tier 3" and "10 practices" in pg.inner_text("#count")
+    assert "Test Surgery 1" in pg.inner_text("#dr-title") and pg.input_value("#f-tier") == "Tier 3" and "11 practices" in pg.inner_text("#count")
     pg.keyboard.press("Escape")
     pg.click("#th-name") if False else None
     # signals: status workflow
@@ -206,7 +208,7 @@ with sync_playwright() as p:
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=pricing]"); pg.click("#tab-practices"); pg.click("#tab-data"); assert pg.is_visible("#dp-overview")
     # mergers: status filter, profile status card, review tab
     pg.goto("about:blank"); pg.goto(INDEX); pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
-    assert "Test Old Surgery" not in pg.inner_text("#rows") and "May have merged" in pg.inner_text("#rows")   # merged hidden by default, suggestions flagged
+    assert "Test Old Surgery" not in pg.inner_text("#rows") and "May have closed or merged" in pg.inner_text("#rows")   # merged hidden by default, suggestions flagged
     pg.click("#f-more-btn"); pg.select_option("#f-status", "merged"); assert pg.locator("#rows tr").count() == 1 and "Merged → Test Surgery 1" in pg.inner_text("#rows") and "status" not in pg.evaluate("location.search") and "st=merged" in pg.evaluate("location.search")
     pg.click("#rows tr"); pg.wait_for_selector("#drawer:not(.translate-x-full)"); card = pg.inner_text("#dr-body")
     assert "Merged into Test Surgery 1" in card and "Merged 2025" in card and "boss@lalu.co.uk" in card and "Undo merge" in card, card
@@ -218,12 +220,15 @@ with sync_playwright() as p:
     pg.wait_for_selector("#drawer:not(.translate-x-full)"); assert "Merged into Test Surgery 3" in pg.inner_text("#dr-body")
     pg.keyboard.press("Escape"); assert "Test Annex A" not in pg.inner_text("#rows")      # now hidden from the main list
     pg.click("#tab-signals"); pg.click('#sig-sub button[data-s=mergers]'); pg.wait_for_selector("#mg-rows tr")
-    assert "Test Annex B" in pg.inner_text("#mg-rows") and "Test Surgery 5" in pg.inner_text("#mg-rows") and "Several practices at this postcode" in pg.inner_text("#mg-rows") and "ss=mergers" in pg.evaluate("location.search")
+    rows = pg.inner_text("#mg-rows"); assert "Test Annex B" in rows and "Test Surgery 5" in rows and "Several practices at this postcode" in rows and "Test Closed Candidate" in rows and "Probably closed" in rows and "Deregistered from CQC" in rows and "ss=mergers" in pg.evaluate("location.search"), rows
     pg.screenshot(path=SHOTS + "/mergers.png", full_page=True); assert pg.is_hidden("#s-export") and pg.is_hidden("#s-status")
-    pg.click('#mg-rows [data-mg="dismiss"]'); pg.wait_for_function("window.__rpc.some(c => c[0] === 'dismiss_merge_suggestion' && c[1].p_ods === 'A10010' && c[1].p_dismissed === true)")
+    pg.click('#mg-rows tr[data-ods=A10010] [data-mg="dismiss"]'); pg.wait_for_function("window.__rpc.some(c => c[0] === 'dismiss_merge_suggestion' && c[1].p_ods === 'A10010' && c[1].p_dismissed === true)")
+    pg.click('#mg-rows tr[data-ods=A10011] [data-mg="close"]'); pg.wait_for_function("window.__rpc.some(c => c[0] === 'set_practice_closed' && c[1].p_ods === 'A10011' && c[1].p_closed === true)")
     assert "Nothing to review" in pg.inner_text("#mg-rows") and pg.is_hidden("#merge-badge")
+    pg.select_option("#mg-status", "closed"); assert "Test Closed Candidate" in pg.inner_text("#mg-rows")
     pg.select_option("#mg-status", "merged"); assert "Test Annex A" in pg.inner_text("#mg-rows") and "Test Surgery 3" in pg.inner_text("#mg-rows")
     pg.select_option("#mg-status", "dismissed"); assert "Test Annex B" in pg.inner_text("#mg-rows")
+    pg.click("#tab-practices"); assert "Test Closed Candidate" not in pg.inner_text("#rows")   # confirmed closures leave the main list
     # a failed load must not leave the spinner up forever: it explains and offers Try again
     pg.goto("about:blank"); pg.add_init_script("window.__fail = true"); pg.goto(INDEX)
     pg.wait_for_selector("#load-retry:not(.hidden)", timeout=8000)
