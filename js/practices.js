@@ -108,15 +108,15 @@ function priceCard(args) {
   const id = "pc" + priceCards.size; priceCards.set(id, args);
   return `<div class="price-card" data-pc="${id}">${priceCardBody(args, id)}</div>`;
 }
-function repaintPriceCards() { document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc), el.dataset.pc); }); }
-document.addEventListener("change", e => { if (e.target.matches(".speed-toggle")) { speedOn = e.target.checked; repaintPriceCards(); } });
+function repaintPriceCards() { const live = new Set([...document.querySelectorAll(".price-card")].map(el => el.dataset.pc)); for (const k of priceCards.keys()) if (!live.has(k)) priceCards.delete(k); document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc), el.dataset.pc); }); }
+document.addEventListener("change", e => { if (e.target.matches(".speed-toggle")) { speedOn = e.target.checked; repaintPriceCards(); document.querySelector(".speed-toggle")?.focus({ preventScroll: true }); } });
 document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
 function priceCardBody({ patients, tierRow, route, who }, id) {
   const list = setting("list_price_per_patient");
   if (!tierRow || !patients) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
   const size = Number(tierRow.size_discount), speed = Number(tierRow.speed_discount), term = termDiscount(termYrs), floor = setting("price_floor_per_patient");
-  const recurring = dealRate(size, term, 0), year1 = dealRate(size, term, speedOn ? speed : 0);
-  const sum = size + term + (speedOn ? speed : 0), floored = list * (1 - sum) < floor - 1e-9;
+  const useSpeed = speedOn && speed > 0, recurring = dealRate(size, term, 0), year1 = dealRate(size, term, useSpeed ? speed : 0);
+  const sum = size + term + (useSpeed ? speed : 0), floored = list * (1 - sum) < floor - 1e-9;
   const tiersAsc = cfgTiers.filter(t => t.route === route).sort((a, b) => a.threshold - b.threshold);
   const next = tiersAsc.find(t => Number(t.threshold) > patients && t.tier < tierRow.tier);
   const sub = t => `<div class="text-xs text-slate-500 font-normal leading-snug">${t}</div>`, amt = x => "−£" + x.toFixed(3);
@@ -126,21 +126,21 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
     line("List price", "", "", `£${list.toFixed(3)}`, "border-t-0"),
     line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
-    speedOn && speed ? line("Speed discount", "Year 1 only, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
+    useSpeed ? line("Speed discount", "Year 1 only, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
     adj > 1e-9 ? line("Price floor", `Never below £${floor.toFixed(3)}`, "", "+£" + adj.toFixed(3)) : "",
-    line(`Price per patient${speedOn && speed ? " (year 1)" : ""}`, "", `${pct(1 - year1 / list)} off`, `£${year1.toFixed(3)}`, "font-semibold border-t-2 border-emerald-200"),
-    line(`× ${patients.toLocaleString()} patients`, speedOn && speed ? "Year 1 total" : "Per year", "", gbpFull(patients * year1), "font-semibold")
+    line(`Price per patient${useSpeed ? " (year 1)" : ""}`, "", `${pct(1 - year1 / list)} off`, `£${year1.toFixed(3)}`, "font-semibold border-t-2 border-emerald-200"),
+    line(`× ${patients.toLocaleString()} patients`, useSpeed ? "Year 1 total" : "Per year", "", gbpFull(patients * year1), "font-semibold")
   ].join("");
   const steps = `<table class="mt-3 w-full text-sm tabular-nums"><caption class="sr-only">How the price is built</caption><thead class="sr-only"><tr><th>Step</th><th>Discount</th><th>Per patient</th></tr></thead><tbody>${rowsHtml}</tbody></table>
-    ${speedOn && speed ? `<p class="mt-1 text-xs text-slate-500">From year 2 the speed discount ends: £${recurring.toFixed(3)} per patient, ${gbpFull(patients * recurring)} a year.</p>` : ""}`;
+    ${useSpeed ? `<p class="mt-1 text-xs text-slate-500">From year 2 the speed discount ends: £${recurring.toFixed(3)} per patient, ${gbpFull(patients * recurring)} a year.</p>` : ""}`;
   const opts = [1, 2, 3].map(y => `<button type="button" class="term-opt flex-1 rounded-md border px-2 py-1.5 text-left ${y === termYrs ? "border-emerald-600 bg-white ring-1 ring-emerald-600" : "border-slate-300 bg-white/60 hover:bg-white"}" data-yrs="${y}" aria-pressed="${y === termYrs}">
       <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm">${gbpFull(patients * dealRate(size, termDiscount(y), 0))}<span class="text-xs text-slate-500"> /yr</span></div></button>`).join("");
   return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
     <div class="flex items-end justify-between gap-3">
       <div><div class="text-xs uppercase tracking-wider text-slate-500">Estimated annual revenue${termYrs > 1 ? ` · ${termYrs}-year term` : ""}</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(patients * recurring)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
-      ${speedOn && speed ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(patients * year1)}</div><div class="text-xs text-slate-500">${pct(speed)} speed discount</div></div>` : ""}</div>
+      ${speed > 0 ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(patients * year1)}</div><div class="text-xs text-slate-500">${useSpeed ? pct(speed) + " speed discount" : "no speed discount"}</div></div>` : ""}</div>
     <div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>
-    <label class="mt-2 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" class="speed-toggle" ${speedOn ? "checked" : ""}> Include the ${pct(speed)} speed discount <span class="text-slate-400">(not guaranteed)</span></label>
+    ${speed > 0 ? `<label class="mt-2 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" class="speed-toggle" ${speedOn ? "checked" : ""}> Include the ${pct(speed)} speed discount <span class="text-slate-400">(not guaranteed)</span></label>` : ""}
     ${steps}
     ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${(list * (1 - Number(next.size_discount))).toFixed(3)} per patient).</p>` : ""}</div>`;
 }

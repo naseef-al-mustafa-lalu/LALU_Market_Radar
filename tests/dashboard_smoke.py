@@ -64,9 +64,14 @@ with sync_playwright() as p:
     # drawer
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
-    assert pg.is_checked("#dr-body .speed-toggle") and "speed discount" in body.lower()  # speed discount is on by default
-    pg.uncheck("#dr-body .speed-toggle"); off = pg.inner_text("#dr-body"); assert "FIRST YEAR" not in off.upper() and "Speed discount" not in off.split("Price per patient")[0], off
-    pg.check("#dr-body .speed-toggle"); assert "First year" in pg.inner_text("#dr-body").title() or "FIRST YEAR" in pg.inner_text("#dr-body").upper()
+    assert pg.is_checked("#dr-body .speed-toggle")  # speed discount is on by default
+    kpi = lambda: pg.inner_text("#dr-body .price-card .text-right").replace("\n", " ")
+    assert "£720" in kpi() and "5% speed discount" in kpi() and "£0.072" in pg.inner_text("#dr-body .price-card tbody") and "Speed discount" in pg.inner_text("#dr-body .price-card tbody")
+    pg.uncheck("#dr-body .speed-toggle")
+    tb = pg.inner_text("#dr-body .price-card tbody"); assert "Speed discount" not in tb and "£0.076" in tb and "£0.072" not in tb, tb
+    assert "£760" in kpi() and "no speed discount" in kpi(), kpi()   # first-year figure stays and now equals the normal annual figure
+    assert pg.evaluate("document.activeElement.classList.contains('speed-toggle')")
+    pg.check("#dr-body .speed-toggle"); assert "£720" in kpi()
     pg.click('#dr-body .term-opt[data-yrs="3"]'); t3 = pg.inner_text("#dr-body"); assert "Term discount" in t3 and "3-year" in t3 and "£0.068" in t3, t3  # 5% size + 5% term + 5% speed off £0.080
     pg.click('#dr-body .term-opt[data-yrs="1"]'); assert "Term discount" not in pg.inner_text("#dr-body")
     assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "Speed discount" in body and "Contract term" in body and "Other ways to sign this practice" in body, body
