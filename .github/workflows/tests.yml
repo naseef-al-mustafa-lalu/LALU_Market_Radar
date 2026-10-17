@@ -20,7 +20,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build:css
       - name: Committed stylesheet is up to date
-        run: git diff --exit-code assets/tailwind.css || (echo "assets/tailwind.css is stale: run 'npm run build:css' and commit it" && exit 1)
+        run: |
+          if ! git diff --exit-code assets/tailwind.css; then
+            echo "assets/tailwind.css is stale - run 'npm run build:css' and commit it"
+            exit 1
+          fi
       - uses: actions/setup-python@v6
         with: { python-version: '3.12' }
       - run: pip install playwright && playwright install --with-deps chromium
