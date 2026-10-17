@@ -70,21 +70,20 @@ with sync_playwright() as p:
     # drawer
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
-    assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "true"  # speed discount is on by default
+    assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "false"  # the speed discount is not guaranteed, so it is off by default
     kpi = lambda: pg.inner_text("#dr-body .price-card .text-right").replace("\n", " ")
-    assert "£8,640" in kpi() and "5% speed discount" in kpi() and "£0.072" in pg.inner_text("#dr-body .price-card tbody") and "Speed discount" in pg.inner_text("#dr-body .price-card tbody")
-    pg.click("#dr-body .speed-toggle"); assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "false"
     tb = pg.inner_text("#dr-body .price-card tbody"); assert "Speed discount" not in tb and "£0.076" in tb and "£0.072" not in tb, tb
-    assert "£9,120" in kpi() and "no speed discount" in kpi(), kpi()   # first-year figure stays and now equals the normal annual figure
+    assert "£9,120" in kpi() and "no speed discount" in kpi(), kpi()   # first-year figure equals the normal annual figure while the discount is off
+    pg.click("#dr-body .speed-toggle"); assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "true"
+    assert "£8,640" in kpi() and "5% speed discount" in kpi() and "£0.072" in pg.inner_text("#dr-body .price-card tbody") and "Speed discount" in pg.inner_text("#dr-body .price-card tbody")
     assert pg.evaluate("document.activeElement.classList.contains('speed-toggle')")
-    pg.click("#dr-body .speed-toggle"); assert "£8,640" in kpi()
     pg.click('#dr-body .bill-opt[data-b="monthly"]'); mo = pg.inner_text("#dr-body")   # monthly plan base £0.100 per patient per month; size 5% + speed 5% -> £0.090
     assert "Monthly plan" in mo and "£0.100" in mo and "£0.090" in mo and "£10,800" in mo and "no term discount" in mo and pg.locator("#dr-body .term-opt").count() == 0, mo
     pg.click('#dr-body .bill-opt[data-b="annual"]'); assert pg.locator("#dr-body .term-opt").count() == 3
     pg.click('#dr-body .term-opt[data-yrs="3"]'); t3 = pg.inner_text("#dr-body"); assert "Term discount" in t3 and "3-year" in t3 and "£0.068" in t3, t3  # 5% size + 5% term + 5% speed off £0.080
     assert "Year 2" in t3 and "Year 3" in t3 and "Years 2–3" not in t3 and "Total over 3 years" in t3 and "£25,440" in t3, t3  # y1 10,000 x £0.068 x 12 + 2 x 10,000 x £0.072 x 12
     pg.click('#dr-body .term-opt[data-yrs="1"]'); assert "Term discount" not in pg.inner_text("#dr-body")
-    assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "Speed discount" in body and "Contract term" in body and "Other ways to sign this practice" in body, body
+    assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "speed discount" in body.lower() and "Contract term" in body and "Other ways to sign this practice" in body, body
     assert "£1,216" not in body or True
     pg.wait_for_timeout(500); pg.evaluate("document.querySelector('#dr-body').scrollTop = 0"); pg.screenshot(path=SHOTS + "/profile.png")
     pg.keyboard.press("Escape")

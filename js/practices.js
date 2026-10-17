@@ -99,7 +99,7 @@ $("more").addEventListener("click", renderMore);
 /* ---------- price breakdown: headline figure, then the working in plain steps ---------- */
 // Price = list price less the SUM of the selected discounts (size + term + speed), never below the price floor.
 // Term and speed are choices, not guarantees, so they are switches shared by every price card on the page.
-let speedOn = true, termYrs = 1, billing = "annual";   // billing: "annual" (paid yearly) or "monthly" (rolling, no term)
+let speedOn = false, termYrs = 1, billing = "annual";   // billing: "annual" (paid yearly) or "monthly" (rolling, no term)
 const priceCards = new Map();
 const setting = k => Number(cfgSettings[k]?.value || 0);
 const termDiscount = yrs => yrs >= 3 ? setting("term_discount_3yr") : yrs === 2 ? setting("term_discount_2yr") : 0;
