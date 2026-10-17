@@ -102,22 +102,24 @@ def pcn_due(active_codes, existing, now):
     return never + stale[:PCN_DAILY_CAP]
 
 
-def sync(rest, run_id):
-    stats, rejects = {}, []
-    env = os.environ
-    now = datetime.now(timezone.utc)
+def mass_change_guard(env, closing):
+    if closing > 50 and env.get("ALLOW_MASS_CHANGE") != "1":
+        raise RuntimeError(f"{closing} practices closing in one run looks like a feed error; set ALLOW_MASS_CHANGE=1 to override")
 
-    active = sources.load_active_gp_practices()
-    existing = {r["ods_code"]: r for r in rest.select_all("gp_practices", order="ods_code")}
+
+def plan_closures(active, existing, env, stats):
+    """ODS view of every practice: the active list plus England rows that dropped off it (Scotland / Wales rows come from uploads, not ODS)."""
     ods = {c: {"name": v["name"], "postcode": v["postcode"], "status": "Active"} for c, v in active.items()}
-    closed = [c for c, r in existing.items() if r["status"] == "Active" and c not in active and (r.get("country") or "England") == "England"]  # Scotland/Wales rows come from uploads, not ODS
+    closed = [c for c, r in existing.items() if r["status"] == "Active" and c not in active and (r.get("country") or "England") == "England"]
     for c in closed:
         ods[c] = {"name": existing[c]["practice_name"], "postcode": existing[c].get("postcode"), "status": "Closed"}
     stats.update(ods_active=len(active), closures=len(closed))
-    if len(closed) > 50 and env.get("ALLOW_MASS_CHANGE") != "1":
-        raise RuntimeError(f"{len(closed)} practices closing in one run looks like a feed error; set ALLOW_MASS_CHANGE=1 to override")
+    mass_change_guard(env, len(closed))
+    return ods
 
-    # patient counts are loaded monthly by src.patients (needs a non-datacentre network) and read from Supabase
+
+def read_patient_counts(rest, now, stats):
+    """Counts are loaded monthly (dashboard upload or the office-PC runner) and read from Supabase."""
     counts = rest.select_all("patient_counts", "ods_code,patients,data_month", order="ods_code")
     patients = {r["ods_code"]: r["patients"] for r in counts}
     month = max((r["data_month"] for r in counts if r["data_month"]), default=None)
@@ -126,7 +128,10 @@ def sync(rest, run_id):
         stats["patients_missing"] = True
     elif month and (now.date() - date.fromisoformat(month + "-01")).days > 75:
         stats["patients_stale"] = month
+    return patients, month
 
+
+def pcn_step(active, existing, now, stats):
     try:
         pcn_names = sources.load_pcn_names(sources.fetch(sources.ODS_EXPORT + "epcn"))
         looked_up = sources.fetch_pcn_codes(pcn_due(active, existing, now))
@@ -135,11 +140,14 @@ def sync(rest, run_id):
             if pcn:
                 name, icb = pcn_names.get(pcn, (pcn, ""))
                 pcn_map[c] = (pcn, title_case(name), title_case(icb))
-        pcn_checked = frozenset(looked_up)
         stats.update(pcn_lookups=len(looked_up), pcn_mapped=len(pcn_map))
+        return pcn_map, frozenset(looked_up)
     except Exception as e:  # noqa: BLE001  PCN is enrichment, not critical
-        pcn_map, pcn_checked, stats["pcn_error"] = {}, frozenset(), str(e)[:200]
+        stats["pcn_error"] = str(e)[:200]
+        return {}, frozenset()
 
+
+def oscar_step(env, active, stats, rejects):
     try:
         if not env.get("OSCAR_API_URL"):
             raise ValueError("OSCAR_API_URL not set: running without contact data")
@@ -148,66 +156,85 @@ def sync(rest, run_id):
         stats.update(oscar_contacts=len(contacts), oscar_practices=len(oscar_info), oscar_suppressed=suppressed)
         if not set(oscar_info) & set(active):
             raise ValueError("Oscar file matched zero NHS practices: wrong file?")
+        return contacts, oscar_info
     except Exception as e:  # noqa: BLE001  keep existing contact data if Oscar is unavailable
-        contacts, oscar_info, stats["oscar_error"] = [], None, str(e)[:200]
+        stats["oscar_error"] = str(e)[:200]
+        return [], None
 
-    closing = sum(1 for c, v in ods.items() if v["status"] == "Closed" and existing.get(c, {}).get("status") == "Active")
-    stats["closures"] = closing
-    if closing > 50 and env.get("ALLOW_MASS_CHANGE") != "1":
-        raise RuntimeError(f"{closing} practices closing in one run looks like a feed error; set ALLOW_MASS_CHANGE=1 to override")
+
+def merged_view(existing, records):
+    """Every practice as it will look after this run's upsert."""
+    return {**existing, **{r["ods_code"]: {**existing.get(r["ods_code"], {}), **r} for r in records}}
+
+
+def cqc_step(rest, env, existing, records, now, stats):
+    if not env.get("CQC_API_KEY"):
+        return
+    try:
+        cqc_rows, cstats = cqc.sync(rest, merged_view(existing, records), cqc.make_client(env["CQC_API_KEY"]), now)
+        rest.upsert("gp_practices", cqc_rows, "ods_code")
+        stats.update(cstats)
+    except Exception as e:  # noqa: BLE001  CQC is enrichment: never block the main load
+        stats["cqc_error"] = str(e)[:300]
+
+
+def contacts_step(rest, contacts, existing, records, stats, rejects):
+    known = set(existing) | {r["ods_code"] for r in records}
+    feed = [c for c in contacts if c["ods_code"] in known]
+    rejects += [("oscar", str(c["contact_urn"]), f"practice {c['ods_code']} not in NHS GP list") for c in contacts if c["ods_code"] not in known]
+    db = {r["contact_urn"]: r for r in rest.select_all("contacts", order="contact_urn")}
+    changed = [c for c in feed if c["contact_urn"] not in db or any(c[k] != db[c["contact_urn"]][k] for k in CONTACT_FIELDS)]
+    rest.upsert("contacts", changed, "contact_urn")
+    stale = sorted(set(db) - {c["contact_urn"] for c in feed})
+    if stale and len(feed) >= 0.5 * len(db):
+        rest.delete_in("contacts", "contact_urn", stale)
+    elif stale:
+        stats["contacts_delete_skipped"] = len(stale)
+    stats.update(contacts_changed=len(changed), contacts_removed=len(stale))
+
+
+def jobs_step(rest, env, existing, records, stats):
+    try:
+        if env.get("NHS_JOBS", "1") == "0":
+            raise ValueError("NHS_JOBS=0: jobs scan skipped")
+        stats.update(jobs.sync(rest, list(merged_view(existing, records).values())))
+    except Exception as e:  # noqa: BLE001  the jobs feed is enrichment: never block the main load
+        stats["jobs_error"] = str(e)[:300]
+
+
+def graph_step(rest, stats):
+    """Housekeeping plus the derived organisation graph. Never fails the run."""
+    try:
+        stats["junk_rows_removed"] = maintenance.purge_never_loaded_closed(rest)
+    except Exception as e:  # noqa: BLE001
+        stats["maintenance_error"] = str(e)[:200]
+    try:
+        stats["graph"] = rest.rpc("refresh_org_graph")
+        stats["graph_nodes_pruned"] = maintenance.prune_closed_practice_nodes(rest)
+    except Exception as e:  # noqa: BLE001
+        stats["graph_error"] = str(e)[:200]
+
+
+def sync(rest, run_id):
+    """One daily load, as named steps. Core steps (ODS, counts, upsert) raise; enrichment steps record an error in stats and carry on."""
+    stats, rejects, env, now = {}, [], os.environ, datetime.now(timezone.utc)
+
+    active = sources.load_active_gp_practices()
+    existing = {r["ods_code"]: r for r in rest.select_all("gp_practices", order="ods_code")}
+    ods = plan_closures(active, existing, env, stats)
+    patients, month = read_patient_counts(rest, now, stats)
+    pcn_map, pcn_checked = pcn_step(active, existing, now, stats)
+    contacts, oscar_info = oscar_step(env, active, stats, rejects)
 
     records, checked = build_records(ods, patients, month, existing, pcn_map, oscar_info, software.check_many, pcn_checked)
     stats.update(practices_changed=len(records), software_checked=checked)
     rest.upsert("gp_practices", records, "ods_code")
 
-    if env.get("CQC_API_KEY"):
-        try:
-            merged = dict(existing)
-            for r in records:
-                merged[r["ods_code"]] = {**existing.get(r["ods_code"], {}), **r}
-            cqc_rows, cstats = cqc.sync(rest, merged, cqc.make_client(env["CQC_API_KEY"]), now)
-            rest.upsert("gp_practices", cqc_rows, "ods_code")
-            stats.update(cstats)
-            try:
-                stats["cqc_signals_repaired"] = cqc.repair_provider_signals(rest, cqc.make_client(env["CQC_API_KEY"]))
-            except Exception as e:  # noqa: BLE001  cosmetic: never block
-                stats["cqc_repair_error"] = str(e)[:200]
-        except Exception as e:  # noqa: BLE001  CQC is enrichment: never block the main load
-            stats["cqc_error"] = str(e)[:300]
-
+    cqc_step(rest, env, existing, records, now, stats)
     if oscar_info is not None:
-        known = set(existing) | {r["ods_code"] for r in records}
-        feed = [c for c in contacts if c["ods_code"] in known]
-        rejects += [("oscar", str(c["contact_urn"]), f"practice {c['ods_code']} not in NHS GP list")
-                    for c in contacts if c["ods_code"] not in known]
-        db = {r["contact_urn"]: r for r in rest.select_all("contacts", order="contact_urn")}
-        changed = [c for c in feed if c["contact_urn"] not in db or any(c[k] != db[c["contact_urn"]][k] for k in CONTACT_FIELDS)]
-        rest.upsert("contacts", changed, "contact_urn")
-        stale = sorted(set(db) - {c["contact_urn"] for c in feed})
-        if stale and len(feed) >= 0.5 * len(db):
-            rest.delete_in("contacts", "contact_urn", stale)
-        elif stale:
-            stats["contacts_delete_skipped"] = len(stale)
-        stats.update(contacts_changed=len(changed), contacts_removed=len(stale))
-
-    try:
-        if env.get("NHS_JOBS", "1") == "0":
-            raise ValueError("NHS_JOBS=0: jobs scan skipped")
-        all_practices = list({**existing, **{r["ods_code"]: {**existing.get(r["ods_code"], {}), **r} for r in records}}.values())
-        stats.update(jobs.sync(rest, all_practices))
-        stats["job_links_moved"] = jobs.move_links_out_of_descriptions(rest)
-    except Exception as e:  # noqa: BLE001  the jobs feed is enrichment: never block the main load
-        stats["jobs_error"] = str(e)[:300]
-
-    try:
-        stats["junk_rows_removed"] = maintenance.purge_never_loaded_closed(rest)
-    except Exception as e:  # noqa: BLE001  housekeeping: never block the run
-        stats["maintenance_error"] = str(e)[:200]
-
-    try:
-        stats["graph"] = rest.rpc("refresh_org_graph")
-    except Exception as e:  # noqa: BLE001  derived data: never fail the run
-        stats["graph_error"] = str(e)[:200]
+        contacts_step(rest, contacts, existing, records, stats, rejects)
+    jobs_step(rest, env, existing, records, stats)
+    graph_step(rest, stats)
 
     if rejects:
         stats["rejects"] = len(rejects)

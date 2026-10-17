@@ -15,6 +15,11 @@ Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + l
 ## Signals workflow and shareable views
 Each signal has a status (New, In progress, Done, Dismissed) and a note, set in the Signals feed (the feed shows open signals by default). The web address carries the tab, filters, sort, selected network and open practice, so any view can be bookmarked or shared. Rows, headers and the side panel work from the keyboard (Tab, Enter / Space, Esc).
 
+## Front end (for maintainers)
+Plain HTML and JavaScript, no framework: `index.html` (markup), `js/*.js` (loaded in order: core, data-load, practices, networks, signals, data-tab, export, main) and `assets/tailwind.css` (built).
+After adding or changing Tailwind classes run `npm ci && npm run build:css` and commit `assets/tailwind.css`; the `Tests` workflow fails if the committed file is stale and also drives the page in a real browser against a fake Supabase (`tests/dashboard_smoke.py`; run it locally with `pip install playwright && playwright install chromium`).
+Database changes live in `supabase/migrations/` (applied in filename order). Dropping the superseded `load_devolved(text, text, jsonb)` and `review_job_employer(text, text, text)` functions is still to do.
+
 ## Inviting users
 1. Supabase > Authentication > URL Configuration: set **Site URL** to the dashboard URL and add it under **Redirect URLs** (invite and reset links return there).
 2. Supabase > Authentication > Users > **Invite user**, then allow them: `insert into allowed_users (email) values ('them@lalu.co.uk');` (emails must be lower case).

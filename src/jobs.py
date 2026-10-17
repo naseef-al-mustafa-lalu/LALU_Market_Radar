@@ -191,17 +191,3 @@ def sync(rest, practices, today=None, fetch=fetch_all):
         rest.insert("sales_triggers", signals)
     return {"jobs_scanned": len(adverts), "jobs_feed_total": total, "job_employers": len(emp_rows), "job_employer_status": counts,
             "job_role_adverts": len(rows), "job_signals": len(signals)}
-
-
-URL_TAIL = re.compile(r"\s*(https?://\S+)\s*$")
-
-
-def move_links_out_of_descriptions(rest):
-    """Older job signals ended with the advert URL inside the description: move it to the url column."""
-    n = 0
-    for t in rest.select_all("sales_triggers", "id,description,url", order="detected_at", params={"trigger_type": "eq.JOB_REPORT_ROLE"}):
-        m = URL_TAIL.search(t.get("description") or "")
-        if m and not t.get("url"):
-            rest.patch("sales_triggers", {"id": f"eq.{t['id']}"}, {"url": m.group(1), "description": t["description"][:m.start()].rstrip()})
-            n += 1
-    return n

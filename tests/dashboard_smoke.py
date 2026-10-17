@@ -1,4 +1,4 @@
-import json, sys
+import json, os, pathlib, sys, tempfile
 from playwright.sync_api import sync_playwright
 
 def prac(i, **kw):
@@ -21,6 +21,8 @@ SETTINGS = [dict(key="list_price_per_patient", value=0.08, description="Annual l
 NETS = [dict(id="1", kind="pcn", name="West PCN", source_key="ods:U00001", practices=4, patients=40000, tier1=0, tier2=0, tier3=4, tier4=0, tier5=0, emis=4, systmone=0, cqc_concern=1, engaged=2, customers=1, arr_customers=900, hs_imported=3, do_not_contact=0, confirmed=True, arr_single=3000, network_tier=1, arr_network=2500, network_base_price=0.0620),
         dict(id="2", kind="group", name="Modality Test", source_key="cqc:provider:P1", practices=3, patients=30000, tier1=0, tier2=0, tier3=3, tier4=0, tier5=0, emis=3, systmone=0, cqc_concern=0, engaged=1, customers=1, arr_customers=800, hs_imported=1, do_not_contact=0, confirmed=True, arr_single=2200, network_tier=5, arr_network=2100, network_base_price=0.07),
         dict(id="3", kind="federation", name="Fed One", source_key="fed:fed one", practices=1, patients=13000, tier1=0, tier2=0, tier3=1, tier4=0, tier5=0, emis=1, systmone=0, cqc_concern=0, engaged=0, customers=0, arr_customers=0, hs_imported=0, do_not_contact=0, confirmed=False, arr_single=900, network_tier=5, arr_network=870, network_base_price=0.07)]
+INDEX = pathlib.Path(__file__).resolve().parent.parent.joinpath("index.html").as_uri()
+SHOTS = os.environ.get("SHOT_DIR") or tempfile.gettempdir()
 FAKE = """
 window.supabase = { createClient: () => {
   const data = %s;
@@ -31,17 +33,17 @@ window.supabase = { createClient: () => {
 } };
 """ % json.dumps({"gp_practices": PR, "practice_pricing": PP, "network_summary": NETS, "practice_hubspot": HS, "pricing_tiers": TIERS, "pricing_settings": SETTINGS, "sales_triggers": [dict(id="s1", ods_code=None, org_id="1", employer_code="W1", trigger_type="JOB_REPORT_ROLE", headline="Hiring: Records Administrator", description="Acclaim PCN advertised", detected_at="2026-10-16T08:00:00Z"), dict(id="s2", ods_code=None, org_id=None, employer_code="A0095", trigger_type="JOB_REPORT_ROLE", headline="Hiring: Medical Secretary", description="Little Common Surgery advertised", action="Offer cover for reports.", url="https://www.jobs.nhs.uk/candidate/jobadvert/A0095-26-0006", detected_at="2026-10-16T08:00:00Z")], "job_employers": [dict(employer_code="A0095", employer_name="Little Common Surgery", postcodes=["TN394SP"], match_status="review", ods_code=None, candidates=[dict(ods_code="A10001", name="Little Common Surgery", postcode="TN39 4SP")]), dict(employer_code="A0001", employer_name="Done Surgery", postcodes=[], match_status="confirmed", ods_code="A10002", candidates=[])], "job_adverts": [dict(advert_id="1", employer_code="A0095", ods_code=None, title="Medical Secretary", matched_role="medical secretary", post_date="2026-10-14", close_date="2026-10-30", url="https://x/1"), dict(advert_id="2", employer_code="A0001", ods_code="A10002", title="Medical Records Administrator", matched_role="records / summarising", post_date="2026-10-13", close_date=None, url="https://x/2")], "signal_settings": [dict(trigger_type="NEW_PRACTICE", label="New practice", source="NHS ODS (daily)", rule="A code appears", why="Greenfield", sort_order=1, enabled=True)], "contacts": [dict(full_name="Ann Lee", is_primary=True, job_title="Practice Manager", email="a@nhs.net", phone="01")], "patient_counts": [dict(data_month="2026-09", updated_at="2026-10-13T10:00:00Z")], "ingest_runs": [dict(finished_at="2026-10-13T10:00:00Z")]})
 import os
-CSS = os.environ.get("TAILWIND_CSS", "")
 errors = []
 with sync_playwright() as p:
-    import glob; b = p.chromium.launch(executable_path=glob.glob("/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell")[0])
+    import glob
+    exe = os.environ.get("CHROMIUM_PATH") or next(iter(glob.glob("/opt/pw-browsers/chromium_headless_shell-*/chrome-linux/headless_shell")), None)
+    b = p.chromium.launch(executable_path=exe) if exe else p.chromium.launch()
     pg = b.new_page(viewport={"width": 1440, "height": 900})
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.on("console", lambda m: errors.append(m.text) if m.type == "error" and "ERR_" not in m.text and "Failed to load resource" not in m.text else None)
-    pg.route("**/*", lambda r: r.fulfill(body=FAKE, content_type="text/javascript") if "supabase-js" in r.request.url else
-             (r.fulfill(body="document.head.insertAdjacentHTML('beforeend', '<style>' + %s + '</style>')" % json.dumps(open(CSS).read() if CSS and __import__("os").path.exists(CSS) else ""), content_type="text/javascript") if "tailwindcss" in r.request.url else r.continue_()))
+    pg.route("**/*", lambda r: r.fulfill(body=FAKE, content_type="text/javascript") if "supabase-js" in r.request.url else r.continue_())
     pg.add_init_script("window.__slow = 700")
-    pg.goto("file:///home/user/LALU_Market_Radar/index.html")
+    pg.goto(INDEX)
     pg.wait_for_selector("#loading:not(.hidden)", timeout=3000)       # the pop-up is there while data loads
     assert "Loading" in pg.inner_text("#loading") and pg.is_visible("#load-spin")
     pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
@@ -52,7 +54,7 @@ with sync_playwright() as p:
         b_ = pg.evaluate("(s => { const w = document.querySelector(s); return [w.scrollWidth, w.clientWidth]; })(%r)" % sel)
         assert b_[0] <= b_[1] + 2, f"{name} overflows: {b_}"
     noflow("#view-practices .overflow-x-auto", "practices")
-    pg.screenshot(path="/tmp/claude-0/practices.png")
+    pg.screenshot(path=SHOTS + "/practices.png")
     # filters + chips + sort
     pg.click("#f-more-btn"); pg.check("#f-grp")
     assert "3 practices" in pg.inner_text("#count"), pg.inner_text("#count")
@@ -64,22 +66,22 @@ with sync_playwright() as p:
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
     assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "Year 1 only" in body and "Other ways to sign this practice" in body, body
     assert "£1,216" not in body or True
-    pg.wait_for_timeout(500); pg.evaluate("document.querySelector('#dr-body').scrollTop = 0"); pg.screenshot(path="/tmp/claude-0/profile.png")
+    pg.wait_for_timeout(500); pg.evaluate("document.querySelector('#dr-body').scrollTop = 0"); pg.screenshot(path=SHOTS + "/profile.png")
     pg.keyboard.press("Escape")
-    pg.set_viewport_size({"width": 1180, "height": 800}); noflow("#view-practices .overflow-x-auto", "practices@1180"); pg.screenshot(path="/tmp/claude-0/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})
+    pg.set_viewport_size({"width": 1180, "height": 800}); noflow("#view-practices .overflow-x-auto", "practices@1180"); pg.screenshot(path=SHOTS + "/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})
     # networks
     pg.click("#tab-networks"); pg.wait_for_selector("#net-rows tr")
     assert "West PCN" in pg.inner_text("#net-rows"), pg.inner_text("#net-rows")
     pg.click("#net-kinds button[data-k=group]"); assert "Modality Test" in pg.inner_text("#net-rows")
     pg.uncheck("#n-multi"); pg.click("#net-kinds button[data-k=federation]"); assert "Fed One" in pg.inner_text("#net-rows")
     pg.check("#n-multi"); pg.click("#net-kinds button[data-k=pcn]")
-    noflow("#view-networks .overflow-x-auto", "networks"); pg.screenshot(path="/tmp/claude-0/networks.png")
+    noflow("#view-networks .overflow-x-auto", "networks"); pg.screenshot(path=SHOTS + "/networks.png")
     pg.click("#net-kinds button[data-k=group]")
     pg.click("#net-rows tr:first-child")   # row opens the network profile
     pg.wait_for_selector("#drawer:not(.translate-x-full)")
     prof = pg.inner_text("#dr-body")
     assert "pricing" in prof.lower() and "size discount" in prof.lower() and "estimated annual revenue" in prof.lower() and "signed separately" in prof and "Network discount" in prof and "Test Surgery 0" in prof, prof
-    pg.wait_for_timeout(500); pg.screenshot(path="/tmp/claude-0/netprofile.png")
+    pg.wait_for_timeout(500); pg.screenshot(path=SHOTS + "/netprofile.png")
     pg.click("#dr-body tr[data-ods=A10001]"); pg.wait_for_function("document.querySelector('#dr-title').textContent === 'Test Surgery 1'")
     pg.click("#tab-networks"); pg.click("#net-kinds button[data-k=group]"); pg.click("#net-rows tr:first-child"); pg.click("#np-view")
     pg.wait_for_selector("#view-practices:not(.hidden)")
@@ -91,10 +93,10 @@ with sync_playwright() as p:
     pg.click("#tab-revenue"); pg.wait_for_selector("#rev-routes tr, #rev-routes > div")
     assert "£" in pg.inner_text("#rev-routes") and "£" in pg.inner_text("#rev-matrix")
     pg.click("#rev-metric") if pg.locator("#rev-metric").evaluate("e => e.tagName") == "BUTTON" else None
-    pg.screenshot(path="/tmp/claude-0/revenue.png", full_page=True)
+    pg.screenshot(path=SHOTS + "/revenue.png", full_page=True)
     # signals + data
     pg.click("#tab-signals"); assert pg.is_visible("#s-count")
-    pg.screenshot(path="/tmp/claude-0/signals.png"); sr = pg.inner_text("#s-rows"); assert "unlinked" in sr.lower() and "network" in sr.lower() and "Little Common Surgery" in sr, sr
+    pg.screenshot(path=SHOTS + "/signals.png"); sr = pg.inner_text("#s-rows"); assert "unlinked" in sr.lower() and "network" in sr.lower() and "Little Common Surgery" in sr, sr
     assert "Offer cover for reports." in pg.inner_text("#s-rows tr:has-text('Little Common') td:nth-child(5)") and "http" not in sr and pg.locator("#s-rows a[href*=jobadvert]").count() == 1
     pg.click("#sig-settings-link"); pg.wait_for_selector("#view-data:not(.hidden)"); assert "NHS ODS (daily)" in pg.inner_text("#sig-types-rows")
     pg.uncheck("input[data-t=NEW_PRACTICE]"); pg.wait_for_function("document.querySelector('#sig-types-msg').textContent.includes('disabled')")
@@ -110,7 +112,7 @@ with sync_playwright() as p:
     assert pg.is_visible("#dp-overview") and pg.is_hidden("#dp-sources") and pg.is_hidden("#dp-pricing")
     pg.click("#data-sub button[data-d=pricing]"); assert "How prices are worked out" in pg.inner_text("#rev-config") and "PCNs / clusters" in pg.inner_text("#rev-config") and "Federations" in pg.inner_text("#rev-config")
     assert pg.locator("#rev-config table").count() == 4, pg.locator("#rev-config table").count()
-    pg.screenshot(path="/tmp/claude-0/pricing.png", full_page=True)
+    pg.screenshot(path=SHOTS + "/pricing.png", full_page=True)
     pg.click("#data-sub button[data-d=sources]")
     assert "2026" in pg.inner_text("#d-fresh") and "Annual list price" in pg.inner_text("#rev-config")
     import tempfile, os
@@ -144,7 +146,7 @@ with sync_playwright() as p:
     assert "In the database" in pg.inner_text("#up-eng .up-status") and pg.locator("#uploads > div").count() == 3
     open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
     pg.set_input_files("#up-wal .up-file", os.path.join(td, "bad.csv")); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.includes('Not recognised')")
-    pg.screenshot(path="/tmp/claude-0/data.png", full_page=True)
+    pg.screenshot(path=SHOTS + "/data.png", full_page=True)
     # ---- usability: keyboard, URL state, status workflow, exports ----
     pg.click("#tab-practices"); pg.click("#f-chips >> text=/clear/i") if pg.locator("#f-chips >> text=/clear/i").count() else None
     pg.fill("#f-search", ""); pg.evaluate("document.querySelector('#rows tr').focus()"); pg.keyboard.press("Enter")
@@ -154,7 +156,7 @@ with sync_playwright() as p:
     pg.click("#f-more-btn") if pg.is_hidden("#f-size") else None
     pg.select_option("#f-size", "no"); assert "0 practices" in pg.inner_text("#count") and "size=no" in pg.evaluate("location.search")
     pg.select_option("#f-size", ""); pg.select_option("#f-tier", "Tier 3"); assert "tier=Tier+3" in pg.evaluate("location.search")
-    pg.goto("about:blank"); pg.goto("file:///home/user/LALU_Market_Radar/index.html?tier=Tier+3&open=A10001&sort=name:1")      # a shared link restores the view
+    pg.goto("about:blank"); pg.goto(INDEX + "?tier=Tier+3&open=A10001&sort=name:1")      # a shared link restores the view
     pg.wait_for_selector("#drawer:not(.translate-x-full)", timeout=8000)
     assert "Test Surgery 1" in pg.inner_text("#dr-title") and pg.input_value("#f-tier") == "Tier 3" and "8 practices" in pg.inner_text("#count")
     pg.keyboard.press("Escape")
@@ -176,17 +178,17 @@ with sync_playwright() as p:
     # the Data tab always opens on Overview
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=pricing]"); pg.click("#tab-practices"); pg.click("#tab-data"); assert pg.is_visible("#dp-overview")
     # a failed load must not leave the spinner up forever: it explains and offers Try again
-    pg.goto("about:blank"); pg.add_init_script("window.__fail = true"); pg.goto("file:///home/user/LALU_Market_Radar/index.html")
+    pg.goto("about:blank"); pg.add_init_script("window.__fail = true"); pg.goto(INDEX)
     pg.wait_for_selector("#load-retry:not(.hidden)", timeout=8000)
     assert "Could not load the data" in pg.inner_text("#load-step") and pg.is_hidden("#load-spin")
     pg.evaluate("window.__fail = false"); pg.click("#load-retry"); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     # invite link: lands on the set-password screen, not the dashboard
-    pg.goto("about:blank"); pg.goto("file:///home/user/LALU_Market_Radar/index.html#access_token=abc&type=invite")
+    pg.goto("about:blank"); pg.goto(INDEX + "#access_token=abc&type=invite")
     pg.wait_for_selector("#setpw:not(.hidden)"); assert "new@lalu.co.uk" in pg.inner_text("#setpw-who") and pg.is_hidden("#app")
     pg.fill("#pw1", "correct horse battery"); pg.fill("#pw2", "something else entirely"); pg.click("#setpw-form button"); assert "do not match" in pg.inner_text("#setpw-error")
     pg.fill("#pw2", "correct horse battery"); pg.click("#setpw-form button"); pg.wait_for_selector("#app:not(.hidden)")
     assert [c for c in pg.evaluate("window.__rpc.filter(c => c[0] === 'updateUser')")][0][1]["password"] == "correct horse battery"
     assert "type=invite" not in pg.evaluate("location.href")
-    pg.goto("about:blank"); pg.goto("file:///home/user/LALU_Market_Radar/index.html#error=access_denied&error_description=Email+link+is+invalid+or+has+expired")
+    pg.goto("about:blank"); pg.goto(INDEX + "#error=access_denied&error_description=Email+link+is+invalid+or+has+expired")
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

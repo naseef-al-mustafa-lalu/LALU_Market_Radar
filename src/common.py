@@ -101,10 +101,10 @@ class Rest:
     def rpc(self, name, args=None):
         return self._ok(self.s.post(f"{self.base}/rpc/{name}", json=args or {}, timeout=300)).json()
 
-    def delete_in(self, table, column, values, chunk=200):
+    def delete_in(self, table, column, values, chunk=200, extra=None):
         for i in range(0, len(values), chunk):
             ids = ",".join(str(v) for v in values[i:i + chunk])
-            self._ok(self.s.delete(f"{self.base}/{table}", params={column: f"in.({ids})"}, timeout=60))
+            self._ok(self.s.delete(f"{self.base}/{table}", params={column: f"in.({ids})", **(extra or {})}, timeout=60))
 
 
 def send_email(subject, html_body, to):

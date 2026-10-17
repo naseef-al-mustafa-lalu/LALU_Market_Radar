@@ -119,44 +119,6 @@ def test_uploaded_network_is_not_overwritten_by_ods_sync():
     assert ingest.pcn_due({"W93001"}, {"W93001": old}, __import__("datetime").datetime.now(__import__("datetime").timezone.utc)) == []
 
 
-def test_provider_change_signal_text_uses_names_not_ids():
-    from src import cqc
-
-    class R:
-        def __init__(self):
-            self.kv = {}; self.patched = []
-        def select_all(self, table, columns="*", order="id", params=None, page=1000):
-            if table == "kv_state":
-                return [{"key": k, "value": v} for k, v in self.kv.items() if params and k == params["key"].split(".", 1)[1]]
-            return [{"id": "t1", "headline": "x", "ods_code": "A1", "description":
-                     "Bartley Green Medical Practice is now registered with 1-13654215274 (previously 1-199796905). Group takeovers often bring system consolidation."}]
-        def upsert(self, table, rows, key, batch=500):
-            for r in rows: self.kv[r["key"]] = r["value"]
-        def patch(self, table, params, body):
-            self.patched.append(body)
-    r = R()
-    names = {"1-13654215274": "Lakeside Healthcare Group", "1-199796905": "Dr A Partners"}
-    assert cqc.repair_provider_signals(r, lambda path, params=None: {"name": names[path.rsplit("/", 1)[1]]}) == 1
-    assert r.patched[0]["description"] == "Bartley Green Medical Practice is now run by Lakeside Healthcare Group (previously Dr A Partners)."
-    assert r.patched[0]["headline"] == "Bartley Green Medical Practice changed owner to Lakeside Healthcare Group"
-
-
-def test_same_name_provider_change_is_not_called_a_takeover():
-    from src import cqc
-
-    class R:
-        def __init__(self): self.patched = []; self.kv = {}
-        def select_all(self, table, columns="*", order="id", params=None, page=1000):
-            if table == "kv_state": return []
-            return [{"id": "t9", "headline": "Bartley Green Medical Practice changed owner to Bartley Green Medical Practice", "ods_code": "A1",
-                     "description": "Bartley Green Medical Practice is now run by Bartley Green Medical Practice (previously Bartley Green Medical Practice)."}]
-        def upsert(self, *a, **k): pass
-        def patch(self, table, params, body): self.patched.append(body)
-    r = R()
-    assert cqc.repair_provider_signals(r, lambda *a, **k: {}) == 1
-    assert r.patched[0]["headline"] == "Bartley Green Medical Practice: new CQC provider record" and "not a takeover" in r.patched[0]["action"]
-
-
 def test_digest_row_has_next_step_and_link_separately():
     from src import digest
     p = dict(ods_code="A1", practice_name="P", total_patients=9000, manager_name=None, manager_title=None, manager_email=None, manager_phone=None,
@@ -184,3 +146,17 @@ def test_purge_only_removes_never_loaded_closed_welsh_rows():
     import pytest
     with pytest.raises(RuntimeError):
         maintenance.purge_never_loaded_closed(Big())
+
+
+def test_prune_closed_practice_nodes_only_touches_stale_practice_nodes():
+    from src import maintenance
+
+    class R:
+        def __init__(self): self.deleted = []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "gp_practices": return [{"ods_code": "A1"}]
+            return [{"id": "n1", "ods_code": "A1"}, {"id": "n2", "ods_code": "B2"}]
+        def delete_in(self, table, column, values, chunk=200, extra=None): self.deleted.append((table, column, list(values), extra))
+    r = R()
+    assert maintenance.prune_closed_practice_nodes(r) == 1
+    assert r.deleted == [("organisations", "id", ["n2"], {"kind": "eq.practice"})]

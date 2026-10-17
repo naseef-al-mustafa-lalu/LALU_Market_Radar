@@ -1,0 +1,7 @@
+{
+  "name": "lalu-market-radar-frontend",
+  "private": true,
+  "description": "Build tooling only: the dashboard is plain HTML + JS. Run `npm run build:css` after changing classes in index.html or js/*.js and commit assets/tailwind.css.",
+  "scripts": { "build:css": "tailwindcss -c tailwind.config.js -i assets/input.css -o assets/tailwind.css --minify" },
+  "devDependencies": { "tailwindcss": "3.4.16" }
+}

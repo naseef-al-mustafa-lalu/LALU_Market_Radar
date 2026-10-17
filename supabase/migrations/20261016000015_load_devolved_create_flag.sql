@@ -1,2 +1,0 @@
--- load_devolved gains p_create: the Wales cluster file lists branch sites, so it may only update practices we already hold.
--- (Function body: see the applied migration; the 3-argument version from migration 13 is superseded and can be dropped.)

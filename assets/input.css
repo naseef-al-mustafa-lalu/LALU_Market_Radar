@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* custom rules the utility classes do not cover */
+thead th { position: sticky; top: 0; z-index: 1; }
+th[data-sort] { cursor: pointer; user-select: none; }
+tr[tabindex]:focus-visible, th[data-sort]:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; border-radius: 4px; }
+th[data-sort]:hover { color: #1e293b; }
+.chip { display:inline-flex; align-items:center; gap:.25rem; padding:.05rem .5rem; border-radius:9999px; font-size:12px; font-weight:600; white-space:nowrap; }
+.chip.hidden { display: none; }
+#drawer { transition: transform .18s ease-out; }
