@@ -35,7 +35,7 @@ let jobEmployers = [], jobAdverts = [], jmShown = 0, jmList = [];
 async function loadJobs() {
   const [e, a] = await Promise.all([fetchAll("job_employers", "*", "employer_code"), fetchAll("job_adverts", "*", "advert_id")]);
   jobEmployers = e; jobAdverts = a; fillNetList(); renderJobMatches(); renderSignals();
-  const n = e.filter(x => x.match_status === "review" && a.some(j => j.employer_code === x.employer_code)).length;
+  const withAdv = new Set(a.map(j => j.employer_code)), n = e.filter(x => x.match_status === "review" && withAdv.has(x.employer_code)).length;
   $("jobs-badge").textContent = n; $("jobs-badge").classList.toggle("hidden", !n);
 }
 function fillNetList() {
@@ -44,14 +44,16 @@ function fillNetList() {
 function renderJobMatches() {
   const adv = new Map();
   const LABEL = { review: "To review", network: "PCNs / federations (not linked)", auto: "Auto-matched", confirmed: "Confirmed", rejected: "Rejected" };
-  const cur = $("jm-status").value || "review", count = k => jobEmployers.filter(e => e.match_status === k).length;
+  const cur = $("jm-status").value || "review";
+  jobAdverts.forEach(j => (adv.get(j.employer_code) || adv.set(j.employer_code, []).get(j.employer_code)).push(j));
+  // Employers with no current advert have nothing to act on, so only confirmed / rejected ones (which can be reopened) show without one.
+  const relevant = e => adv.has(e.employer_code) || e.match_status === "confirmed" || e.match_status === "rejected", count = k => jobEmployers.filter(e => e.match_status === k && relevant(e)).length;
   $("jm-status").innerHTML = Object.entries(LABEL).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${v} (${count(k).toLocaleString()})</option>`).join("");
-  const st = $("jm-status").value, q = $("jm-search").value.trim().toLowerCase(), onlyAdv = $("jm-adv").checked; jobAdverts.forEach(j => (adv.get(j.employer_code) || adv.set(j.employer_code, []).get(j.employer_code)).push(j));
-  jmList = jobEmployers.filter(e => e.match_status === st && (!q || e.employer_name.toLowerCase().includes(q)) && (!onlyAdv || adv.has(e.employer_code)))
+  const st = $("jm-status").value, q = $("jm-search").value.trim().toLowerCase();
+  jmList = jobEmployers.filter(e => e.match_status === st && (!q || e.employer_name.toLowerCase().includes(q)) && relevant(e))
     .sort((a, b) => (adv.get(b.employer_code) || []).length - (adv.get(a.employer_code) || []).length || a.employer_name.localeCompare(b.employer_name));
   jmShown = 0; $("jm-rows").innerHTML = ""; $("jm-rows").dataset.adv = ""; window.__adv = adv; renderMoreJobMatches();
-  const withAdv = jmList.filter(e => adv.has(e.employer_code)).length;
-  $("jm-count").textContent = `${jmList.length.toLocaleString()} employers, ${withAdv} with a report / records advert`;
+  $("jm-count").textContent = `${jmList.length.toLocaleString()} employers with a report / records advert`;
 }
 function renderMoreJobMatches() {
   const slice = jmList.slice(jmShown, jmShown + 50); jmShown += slice.length; const adv = window.__adv;
@@ -83,7 +85,7 @@ $("jm-rows").addEventListener("click", async ev => {
   msg.textContent = action === "confirm" ? "Linked. Its existing signals have moved to that practice / network." : action === "reject" ? "Marked as not a practice." : "Reopened.";
   await loadJobs(); await loadSignals();
 });
-["jm-status", "jm-adv"].forEach(id => $(id).addEventListener("change", renderJobMatches)); $("jm-search").addEventListener("input", renderJobMatches); $("jm-more").addEventListener("click", renderMoreJobMatches);
+$("jm-status").addEventListener("change", renderJobMatches); $("jm-search").addEventListener("input", renderJobMatches); $("jm-more").addEventListener("click", renderMoreJobMatches);
 /* ---------- signals ---------- */
 function renderSignals() {
   const types = [...new Set(signals.map(s => s.trigger_type))].sort(), cur = $("s-type").value;

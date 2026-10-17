@@ -173,7 +173,7 @@ with sync_playwright() as p:
     with pg.expect_download() as dl2: pg.click("#n-export")
     assert "Linked practices" in open(dl2.value.path(), encoding="utf-8-sig").read()
     # job matches: the review list is visible without ticking anything, with honest counts
-    pg.click("#tab-signals"); pg.click("#sig-sub button[data-s=jobs]"); pg.wait_for_selector("#jm-status option", state="attached", timeout=8000); assert "To review (1)" in pg.inner_html("#jm-status"), pg.inner_html("#jm-status"); assert not pg.is_checked("#jm-adv")
+    pg.click("#tab-signals"); pg.click("#sig-sub button[data-s=jobs]"); pg.wait_for_selector("#jm-status option", state="attached", timeout=8000); assert "To review (1)" in pg.inner_html("#jm-status"), pg.inner_html("#jm-status")
     assert "1 employers, 1 with a report" in pg.inner_text("#jm-count") or "employers" in pg.inner_text("#jm-count")
     # the Data tab always opens on Overview
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=pricing]"); pg.click("#tab-practices"); pg.click("#tab-data"); assert pg.is_visible("#dp-overview")
