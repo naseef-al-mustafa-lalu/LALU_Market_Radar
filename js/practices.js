@@ -131,8 +131,14 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
     line(`Price per patient${useSpeed ? " (year 1)" : ""}`, "", `${pct(1 - year1 / list)} off`, `£${year1.toFixed(3)}`, "font-semibold border-t-2 border-emerald-200"),
     line(`× ${patients.toLocaleString()} patients`, useSpeed ? "Year 1 total" : "Per year", "", gbpFull(patients * year1), "font-semibold")
   ].join("");
-  const steps = `<table class="mt-3 w-full text-sm tabular-nums"><caption class="sr-only">How the price is built</caption><thead class="sr-only"><tr><th>Step</th><th>Discount</th><th>Per patient</th></tr></thead><tbody>${rowsHtml}</tbody></table>
-    ${useSpeed ? `<p class="mt-1 text-xs text-slate-500">From year 2 the speed discount ends: £${recurring.toFixed(3)} per patient, ${gbpFull(patients * recurring)} a year.</p>` : ""}`;
+  // Price by year across the contract: the speed discount only applies in year 1, the term discount for every year of the term.
+  const yrRows = [], recT = patients * recurring, y1T = patients * year1, N = termYrs;
+  const yr = (label, price, total, bold) => `<tr class="border-t border-emerald-100 ${bold ? "font-semibold" : ""}"><td class="py-1 pr-3">${label}</td><td class="py-1 px-2 text-right whitespace-nowrap font-mono">${price}</td><td class="py-1 pl-2 text-right whitespace-nowrap font-mono">${total}</td></tr>`;
+  if (useSpeed) { yrRows.push(yr("Year 1", `£${year1.toFixed(3)}`, gbpFull(y1T))); yrRows.push(yr(N > 2 ? `Years 2–${N}` : N === 2 ? "Year 2" : "Year 2 onwards", `£${recurring.toFixed(3)}`, gbpFull(recT) + (N === 1 ? " /yr" : N > 2 ? " /yr" : ""))); }
+  else if (N > 1) yrRows.push(yr(`Years 1–${N}`, `£${recurring.toFixed(3)}`, gbpFull(recT) + " /yr"));
+  if (N > 1) yrRows.push(yr(`Total over ${N} years`, "", gbpFull(y1T + (N - 1) * recT), true));
+  const yearTable = yrRows.length ? `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-0.5">Price by year</div><table class="w-full text-sm tabular-nums"><caption class="sr-only">Price per patient and total for each year of the contract</caption><thead class="sr-only"><tr><th>Period</th><th>Per patient</th><th>Total</th></tr></thead><tbody>${yrRows.join("")}</tbody></table>${useSpeed ? '<p class="mt-0.5 text-xs text-slate-500">The speed discount applies in year 1 only.</p>' : ""}</div>` : "";
+  const steps = `<table class="mt-3 w-full text-sm tabular-nums"><caption class="sr-only">How the price is built</caption><thead class="sr-only"><tr><th>Step</th><th>Discount</th><th>Per patient</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
   const opts = [1, 2, 3].map(y => `<button type="button" class="term-opt flex-1 rounded-md border px-2 py-1.5 text-left ${y === termYrs ? "border-emerald-600 bg-white ring-1 ring-emerald-600" : "border-slate-300 bg-white/60 hover:bg-white"}" data-yrs="${y}" aria-pressed="${y === termYrs}">
       <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm">${gbpFull(patients * dealRate(size, termDiscount(y), 0))}<span class="text-xs text-slate-500"> /yr</span></div></button>`).join("");
   return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
@@ -141,7 +147,7 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
       ${speed > 0 ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(patients * year1)}</div><div class="text-xs text-slate-500">${useSpeed ? pct(speed) + " speed discount" : "no speed discount"}</div></div>` : ""}</div>
     <div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>
     ${speed > 0 ? `<label class="mt-2 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" class="speed-toggle" ${speedOn ? "checked" : ""}> Include the ${pct(speed)} speed discount <span class="text-slate-400">(not guaranteed)</span></label>` : ""}
-    ${steps}
+    ${steps}${yearTable}
     ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${(list * (1 - Number(next.size_discount))).toFixed(3)} per patient).</p>` : ""}</div>`;
 }
 function routeComparison(p) {
