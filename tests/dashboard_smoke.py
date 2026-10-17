@@ -17,7 +17,7 @@ HS = [dict(ods_code=p_["ods_code"], hs_contacts=1, hs_imported=1 if i < 3 else 0
 PP = [dict(ods_code=p["ods_code"], price_tier=3, tier_label="Tier 3 (Medium-Large)", base_price=0.076, year1_price=0.072, est_arr=round(p["total_patients"] * 0.076), est_arr_year1=round(p["total_patients"] * 0.072)) for p in PR]
 TIERS = [dict(route="practice", tier=i + 1, label=l, threshold=t, size_discount=d, speed_discount=0.05) for i, (l, t, d) in enumerate([("Very Large", 20000, 0.1), ("Large", 15000, 0.075), ("Medium-Large", 10000, 0.05), ("Medium", 5000, 0), ("Solo", 0, 0)])] + \
         [dict(route=r, tier=5, label="Solo / Small", threshold=0, size_discount=0.125, speed_discount=0.05) for r in ("pcn", "group", "federation")]
-SETTINGS = [dict(key="list_price_per_patient", value=0.08, description="Annual list price per patient"), dict(key="term_discount_2yr", value=0.025, description="2-year term"), dict(key="term_discount_3yr", value=0.05, description="3-year term"), dict(key="price_floor_per_patient", value=0.05, description="Price floor")]
+SETTINGS = [dict(key="list_price_per_patient", value=0.08, description="Annual list price per patient"), dict(key="term_discount_2yr", value=0.025, description="2-year term"), dict(key="term_discount_3yr", value=0.05, description="3-year term"), dict(key="price_floor_per_patient", value=0.05, description="Price floor"), dict(key="monthly_list_price_per_patient", value=0.01, description="Monthly list price")]
 NETS = [dict(id="1", kind="pcn", name="West PCN", source_key="ods:U00001", practices=4, patients=40000, tier1=0, tier2=0, tier3=4, tier4=0, tier5=0, emis=4, systmone=0, cqc_concern=1, engaged=2, customers=1, arr_customers=900, hs_imported=3, do_not_contact=0, confirmed=True, arr_single=3000, network_tier=1, arr_network=2500, network_base_price=0.0620),
         dict(id="2", kind="group", name="Modality Test", source_key="cqc:provider:P1", practices=3, patients=30000, tier1=0, tier2=0, tier3=3, tier4=0, tier5=0, emis=3, systmone=0, cqc_concern=0, engaged=1, customers=1, arr_customers=800, hs_imported=1, do_not_contact=0, confirmed=True, arr_single=2200, network_tier=5, arr_network=2100, network_base_price=0.07),
         dict(id="3", kind="federation", name="Fed One", source_key="fed:fed one", practices=1, patients=13000, tier1=0, tier2=0, tier3=1, tier4=0, tier5=0, emis=1, systmone=0, cqc_concern=0, engaged=0, customers=0, arr_customers=0, hs_imported=0, do_not_contact=0, confirmed=False, arr_single=900, network_tier=5, arr_network=870, network_base_price=0.07)]
@@ -64,14 +64,17 @@ with sync_playwright() as p:
     # drawer
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
-    assert pg.is_checked("#dr-body .speed-toggle")  # speed discount is on by default
+    assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "true"  # speed discount is on by default
     kpi = lambda: pg.inner_text("#dr-body .price-card .text-right").replace("\n", " ")
     assert "£720" in kpi() and "5% speed discount" in kpi() and "£0.072" in pg.inner_text("#dr-body .price-card tbody") and "Speed discount" in pg.inner_text("#dr-body .price-card tbody")
-    pg.uncheck("#dr-body .speed-toggle")
+    pg.click("#dr-body .speed-toggle"); assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "false"
     tb = pg.inner_text("#dr-body .price-card tbody"); assert "Speed discount" not in tb and "£0.076" in tb and "£0.072" not in tb, tb
     assert "£760" in kpi() and "no speed discount" in kpi(), kpi()   # first-year figure stays and now equals the normal annual figure
     assert pg.evaluate("document.activeElement.classList.contains('speed-toggle')")
-    pg.check("#dr-body .speed-toggle"); assert "£720" in kpi()
+    pg.click("#dr-body .speed-toggle"); assert "£720" in kpi()
+    pg.click('#dr-body .bill-opt[data-b="monthly"]'); mo = pg.inner_text("#dr-body")   # monthly list £0.010 x 12 = £0.120; size 5% + speed 5% -> £0.108
+    assert "Monthly plan" in mo and "£0.120" in mo and "£0.108" in mo and "£0.0090 per patient per month" in mo and "no term discount" in mo and pg.locator("#dr-body .term-opt").count() == 0, mo
+    pg.click('#dr-body .bill-opt[data-b="annual"]'); assert pg.locator("#dr-body .term-opt").count() == 3
     pg.click('#dr-body .term-opt[data-yrs="3"]'); t3 = pg.inner_text("#dr-body"); assert "Term discount" in t3 and "3-year" in t3 and "£0.068" in t3, t3  # 5% size + 5% term + 5% speed off £0.080
     assert "Year 2" in t3 and "Year 3" in t3 and "Years 2–3" not in t3 and "Total over 3 years" in t3 and "£2,120" in t3, t3  # y1 10,000 x £0.068 + 2 x 10,000 x £0.072
     pg.click('#dr-body .term-opt[data-yrs="1"]'); assert "Term discount" not in pg.inner_text("#dr-body")
