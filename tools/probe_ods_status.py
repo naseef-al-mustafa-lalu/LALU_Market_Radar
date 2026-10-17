@@ -21,19 +21,24 @@ def summary(code):
     return {"code": code, "name": o.get("Name"), "status": o.get("Status"), "dates": dates, "changed": o.get("LastChangeDate"), "roles": roles, "rels": rels, "succs": succs}
 
 
-print("=== A. full records for 3 examples ===")
-for c in ["A81065", "A82613", "B81616"]:
-    print(c, json.dumps(sources.get_json(f"{sources.ODS_API}/organisations/{c}").get("Organisation", {}))[:3500])
+def main():
+    print("=== A. full records for 3 examples ===")
+    for c in ["A81065", "A82613", "B81616"]:
+        print(c, json.dumps(sources.get_json(f"{sources.ODS_API}/organisations/{c}").get("Organisation", {}))[:3500])
 
-print("\n=== B. the", len(CODES), "practices with no NHS list size ===")
-for c in CODES:
-    print(json.dumps(summary(c), default=str))
+    print("\n=== B. the", len(CODES), "practices with no NHS list size ===")
+    for c in CODES:
+        print(json.dumps(summary(c), default=str))
 
-print("\n=== C. recently INACTIVE GP practices (how closures look) ===")
-try:
-    orgs = sources.get_json(f"{sources.ODS_API}/organisations", {"PrimaryRoleId": "RO177", "NonPrimaryRoleId": "RO76", "Status": "Inactive", "LastChangeDate": "2026-04-01", "Limit": 100}).get("Organisations", [])
-    print("count (limit 100):", len(orgs))
-    for o in orgs[:25]:
-        print(json.dumps(summary(o.get("OrgId")), default=str))
-except Exception as e:  # noqa: BLE001
-    print("inactive listing failed:", e)
+    print("\n=== C. recently INACTIVE GP practices (how closures look) ===")
+    try:
+        orgs = sources.get_json(f"{sources.ODS_API}/organisations", {"PrimaryRoleId": "RO177", "NonPrimaryRoleId": "RO76", "Status": "Inactive", "LastChangeDate": "2026-04-01", "Limit": 100}).get("Organisations", [])
+        print("count (limit 100):", len(orgs))
+        for o in orgs[:25]:
+            print(json.dumps(summary(o.get("OrgId")), default=str))
+    except Exception as e:  # noqa: BLE001
+        print("inactive listing failed:", e)
+
+
+if __name__ == "__main__":
+    main()
