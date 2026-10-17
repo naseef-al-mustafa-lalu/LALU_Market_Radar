@@ -133,3 +133,9 @@ tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Osca
 ## Updating prices from the pricing spreadsheet
 
 Data > Pricing > "Update rates from the pricing spreadsheet". Download the `Pricing-Discount-Model` tab (and `Multi-Year-Matrix` for the 2/3-year term discounts and price floor) as CSV, choose the file(s), review the list of differences and press Apply. It updates existing rates only (`sync_pricing` in Supabase): annual and monthly plan list prices (both per patient per **month**: 0.08 and 0.10; annual revenue is patients × rate × 12), VAT, price floor, term discounts, and the practice / PCN / ICB tier thresholds and discounts. Provider-group and federation tiers are not touched.
+
+## Mergers and closures
+
+- **Closed:** a practice that drops off the ODS active GP list is marked `Closed` by the daily pipeline (with a "closed" signal). Closed and merged practices are hidden from the main Practices list; use the Status filter to see them.
+- **Merged:** ODS has no successor links, so a practice that merged into another stays Active on ODS with no NHS list size (its patients are counted in the practice that absorbed it). The database suggests likely mergers (`practice_merge_suggestions`: same postcode as a practice that has a list size; ODS "Y" codes are marked low confidence). Review them in **Signals > Mergers** or on the practice profile: *Confirm merger*, *Not a merger*, or mark one manually. Confirming (`set_practice_merge`) records `merged_into`, a note, who and when, and raises a `MERGER_DETECTED` signal when a customer or engaged practice is involved. Nothing is merged automatically.
+- Network counts still include merged practices as members (they have no patients, so revenue is unaffected).

@@ -17,7 +17,8 @@ const gbpFull = n => n == null ? "–" : "£" + Math.round(n).toLocaleString(); 
 const pct = n => (Number(n) * 100).toFixed(n * 1000 % 10 ? 1 : 0).replace(/\.0$/, "") + "%";
 const fmtDate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 const tier = p => p.price_tier ? "Tier " + p.price_tier : "";
-const noSizeReason = p => p.country === "Wales" ? "No list size yet: load the StatsWales patients file (Data > Data sources)."
+const noSizeReason = p => p.merged_into ? "Merged into another practice: its patients are counted in that practice's list."
+  : p.country === "Wales" ? "No list size yet: load the StatsWales patients file (Data > Data sources)."
   : p.country === "Scotland" ? "No list size in the Scottish file for this practice."
   : "Not in the monthly NHS patient register. Usually a service rather than a registering practice (walk-in centre, hub, federation), or a practice too new to be published.";
 const TIER_CLS = { "Tier 1": "bg-purple-200 text-purple-900", "Tier 2": "bg-purple-100 text-purple-800", "Tier 3": "bg-violet-50 text-violet-700", "Tier 4": "bg-slate-100 text-slate-600", "Tier 5": "bg-slate-50 text-slate-500" };

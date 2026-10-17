@@ -19,7 +19,7 @@ async function fetchAll(table, columns, order, hint = "planned") {
   }
 }
 // only the columns the screens read (the full table has ~60; fetching all of them for ~8,000 rows was most of the login wait)
-const PRACTICE_COLS = "ods_code,practice_name,postcode,website,pcn_code,pcn_name,icb_name,total_patients,status,clinical_software,manager_name,manager_title,manager_email,manager_phone,manager_email_opt_out,lead_status,data_month,address,town,county,region,main_phone,main_email,main_email_opt_out,num_employees,annual_spend,org_notes,nhs_num_gp,gp_federation,oscar_categories,cqc_location_id,cqc_provider_id,cqc_status,cqc_rating,cqc_last_inspection,cqc_manager_absent_date,group_name,group_size,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer,hubspot_synced_at,country,network_locked";
+const PRACTICE_COLS = "ods_code,practice_name,postcode,website,pcn_code,pcn_name,icb_name,total_patients,status,clinical_software,manager_name,manager_title,manager_email,manager_phone,manager_email_opt_out,lead_status,data_month,address,town,county,region,main_phone,main_email,main_email_opt_out,num_employees,annual_spend,org_notes,nhs_num_gp,gp_federation,oscar_categories,cqc_location_id,cqc_provider_id,cqc_status,cqc_rating,cqc_last_inspection,cqc_manager_absent_date,group_name,group_size,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer,hubspot_synced_at,country,network_locked,merged_into,merged_note,merged_at,merged_by,merge_dismissed";
 const PRICING_COLS = "ods_code,price_tier,tier_label,base_price,year1_price,est_arr,est_arr_year1";
 const HS_COLS = "ods_code,hs_contacts,hs_imported,hs_primary_imported,hs_last_imported_at,hs_primary_imported_at";
 const NET_COLS = "id,kind,name,source_key,practices,patients,tier1,tier2,tier3,tier4,tier5,emis,systmone,cqc_concern,engaged,customers,hs_imported,arr_single,arr_customers,confirmed,network_tier,network_tier_label,network_base_price,arr_network";
@@ -72,7 +72,7 @@ async function startApp() {
     if (!practices.length) $("rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-500 italic">No data yet, or your account is not authorised.</td></tr>';
     const icbs = [...new Set(practices.map(p => p.icb_name))].sort();
     $("f-icb").innerHTML = '<option value="">All ICBs</option>' + icbs.map(i => `<option>${esc(i)}</option>`).join("");
-    await loadSignals(); await loadSignalSettings(); loadJobs().catch(() => {});
+    await loadSignals(); await loadSignalSettings(); loadJobs().catch(() => {}); await loadMergeSuggestions(); renderMergers();
     const { data: run } = await db.from("ingest_runs").select("finished_at").eq("status", "success").order("id", { ascending: false }).limit(1);
     lastRunDate = run && run[0] ? fmtDate(run[0].finished_at) : null;
     $("refresh-badge").textContent = "Refreshed " + (lastRunDate || "never");
@@ -89,7 +89,7 @@ document.addEventListener("keydown", e => {
 });
 
 /* ---------- shareable state: tab, filters, sort, network and open practice live in the web address ---------- */
-const STATE_FIELDS = { q: "f-search", tier: "f-tier", hs: "f-hs", sw: "f-sw", cqc: "f-cqc", icb: "f-icb", country: "f-country", size: "f-size" };
+const STATE_FIELDS = { q: "f-search", tier: "f-tier", hs: "f-hs", sw: "f-sw", cqc: "f-cqc", icb: "f-icb", country: "f-country", size: "f-size", st: "f-status" };
 let restoringUrl = false;
 function stateToUrl(push) {
   if (restoringUrl || !$("view-practices")) return;
@@ -116,7 +116,7 @@ function stateFromUrl() {
     netKind = ["pcn", "group", "federation", "icb"].includes(u.get("nk")) ? u.get("nk") : "pcn";
     currentTab = TABS.includes(u.get("tab")) ? u.get("tab") : "practices";
     setDataSub(["overview", "sources", "signals", "pricing"].includes(u.get("ds")) ? u.get("ds") : "overview");
-    setSigSub(["feed", "jobs"].includes(u.get("ss")) ? u.get("ss") : "feed");
+    setSigSub(["feed", "mergers", "jobs"].includes(u.get("ss")) ? u.get("ss") : "feed");
   } finally { restoringUrl = false; }
   return u.get("open");
 }
