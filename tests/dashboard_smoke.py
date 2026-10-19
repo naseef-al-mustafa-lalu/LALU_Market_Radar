@@ -152,7 +152,7 @@ with sync_playwright() as p:
     assert pg.locator("#rev-config table").count() == 4, pg.locator("#rev-config table").count()
     pg.screenshot(path=SHOTS + "/pricing.png", full_page=True)
     pg.click("#data-sub button[data-d=sources]")
-    assert "2026" in pg.inner_text("#d-fresh") and "Annual list price" in pg.inner_text("#rev-config")
+    assert "2026" in pg.inner_text("#d-fresh") and "£0.085 annual" in pg.inner_text("#rev-config")
     import tempfile, os
     td = tempfile.mkdtemp()
     sc = os.path.join(td, "scotland_20260701_opendata.csv"); wl = os.path.join(td, "wales.csv")
