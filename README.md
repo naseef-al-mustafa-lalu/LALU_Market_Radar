@@ -1,14 +1,14 @@
 # Lalu Market Radar
 
-Daily pipeline: NHS public data + Oscar contacts -> Supabase -> email digest + login-protected dashboard (`index.html`).
+Daily pipeline: NHS public data + Oscar contacts -> Supabase -> Slack posts (#lalu_market_radar) + login-protected dashboard (`index.html`).
 
 ## One-off setup
 1. **Supabase** (project `qvdnpvouqecfsinsvvwf`, London): schema, triggers and RLS are already applied (`supabase/migrations`).
    - Dashboard -> Authentication -> Providers -> Email: **disable "Allow new users to sign up"**.
    - Authentication -> Users -> **Add user** (email + password) for each person. Then add their email (lower-case) to `allowed_users` via SQL editor: `insert into allowed_users values ('name@lalu.co.uk');`. Access needs both an account and an allowlist row.
-2. **GitHub secrets** (Settings -> Secrets and variables -> Actions): `SUPABASE_URL` (https://qvdnpvouqecfsinsvvwf.supabase.co), `SUPABASE_SERVICE_ROLE_KEY` (Supabase -> Settings -> API; never put this in the repo or index.html), `OSCAR_API_URL`, `RESEND_API_KEY`.
-   (`OSCAR_API_URL` is optional: without it practices load with no contact data; add it later and the next run fills contacts in.) **Variables**: `DASHBOARD_URL`, `DIGEST_TO` (comma-separated), optional `EMAIL_MODE` (DIGEST|DISABLED), `MIN_TIER_ALERT` (Tier 1|2|3).
-3. **Resend**: verify the `lalu.co.uk` sending domain (SPF/DKIM), or set `DIGEST_FROM` to a verified sender.
+2. **GitHub secrets** (Settings -> Secrets and variables -> Actions): `SUPABASE_URL` (https://qvdnpvouqecfsinsvvwf.supabase.co), `SUPABASE_SERVICE_ROLE_KEY` (Supabase -> Settings -> API; never put this in the repo or index.html), `OSCAR_API_URL`, `SLACK_WEBHOOK_URL` (see step 3).
+   (`OSCAR_API_URL` is optional: without it practices load with no contact data; add it later and the next run fills contacts in.) **Variables**: `DASHBOARD_URL`, optional `SLACK_MODE` (ON|DISABLED), `MIN_TIER_ALERT` (Tier 1|2|3).
+3. **Slack** (new signals are posted to `#lalu_market_radar`): at api.slack.com/apps create an app (from scratch) > *Incoming Webhooks* > turn on > *Add New Webhook to Workspace* > choose `#lalu_market_radar` > copy the URL into the GitHub secret `SLACK_WEBHOOK_URL`. (Alternative: a bot token with `chat:write` in the secret `SLACK_BOT_TOKEN`, invited to the channel, and the variable `SLACK_CHANNEL`.) Until a secret is set the run still succeeds, shows a warning, and leaves signals unsent so they post once Slack is set up. Variables: `SLACK_MODE` (`ON` or `DISABLED`), `MIN_TIER_ALERT` (default `Tier 3`), `DASHBOARD_URL` (used for the links).
 4. **GitHub Pages**: Settings -> Pages -> deploy from `main` / root. (Private repos need a paid GitHub plan for Pages.)
 5. Run the **Daily market radar** workflow manually once. The first successful run is a silent *baseline*: it loads everything but raises no triggers and sends no email. From the second run, changes generate signals.
 
@@ -96,7 +96,7 @@ tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Osca
 
 ## Operating notes
 - NHS patient numbers are **monthly**, so list-size/closure signals move monthly; Oscar contact changes are picked up daily.
-- A failed run emails `DIGEST_TO` and is recorded in `ingest_runs`. Rejected rows (bad ODS codes etc.) go to `ingest_rejects`.
+- A failed run posts a warning to the Slack channel and is recorded in `ingest_runs`. Rejected rows (bad ODS codes etc.) go to `ingest_rejects`.
 - Free-tier Supabase pauses after ~7 days of inactivity; the daily run keeps it awake. Scheduled GitHub workflows stop after 60 days without repo activity: re-enable from the Actions tab.
 - Tests: `pip install -r requirements-dev.txt && python -m pytest`.
 
@@ -115,7 +115,7 @@ tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Osca
 | Dashboard loads default 1,000 rows | 85% of practices missing | Paged fetch; paged rendering |
 | CSV export | Broken date/newlines, formula injection, ignores opt-outs | Rewritten; excludes Do-Not-Contact, blanks opted-out emails, neutralises `=`/`+`/`-`/`@` |
 | `innerHTML` with raw data | XSS | All values escaped |
-| Digest | Unescaped HTML, `.single()` crash, DNC ignored, filtered triggers re-queued forever | Escaped, tier + DNC filtering, filtered triggers marked handled, capped at 150 rows, only marked sent after Resend accepts |
+| Signal notifications (was an email digest, now Slack) | Unescaped HTML, `.single()` crash, DNC ignored, filtered triggers re-queued forever | Escaped, tier + DNC filtering, filtered triggers marked handled, capped at 150 rows, only marked sent after Resend accepts |
 | "Merger" = PCN change | Misleading | Closure of an active practice = MERGER_DETECTED; PCN moves are a separate PCN_CHANGE |
 | Silent failures | Nobody knows pipeline is down | Run log, failure email, sanity guards (feed size, patient coverage, >50 closures) |
 

@@ -107,23 +107,7 @@ class Rest:
             self._ok(self.s.delete(f"{self.base}/{table}", params={column: f"in.({ids})", **(extra or {})}, timeout=60))
 
 
-def send_email(subject, html_body, to):
-    r = requests.post(
-        "https://api.resend.com/emails", timeout=30,
-        headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}"},
-        json={"from": os.environ.get("DIGEST_FROM") or "Lalu Market Radar <radar@lalu.co.uk>",
-              "to": to, "subject": subject, "html": html_body})
-    if r.status_code not in (200, 201, 202):
-        raise RuntimeError(f"Resend rejected email: {r.status_code} {r.text[:300]}")
-
-
-def recipients():
-    return [x.strip() for x in os.environ.get("DIGEST_TO", "sales-leads@lalu.co.uk").split(",") if x.strip()]
-
-
 def send_alert(subject, body):
-    """Best-effort failure notification; never raises."""
-    try:
-        send_email(subject, f"<pre style='font-family:monospace'>{esc(body)}</pre>", recipients())
-    except Exception as e:  # noqa: BLE001
-        print(f"alert email failed: {e}", file=sys.stderr)
+    """Best-effort failure notice to Slack (or stderr when Slack is not set up); never raises."""
+    from . import slack
+    slack.alert(subject, body)

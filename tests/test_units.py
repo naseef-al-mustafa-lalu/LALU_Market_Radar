@@ -1,6 +1,6 @@
 import pytest
 
-from src import digest, oscar, software, sources
+from src import notify, oscar, slack, software, sources
 from src.common import esc, norm_ods, title_case
 from tests.conftest import make_epraccur, make_oscar, make_patients, zipped
 
@@ -94,18 +94,38 @@ def test_software_classify():
 TIERS = [{"tier": 1, "threshold": 20000}, {"tier": 2, "threshold": 15000}, {"tier": 3, "threshold": 10000}, {"tier": 4, "threshold": 5000}, {"tier": 5, "threshold": 0}]
 
 
-def test_digest_select_and_escape():
-    def trig(i, seg, n, lead="Cold", name="<script>x</script>"):
-        return {"id": i, "trigger_type": "NEW_PRACTICE", "headline": "H", "description": "D",
+def test_notify_select_and_slack_escaping():
+    def trig(i, n, lead="Cold", name="<b>x</b> & co"):
+        return {"id": i, "trigger_type": "NEW_PRACTICE", "headline": "H <1>", "description": "D & D",
                 "gp_practices": {"ods_code": "A10000", "practice_name": name, "pcn_name": "P", "icb_name": "I",
-                                 "total_patients": n, "sales_segment": seg, "clinical_software": "Unknown",
+                                 "total_patients": n, "clinical_software": "Unknown",
                                  "manager_name": None, "manager_title": None, "manager_email": "a@b.c",
                                  "manager_phone": None, "manager_email_opt_out": True, "lead_status": lead, "status": "Active"}}
-    ts = [trig("1", "", 100), trig("2", "", 21000), trig("3", "", 16000, lead="Do-Not-Contact")]
-    send, skip = digest.select(ts, "Tier 2", TIERS)
+    ts = [trig("1", 100), trig("2", 21000), trig("3", 16000, lead="Do-Not-Contact")]
+    send, skip = notify.select(ts, "Tier 2", TIERS)
     assert [t["id"] for t in send] == ["2"] and {t["id"] for t in skip} == {"1", "3"}
-    out = digest.render(send, "https://x", TIERS)
-    assert "<script>" not in out and "&lt;script&gt;" in out and "a@b.c" not in out and "opt-out" in out
+    txt = notify.signal_text(send[0], TIERS, "https://x/app/")
+    assert "<b>" not in txt and "&lt;b&gt;x&lt;/b&gt; &amp; co" in txt and "a@b.c" not in txt and "email opt-out" in txt and "<https://x/app/?open=A10000|" in txt
+
+
+def test_slack_messages_split_and_cap():
+    p = dict(ods_code="A1", practice_name="P", total_patients=9000, manager_name=None, manager_title=None, manager_email=None, manager_phone=None,
+             manager_email_opt_out=False, clinical_software="EMIS Web", pcn_name="N", lead_status="Cold", status="Active", pcn_code=None, icb_name="I")
+    sigs = [{"id": str(i), "trigger_type": "RAPID_GROWTH", "headline": "H", "description": "D", "gp_practices": p} for i in range(notify.MAX_SIGNALS + 5)]
+    msgs = notify.messages(sigs, [], TIERS, "https://x/")
+    assert len(msgs) == -(-notify.MAX_SIGNALS // notify.PER_MESSAGE) and all(len(b) <= 50 for _, b in msgs)
+    assert "showing the first" in msgs[0][0] and msgs[0][1][1]["type"] == "actions"
+
+
+def test_signal_text_next_step_and_link_separate():
+    p = dict(ods_code="A1", practice_name="P", total_patients=9000, manager_name=None, manager_title=None, manager_email=None, manager_phone=None,
+             manager_email_opt_out=False, clinical_software="EMIS Web", pcn_name="N", lead_status="Cold", status="Active", pcn_code=None, icb_name="I")
+    txt = notify.signal_text({"trigger_type": "JOB_REPORT_ROLE", "headline": "Hiring: X", "description": "Practice advertised X.", "action": "Offer cover.",
+                              "url": "https://www.jobs.nhs.uk/a/1", "gp_practices": p}, [dict(route="practice", tier=1, threshold=0)])
+    assert "*Next step:* Offer cover." in txt and "<https://www.jobs.nhs.uk/a/1|Open source>" in txt
+    bad = notify.signal_text({"trigger_type": "X", "headline": "h", "description": "d", "url": "javascript:alert(1)", "organisations": {"name": "Net", "kind": "pcn"}}, TIERS)
+    assert "javascript" not in bad and "Net" in bad
+    assert slack.link("https://a.b/c|d>", "x") == "x"
 
 
 def test_uploaded_network_is_not_overwritten_by_ods_sync():
@@ -117,15 +137,6 @@ def test_uploaded_network_is_not_overwritten_by_ods_sync():
     recs, _ = ingest.build_records(ods, {}, "2026-09", {"W93001": old}, {}, None, None, pcn_checked=frozenset({"W93001"}))
     assert not recs or (recs[0]["pcn_code"], recs[0]["pcn_name"], recs[0]["icb_name"]) == ("WC60103", "Wales cluster 60103", "Aneurin Bevan")
     assert ingest.pcn_due({"W93001"}, {"W93001": old}, __import__("datetime").datetime.now(__import__("datetime").timezone.utc)) == []
-
-
-def test_digest_row_has_next_step_and_link_separately():
-    from src import digest
-    p = dict(ods_code="A1", practice_name="P", total_patients=9000, manager_name=None, manager_title=None, manager_email=None, manager_phone=None,
-             manager_email_opt_out=False, clinical_software="EMIS Web", pcn_name="N", lead_status="Cold", status="Active", pcn_code=None, icb_name="I")
-    html = digest.row_html({"trigger_type": "JOB_REPORT_ROLE", "headline": "Hiring: X", "description": "Practice advertised X.", "action": "Offer cover.",
-                            "url": "https://www.jobs.nhs.uk/a/1", "gp_practices": p}, [dict(route="practice", tier=1, threshold=0)])
-    assert "Next step:</b> Offer cover." in html and "Open source" in html and "https://www.jobs.nhs.uk/a/1" in html and "jobs.nhs.uk" not in "Practice advertised X."
 
 
 def test_purge_only_removes_never_loaded_closed_welsh_rows():
@@ -160,3 +171,29 @@ def test_prune_closed_practice_nodes_only_touches_stale_practice_nodes():
     r = R()
     assert maintenance.prune_closed_practice_nodes(r) == 1
     assert r.deleted == [("organisations", "id", ["n2"], {"kind": "eq.practice"})]
+
+
+def test_slack_post_webhook_and_failures(monkeypatch):
+    class Resp:
+        def __init__(self, status, text="ok", js=None): self.status_code, self.text, self._js, self.ok = status, text, js or {}, status < 400
+        def json(self): return self._js
+    calls = []
+    monkeypatch.setattr(slack.time, "sleep", lambda s: None)
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/T/B/x")
+    monkeypatch.setattr(slack.requests, "post", lambda url, **kw: (calls.append((url, kw["json"])), Resp(200))[1])
+    slack.post("hello", [{"type": "divider"}])
+    assert calls[0][0].startswith("https://hooks.slack.com/") and calls[0][1]["text"] == "hello" and calls[0][1]["blocks"]
+    monkeypatch.setattr(slack.requests, "post", lambda url, **kw: Resp(404, "no_service"))
+    import pytest
+    with pytest.raises(RuntimeError):
+        slack.post("x")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-1")
+    monkeypatch.setattr(slack.requests, "post", lambda url, **kw: (calls.append((url, kw["json"])), Resp(200, js={"ok": True}))[1])
+    slack.post("hi")
+    assert calls[-1][0].endswith("chat.postMessage") and calls[-1][1]["channel"] == "lalu_market_radar"
+    monkeypatch.setattr(slack.requests, "post", lambda url, **kw: Resp(200, js={"ok": False, "error": "not_in_channel"}))
+    with pytest.raises(RuntimeError, match="not_in_channel"):
+        slack.post("hi")
+    monkeypatch.delenv("SLACK_BOT_TOKEN"); monkeypatch.delenv("SLACK_WEBHOOK_URL")
+    slack.alert("t", "b")   # not configured: prints, never raises

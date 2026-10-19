@@ -243,7 +243,7 @@ def sync(rest, run_id):
 
 
 def main():
-    need_env("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "RESEND_API_KEY")
+    need_env("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
     rest = Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
     first = not rest.select_all("ingest_runs", "id", order="id", params={"status": "eq.success"})
     run_id = rest.insert("ingest_runs", [{}], returning=True)[0]["id"]

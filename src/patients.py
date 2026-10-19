@@ -24,8 +24,7 @@ def main():
         print(f"OK {len(rows)} practices for {month} from {url}; {updated} practices updated")
     except Exception as e:  # noqa: BLE001
         msg = f"Monthly patient-count load failed: {e}"
-        if os.environ.get("RESEND_API_KEY"):
-            send_alert("Lalu Market Radar: patient-count load FAILED", msg)
+        send_alert("Lalu Market Radar: patient-count load FAILED", msg)
         print(msg, file=sys.stderr)
         sys.exit(1)
 

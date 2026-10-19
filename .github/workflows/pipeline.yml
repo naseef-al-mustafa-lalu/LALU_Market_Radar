@@ -20,19 +20,19 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OSCAR_API_URL: ${{ secrets.OSCAR_API_URL }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
           CQC_API_KEY: ${{ secrets.CQC_API_KEY }}
-          DIGEST_TO: ${{ vars.DIGEST_TO }}
-          DIGEST_FROM: ${{ vars.DIGEST_FROM }}
         run: python -m src.ingest
-      - name: Send digest
+      - name: Post new signals to Slack
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}      # only with a bot token; a webhook is tied to its channel (#lalu_market_radar)
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
-          DIGEST_TO: ${{ vars.DIGEST_TO }}
-          DIGEST_FROM: ${{ vars.DIGEST_FROM }}
-          EMAIL_MODE: ${{ vars.EMAIL_MODE || 'DIGEST' }}          # DIGEST or DISABLED
+          SLACK_MODE: ${{ vars.SLACK_MODE || 'ON' }}    # ON or DISABLED
           MIN_TIER_ALERT: ${{ vars.MIN_TIER_ALERT || 'Tier 3' }}  # Tier 1..5 (1 = 20,000+ patients, 3 = 10,000+, 5 = all)
-        run: python -m src.digest
+        run: python -m src.notify

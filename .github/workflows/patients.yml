@@ -22,7 +22,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          DIGEST_TO: ${{ vars.DIGEST_TO }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
           GP_REG_URL: ${{ github.event.inputs.gp_reg_url || vars.GP_REG_URL }}
         run: python -m src.patients
