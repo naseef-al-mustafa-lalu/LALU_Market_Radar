@@ -130,7 +130,7 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
   const line = (label, detail, pctText, value, cls = "") => `<tr class="border-t border-emerald-100 ${cls}"><td class="py-1.5 pr-3 align-top"><div class="font-medium leading-snug">${label}</div>${detail ? sub(detail) : ""}</td><td class="py-1.5 px-2 text-right align-top whitespace-nowrap text-slate-600">${pctText}</td><td class="py-1.5 pl-2 text-right align-top whitespace-nowrap font-mono">${value}</td></tr>`;
   const adj = year1 - list * (1 - sum);
   const rowsHtml = [
-    line("List price", monthly ? "Monthly plan: rolling, billed monthly" : "Annual plan: 12-month commitment", "", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
+    line("List price", monthly ? "Monthly plan: rolling, billed monthly" : `Annual plan: ${termYrs}-year commitment`, "", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
     line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
     useSpeed ? line("Speed discount", "Year 1 only, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
