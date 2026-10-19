@@ -3,7 +3,7 @@
 const netMatch = (p, nf) => !nf || (nf.kind === "pcn" ? p.pcn_code === nf.key : nf.kind === "group" ? p.cqc_provider_id === nf.key
   : nf.kind === "federation" ? (p.gp_federation || "").toLowerCase() === nf.key : (p.icb_name || "").toLowerCase() === nf.key);
 const SORTERS = {
-  name: p => (p.practice_name || "").toLowerCase(), patients: p => p.total_patients || 0, arr: p => p.est_arr || 0,
+  name: p => (p.practice_name || "").toLowerCase(), patients: p => p.total_patients || 0, arr: p => p.est_arr || 0, arr_sar: p => p.est_arr_sar || 0,
   cqc: p => CQC_RANK[p.cqc_rating] || 9, hubspot: p => HS_RANK[hsState(p)] };
 function applyFilters() {
   const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, hs = $("f-hs").value,
@@ -82,6 +82,7 @@ function renderMore() {
         <div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}</div></td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-xs text-slate-500 underline decoration-dotted cursor-help" title="${esc(noSizeReason(p))}">${p.merged_into ? "Merged" : isClosed(p) ? "Closed" : "No list size"}</span>`}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold text-emerald-700" title="£${Number(p.base_price).toFixed(3)} per patient per month">${gbpFull(p.est_arr)}</span>` : '<span class="text-slate-300">–</span>'}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${hasN && p.est_arr_sar != null ? `<span class="font-mono text-slate-600" title="£${Number(p.base_price_sar).toFixed(3)} per patient per month, SAR only">${gbpFull(p.est_arr_sar)}</span>` : '<span class="text-slate-300">–</span>'}</td>
       <td class="px-3 py-2">${networkCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap">${cqcCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-600">${SYS[p.clinical_software] || '<span class="text-slate-300">–</span>'}</td>
@@ -92,73 +93,76 @@ function renderMore() {
   }
   $("rows").appendChild(frag);
   $("more").classList.toggle("hidden", shown >= filtered.length);
-  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-500 italic">No practices match these filters.</td></tr>';
+  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-500 italic">No practices match these filters.</td></tr>';
 }
 $("more").addEventListener("click", renderMore);
 
 /* ---------- price breakdown: headline figure, then the working in plain steps ---------- */
 // Price = list price less the SUM of the selected discounts (size + term + speed), never below the price floor.
 // Term and speed are choices, not guarantees, so they are switches shared by every price card on the page.
-let speedOn = false, termYrs = 1, billing = "annual";   // billing: "annual" (paid yearly) or "monthly" (rolling, no term)
+let speedOn = false, termYrs = 1, billing = "annual", product = "all";   // billing: "annual" or "monthly" (rolling, no discounts); product: "all" reports or "sar" only
 const priceCards = new Map();
 const setting = k => Number(cfgSettings[k]?.value || 0);
 const termDiscount = yrs => yrs >= 3 ? setting("term_discount_3yr") : yrs === 2 ? setting("term_discount_2yr") : 0;
 // Rates are quoted per patient per MONTH (as in the pricing sheet); annual revenue = patients x rate x 12.
-const baseRate = () => billing === "monthly" ? setting("monthly_list_price_per_patient") : setting("list_price_per_patient");
+const baseRate = () => setting(`${billing === "monthly" ? "monthly_" : ""}list_price_${product === "sar" ? "sar_" : ""}per_patient`);
 const yearly = (patients, rate) => patients * rate * 12;
-const dealRate = (size, term, speed) => Math.max(setting("price_floor_per_patient"), baseRate() * (1 - size - term - speed));
+// Discounts (size + term + speed) apply to annual plans only; monthly plans pay the list rate. The price floor protects All reports only.
+const dealRate = (size, term, speed) => billing === "monthly" ? baseRate()
+  : product === "sar" ? baseRate() * (1 - size - term - speed) : Math.max(setting("price_floor_per_patient"), baseRate() * (1 - size - term - speed));
 function priceCard(args) {
   const id = "pc" + priceCards.size; priceCards.set(id, args);
   return `<div class="price-card" data-pc="${id}">${priceCardBody(args, id)}</div>`;
 }
 function repaintPriceCards() { const live = new Set([...document.querySelectorAll(".price-card")].map(el => el.dataset.pc)); for (const k of priceCards.keys()) if (!live.has(k)) priceCards.delete(k); document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc), el.dataset.pc); }); }
 document.addEventListener("click", e => {
-  const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt");
+  const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt"), pr = e.target.closest(".prod-opt");
   if (sw) { speedOn = !speedOn; repaintPriceCards(); document.querySelector(".speed-toggle")?.focus({ preventScroll: true }); }
   else if (bl) { billing = bl.dataset.b; repaintPriceCards(); document.querySelector(`.bill-opt[data-b="${billing}"]`)?.focus({ preventScroll: true }); }
+  else if (pr) { product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
 });
 document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
 function priceCardBody({ patients, tierRow, route, who }, id) {
-  const monthly = billing === "monthly", list = baseRate();
+  const monthly = billing === "monthly", sar = product === "sar", list = baseRate(), prodName = sar ? "SAR only" : "All reports";
   if (!tierRow || !patients) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
-  const size = Number(tierRow.size_discount), speed = Number(tierRow.speed_discount), term = monthly ? 0 : termDiscount(termYrs), floor = setting("price_floor_per_patient");
-  const useSpeed = speedOn && speed > 0, recurring = dealRate(size, term, 0), year1 = dealRate(size, term, useSpeed ? speed : 0);
-  const sum = size + term + (useSpeed ? speed : 0), floored = list * (1 - sum) < floor - 1e-9;
+  const size = monthly ? 0 : Number(tierRow.size_discount), speed = monthly ? 0 : Number(tierRow.speed_discount), term = monthly ? 0 : termDiscount(termYrs), floor = setting("price_floor_per_patient");
+  const useSpeed = speedOn && speed > 0;
+  // The speed discount applies to every year of the term and ends at renewal.
+  const termRate = dealRate(size, term, useSpeed ? speed : 0), renewal = dealRate(size, term, 0);
+  const sum = size + term + (useSpeed ? speed : 0), floored = !sar && !monthly && list * (1 - sum) < floor - 1e-9;
   const tiersAsc = cfgTiers.filter(t => t.route === route).sort((a, b) => a.threshold - b.threshold);
-  const next = tiersAsc.find(t => Number(t.threshold) > patients && t.tier < tierRow.tier);
+  const next = monthly ? null : tiersAsc.find(t => Number(t.threshold) > patients && t.tier < tierRow.tier);
   const sub = t => `<div class="text-xs text-slate-500 font-normal leading-snug">${t}</div>`, amt = x => "−£" + x.toFixed(3);
   const line = (label, detail, pctText, value, cls = "") => `<tr class="border-t border-emerald-100 ${cls}"><td class="py-1.5 pr-3 align-top"><div class="font-medium leading-snug">${label}</div>${detail ? sub(detail) : ""}</td><td class="py-1.5 px-2 text-right align-top whitespace-nowrap text-slate-600">${pctText}</td><td class="py-1.5 pl-2 text-right align-top whitespace-nowrap font-mono">${value}</td></tr>`;
-  const adj = year1 - list * (1 - sum);
+  const adj = termRate - list * (1 - sum);
   const rowsHtml = [
-    line("List price", monthly ? "Monthly plan: rolling, billed monthly" : `Annual plan: ${termYrs}-year commitment`, "", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
-    line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
+    line("List price", `${prodName} · ` + (monthly ? "monthly plan, rolling, no discounts" : `annual plan, ${termYrs}-year commitment`), "", `£${list.toFixed(3)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
+    monthly ? "" : line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
-    useSpeed ? line("Speed discount", "Year 1 only, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
+    useSpeed ? line("Speed discount", termYrs > 1 ? "Every year of the term, not guaranteed" : "Term year, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
     adj > 1e-9 ? line("Price floor", `Never below £${floor.toFixed(3)} per month`, "", "+£" + adj.toFixed(3)) : "",
-    line(`Price per patient per month${useSpeed ? " (year 1)" : ""}`, "", `${pct(1 - year1 / list)} off`, `£${year1.toFixed(3)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "font-semibold border-t-2 border-emerald-200"),
-    line(`× ${patients.toLocaleString()} patients × 12 months`, useSpeed ? "Year 1 total" : "Per year", "", gbpFull(yearly(patients, year1)), "font-semibold")
+    line("Price per patient per month", "", monthly ? "" : `${pct(1 - termRate / list)} off`, `£${termRate.toFixed(3)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "font-semibold border-t-2 border-emerald-200"),
+    line(`× ${patients.toLocaleString()} patients × 12 months`, "Per year", "", gbpFull(yearly(patients, termRate)), "font-semibold")
   ].join("");
-  // Price by year across the contract: the speed discount only applies in year 1, the term discount for every year of the term.
-  const yrRows = [], recT = yearly(patients, recurring), y1T = yearly(patients, year1), N = monthly ? 1 : termYrs;
+  // Price by year: every term year pays the same rate; the speed discount ends at renewal.
+  const yrRows = [], N = monthly ? 1 : termYrs, tT = yearly(patients, termRate), rT = yearly(patients, renewal);
   const yr = (label, price, total, bold) => `<tr class="border-t border-emerald-100 ${bold ? "font-semibold" : ""}"><td class="py-1 pr-3">${label}</td><td class="py-1 px-2 text-right whitespace-nowrap font-mono">${price}</td><td class="py-1 pl-2 text-right whitespace-nowrap font-mono">${total}</td></tr>`;
-  // One row per year of the term (a 1-year term also shows the renewal year when speed makes year 1 differ).
-  if (N > 1 || useSpeed) for (let y = 1; y <= Math.max(N, 2); y++) {
-    const first = y === 1 && useSpeed, label = y > N ? "Year 2 onwards (renewal)" : "Year " + y;
-    yrRows.push(yr(label, `£${(first ? year1 : recurring).toFixed(3)} /mo`, gbpFull(first ? y1T : recT) + (y === 1 ? "" : N === 1 ? " /yr" : "")));
-  }
-  if (N > 1) yrRows.push(yr(`Total over ${N} years`, "", gbpFull(y1T + (N - 1) * recT), true));
-  const yearTable = yrRows.length ? `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-0.5">Price by year</div><table class="w-full text-sm tabular-nums"><caption class="sr-only">Price per patient and total for each year of the contract</caption><thead class="sr-only"><tr><th>Period</th><th>Per patient</th><th>Total</th></tr></thead><tbody>${yrRows.join("")}</tbody></table>${useSpeed ? '<p class="mt-0.5 text-xs text-slate-500">The speed discount applies in year 1 only.</p>' : ""}</div>` : "";
+  if (N > 1) for (let y = 1; y <= N; y++) yrRows.push(yr("Year " + y, `£${termRate.toFixed(3)} /mo`, gbpFull(tT)));
+  if (N > 1) yrRows.push(yr(`Total over ${N} years`, "", gbpFull(tT * N), true));
+  if (useSpeed) yrRows.push(yr(N > 1 ? `Renewal (year ${N + 1} onwards)` : "Renewal (year 2 onwards)", `£${renewal.toFixed(3)} /mo`, gbpFull(rT) + " /yr"));
+  const yearTable = yrRows.length ? `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-0.5">Price by year</div><table class="w-full text-sm tabular-nums"><caption class="sr-only">Price per patient and total for each year of the contract</caption><thead class="sr-only"><tr><th>Period</th><th>Per patient</th><th>Total</th></tr></thead><tbody>${yrRows.join("")}</tbody></table>${useSpeed ? '<p class="mt-0.5 text-xs text-slate-500">The speed discount applies for the whole term and ends at renewal.</p>' : ""}</div>` : "";
   const steps = `<table class="mt-3 w-full text-sm tabular-nums"><caption class="sr-only">How the price is built</caption><thead class="sr-only"><tr><th>Step</th><th>Discount</th><th>Per patient</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
   const opts = [1, 2, 3].map(y => `<button type="button" class="term-opt flex-1 rounded-md border px-2 py-1.5 text-left ${y === termYrs ? "border-emerald-600 bg-white ring-1 ring-emerald-600" : "border-slate-300 bg-white/60 hover:bg-white"}" data-yrs="${y}" aria-pressed="${y === termYrs}">
-      <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm">${gbpFull(yearly(patients, dealRate(size, termDiscount(y), 0)))}<span class="text-xs text-slate-500"> /yr</span></div></button>`).join("");
+      <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm">${gbpFull(yearly(patients, dealRate(size, termDiscount(y), useSpeed ? speed : 0)))}<span class="text-xs text-slate-500"> /yr</span></div></button>`).join("");
+  const seg = (label, cls, key, cur, items) => `<div class="inline-flex rounded-lg bg-white/70 border border-slate-300 p-0.5 text-xs font-semibold" role="group" aria-label="${label}">${items.map(([k, l]) => `<button type="button" class="${cls} rounded-md px-3 py-1 ${cur === k ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"}" data-${key}="${k}" aria-pressed="${cur === k}">${l}</button>`).join("")}</div>`;
   return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
     <div class="flex items-end justify-between gap-3">
-      <div><div class="text-xs uppercase tracking-wider text-slate-500">Estimated annual revenue${monthly ? " · monthly plan" : termYrs > 1 ? ` · ${termYrs}-year term` : ""}</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(yearly(patients, recurring))}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
-      ${speed > 0 ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">First year</div><div class="text-lg font-semibold leading-tight">${gbpFull(yearly(patients, year1))}</div><div class="text-xs text-slate-500">${useSpeed ? pct(speed) + " speed discount" : "no speed discount"}</div></div>` : ""}</div>
+      <div><div class="text-xs uppercase tracking-wider text-slate-500">Estimated annual revenue · ${prodName}${monthly ? " · monthly plan" : termYrs > 1 ? ` · ${termYrs}-year term` : ""}</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(tT)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
+      ${useSpeed ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">On renewal</div><div class="text-lg font-semibold leading-tight">${gbpFull(rT)}</div><div class="text-xs text-slate-500">speed discount ends</div></div>` : ""}</div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <div class="inline-flex rounded-lg bg-white/70 border border-slate-300 p-0.5 text-xs font-semibold" role="group" aria-label="Billing">${[["annual", "Annual"], ["monthly", "Monthly"]].map(([k, l]) => `<button type="button" class="bill-opt rounded-md px-3 py-1 ${billing === k ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"}" data-b="${k}" aria-pressed="${billing === k}">${l}</button>`).join("")}</div>
-      ${speed > 0 ? `<div class="flex items-center gap-2 text-xs text-slate-600"><span id="spd-l-${id}">${pct(speed)} speed discount <span class="text-slate-400">(not guaranteed)</span></span><button type="button" role="switch" aria-checked="${speedOn}" aria-labelledby="spd-l-${id}" class="speed-toggle relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${speedOn ? "bg-emerald-600" : "bg-slate-300"}"><span class="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${speedOn ? "translate-x-4" : "translate-x-0.5"}"></span></button></div>` : ""}</div>
-    ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so there is no term discount. Switch to Annual to choose a 1, 2 or 3-year term.</p>` :
+      <div class="flex flex-wrap items-center gap-2">${seg("Product", "prod-opt", "p", product, [["all", "All reports"], ["sar", "SAR only"]])}${seg("Billing", "bill-opt", "b", billing, [["annual", "Annual"], ["monthly", "Monthly"]])}</div>
+      ${!monthly && Number(tierRow.speed_discount) > 0 ? `<div class="flex items-center gap-2 text-xs text-slate-600"><span id="spd-l-${id}">${pct(Number(tierRow.speed_discount))} speed discount <span class="text-slate-400">(not guaranteed)</span></span><button type="button" role="switch" aria-checked="${speedOn}" aria-labelledby="spd-l-${id}" class="speed-toggle relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${speedOn ? "bg-emerald-600" : "bg-slate-300"}"><span class="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${speedOn ? "translate-x-4" : "translate-x-0.5"}"></span></button></div>` : ""}</div>
+    ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
       `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
     ${steps}${yearTable}
     ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${(list * (1 - Number(next.size_discount))).toFixed(3)} per patient per month).</p>` : ""}</div>`;

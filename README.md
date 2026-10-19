@@ -75,7 +75,7 @@ Tiers and ARR follow Lalu's pricing model (the "Patient Size Threshold Analysis 
 in Supabase, so nothing is hard-coded:
 - `pricing_tiers`: per route (`practice`, `pcn`, `icb`; `group` / `federation` allowed when you define them) the patient threshold, size discount and year-1 speed discount for tiers 1-5.
 - `pricing_settings`: list price per patient, discount caps, prepayment/indexation ranges, margin floor, minimum term.
-Price per patient = list price x (1 - size discount); year-1 price also subtracts the speed discount. Est. ARR = patients x price.
+Rates are per patient per **month**; Est. ARR = patients x price x 12. Two products: **All reports** (annual 0.08 / monthly 0.10) and **SAR only** (annual 0.05 / monthly 0.06). Discounts apply to **annual plans only** (monthly has none): price = list x (1 - size - term - speed), with the price floor protecting All reports only. The optional speed discount (off by default) applies to every year of the term and ends at renewal. The practice and network tables carry a "SAR ARR" column; the Revenue tab has an All reports / SAR only / Mix scenario with an editable SAR-only share.
 The views `practice_pricing` and `org_pricing` calculate it live, so editing a row (Supabase -> Table Editor) updates the dashboard immediately.
 The dashboard shows it per practice, per network (Networks tab) and in the **Revenue** tab (route totals, tier breakdown, pipeline by lead status, rate card).
 Provider groups and federations are priced on the aggregate patients of their linked practices (seeded from the PCN schedule; edit the `group` / `federation` rows in `pricing_tiers`). The routes are alternative ways to sell to the same patients: do not add them together. `MIN_TIER_ALERT` (Tier 1-5) uses the single-practice tiers.
@@ -132,7 +132,7 @@ tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Osca
 
 ## Updating prices from the pricing spreadsheet
 
-Data > Pricing > "Update rates from the pricing spreadsheet". Download the `Pricing-Discount-Model` tab (and `Multi-Year-Matrix` for the 2/3-year term discounts and price floor) as CSV, choose the file(s), review the list of differences and press Apply. It updates existing rates only (`sync_pricing` in Supabase): annual and monthly plan list prices (both per patient per **month**: 0.08 and 0.10; annual revenue is patients × rate × 12), VAT, price floor, term discounts, and the practice / PCN / ICB tier thresholds and discounts. Provider-group and federation tiers are not touched.
+Data > Pricing > "Update rates from the pricing spreadsheet". Download the `Pricing-Discount-Model` tab (and `Multi-Year-Matrix` for the 2/3-year term discounts and price floor; add cells labelled "SAR Only Annual List Price" and "SAR Only Monthly List Price" to sync the SAR rates) as CSV, choose the file(s), review the list of differences and press Apply. It updates existing rates only (`sync_pricing` in Supabase): annual and monthly plan list prices (both per patient per **month**: 0.08 and 0.10; annual revenue is patients × rate × 12), VAT, price floor, term discounts, and the practice / PCN / ICB tier thresholds and discounts. Provider-group and federation tiers are not touched.
 
 ## Closures and mergers
 

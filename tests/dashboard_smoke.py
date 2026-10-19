@@ -20,11 +20,11 @@ for p_ in PR:
     p_.update(hubspot_customer=False, hubspot_engaged=False, hubspot_stage=None)
 PR[2].update(hubspot_customer=True, hubspot_stage="customer"); PR[1].update(hubspot_engaged=True, hubspot_stage="opportunity")
 HS = [dict(ods_code=p_["ods_code"], hs_contacts=1, hs_imported=1 if i < 3 else 0, hs_primary_imported=i < 3, hs_last_imported_at="2026-10-12T09:00:00Z", hs_primary_imported_at="2026-10-12T09:00:00Z" if i < 3 else None) for i, p_ in enumerate(PR)]
-PP = [dict(ods_code=p["ods_code"], price_tier=3, tier_label="Tier 3 (Medium-Large)", base_price=0.076, year1_price=0.072, est_arr=round(p["total_patients"] * 0.076 * 12), est_arr_year1=round(p["total_patients"] * 0.072 * 12)) for p in PR]
+PP = [dict(ods_code=p["ods_code"], price_tier=3, tier_label="Tier 3 (Medium-Large)", base_price=0.076, year1_price=0.072, est_arr=round(p["total_patients"] * 0.076 * 12), est_arr_year1=round(p["total_patients"] * 0.072 * 12), base_price_sar=0.0475, est_arr_sar=round(p["total_patients"] * 0.0475 * 12)) for p in PR]
 TIERS = [dict(route="practice", tier=i + 1, label=l, threshold=t, size_discount=d, speed_discount=0.05) for i, (l, t, d) in enumerate([("Very Large", 20000, 0.1), ("Large", 15000, 0.075), ("Medium-Large", 10000, 0.05), ("Medium", 5000, 0), ("Solo", 0, 0)])] + \
         [dict(route=r, tier=5, label="Solo / Small", threshold=0, size_discount=0.125, speed_discount=0.05) for r in ("pcn", "group", "federation")]
-SETTINGS = [dict(key="list_price_per_patient", value=0.08, description="Annual list price per patient"), dict(key="term_discount_2yr", value=0.025, description="2-year term"), dict(key="term_discount_3yr", value=0.05, description="3-year term"), dict(key="price_floor_per_patient", value=0.05, description="Price floor"), dict(key="monthly_list_price_per_patient", value=0.10, description="Monthly list price")]
-NETS = [dict(id="1", kind="pcn", name="West PCN", source_key="ods:U00001", practices=4, patients=40000, tier1=0, tier2=0, tier3=4, tier4=0, tier5=0, emis=4, systmone=0, cqc_concern=1, engaged=2, customers=1, arr_customers=900, hs_imported=3, do_not_contact=0, confirmed=True, arr_single=3000, network_tier=1, arr_network=2500, network_base_price=0.0620),
+SETTINGS = [dict(key="list_price_per_patient", value=0.08, description="Annual list price per patient"), dict(key="term_discount_2yr", value=0.025, description="2-year term"), dict(key="term_discount_3yr", value=0.05, description="3-year term"), dict(key="price_floor_per_patient", value=0.05, description="Price floor"), dict(key="monthly_list_price_per_patient", value=0.10, description="Monthly list price"), dict(key="list_price_sar_per_patient", value=0.05, description="SAR annual"), dict(key="monthly_list_price_sar_per_patient", value=0.06, description="SAR monthly")]
+NETS = [dict(id="1", kind="pcn", name="West PCN", source_key="ods:U00001", practices=4, patients=40000, tier1=0, tier2=0, tier3=4, tier4=0, tier5=0, emis=4, systmone=0, cqc_concern=1, engaged=2, customers=1, arr_customers=900, hs_imported=3, do_not_contact=0, confirmed=True, arr_single=3000, arr_single_sar=1900, arr_customers_sar=500, arr_network_sar=1600, network_tier=1, arr_network=2500, network_base_price=0.0620),
         dict(id="2", kind="group", name="Modality Test", source_key="cqc:provider:P1", practices=3, patients=30000, tier1=0, tier2=0, tier3=3, tier4=0, tier5=0, emis=3, systmone=0, cqc_concern=0, engaged=1, customers=1, arr_customers=800, hs_imported=1, do_not_contact=0, confirmed=True, arr_single=2200, network_tier=5, arr_network=2100, network_base_price=0.07),
         dict(id="3", kind="federation", name="Fed One", source_key="fed:fed one", practices=1, patients=13000, tier1=0, tier2=0, tier3=1, tier4=0, tier5=0, emis=1, systmone=0, cqc_concern=0, engaged=0, customers=0, arr_customers=0, hs_imported=0, do_not_contact=0, confirmed=False, arr_single=900, network_tier=5, arr_network=870, network_base_price=0.07)]
 INDEX = pathlib.Path(__file__).resolve().parent.parent.joinpath("index.html").as_uri()
@@ -71,19 +71,22 @@ with sync_playwright() as p:
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
     assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "false"  # the speed discount is not guaranteed, so it is off by default
-    kpi = lambda: pg.inner_text("#dr-body .price-card .text-right").replace("\n", " ")
-    tb = pg.inner_text("#dr-body .price-card tbody"); assert "Annual plan: 1-year commitment" in tb and "Speed discount" not in tb and "£0.076" in tb and "£0.072" not in tb, tb
-    assert "£9,120" in kpi() and "no speed discount" in kpi(), kpi()   # first-year figure equals the normal annual figure while the discount is off
+    kpi = lambda: pg.inner_text("#dr-body .price-card > div > div:first-child").replace("\n", " ")
+    tb = pg.inner_text("#dr-body .price-card tbody"); assert "annual plan, 1-year commitment" in tb and "Speed discount" not in tb and "£0.076" in tb and "£0.072" not in tb, tb
+    assert "£9,120" in kpi() and "on renewal" not in kpi().lower(), kpi()   # no speed discount: one figure
     pg.click("#dr-body .speed-toggle"); assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "true"
-    assert "£8,640" in kpi() and "5% speed discount" in kpi() and "£0.072" in pg.inner_text("#dr-body .price-card tbody") and "Speed discount" in pg.inner_text("#dr-body .price-card tbody")
+    assert "£8,640" in kpi() and "on renewal" in kpi().lower() and "£9,120" in kpi() and "£0.072" in pg.inner_text("#dr-body .price-card tbody") and "Speed discount" in pg.inner_text("#dr-body .price-card tbody")
     assert pg.evaluate("document.activeElement.classList.contains('speed-toggle')")
-    pg.click('#dr-body .bill-opt[data-b="monthly"]'); mo = pg.inner_text("#dr-body")   # monthly plan base £0.100 per patient per month; size 5% + speed 5% -> £0.090
-    assert "Monthly plan" in mo and "£0.100" in mo and "£0.090" in mo and "£10,800" in mo and "no term discount" in mo and pg.locator("#dr-body .term-opt").count() == 0, mo
-    pg.click('#dr-body .bill-opt[data-b="annual"]'); assert pg.locator("#dr-body .term-opt").count() == 3
-    pg.click('#dr-body .term-opt[data-yrs="3"]'); t3 = pg.inner_text("#dr-body"); assert "Term discount" in t3 and "3-year" in t3 and "£0.068" in t3 and "Annual plan: 3-year commitment" in t3 and "12-month" not in t3, t3  # 5% size + 5% term + 5% speed off £0.080
-    assert "Year 2" in t3 and "Year 3" in t3 and "Years 2–3" not in t3 and "Total over 3 years" in t3 and "£25,440" in t3, t3  # y1 10,000 x £0.068 x 12 + 2 x 10,000 x £0.072 x 12
+    pg.click('#dr-body .bill-opt[data-b="monthly"]'); mo = pg.inner_text("#dr-body")   # monthly plan: list rate only, no discounts, no speed switch
+    assert "monthly plan" in mo.lower() and "£0.100" in mo and "£12,000" in mo and "no discounts" in mo and "Size discount" not in mo and pg.locator("#dr-body .term-opt").count() == 0 and pg.locator("#dr-body .speed-toggle").count() == 0, mo
+    pg.click('#dr-body .prod-opt[data-p="sar"]'); sm = pg.inner_text("#dr-body"); assert "SAR only" in sm and "£0.060" in sm and "£7,200" in sm, sm   # SAR monthly 0.06
+    pg.click('#dr-body .bill-opt[data-b="annual"]'); sa = pg.inner_text("#dr-body")   # SAR annual 0.05, size 5% + speed 5% on -> £0.045 = £5,400; the price floor does not apply to SAR
+    assert "£0.045" in sa and "£5,400" in sa and "Price floor" not in sa, sa
+    pg.click('#dr-body .prod-opt[data-p="all"]'); assert pg.locator("#dr-body .term-opt").count() == 3
+    pg.click('#dr-body .term-opt[data-yrs="3"]'); t3 = pg.inner_text("#dr-body"); assert "Term discount" in t3 and "3-year" in t3 and "£0.068" in t3 and "annual plan, 3-year commitment" in t3 and "12-month" not in t3, t3  # 5% size + 5% term + 5% speed off £0.080
+    assert "Year 2" in t3 and "Year 3" in t3 and "Total over 3 years" in t3 and "£24,480" in t3 and "Renewal (year 4 onwards)" in t3 and "£8,640" in t3, t3  # speed applies to all 3 years: 3 x 10,000 x £0.068 x 12; renewal loses speed
     pg.click('#dr-body .term-opt[data-yrs="1"]'); assert "Term discount" not in pg.inner_text("#dr-body")
-    assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "speed discount" in body.lower() and "Contract term" in body and "Other ways to sign this practice" in body, body
+    assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "speed discount" in body.lower() and "SAR only" in body and "Contract term" in body and "Other ways to sign this practice" in body, body
     assert "£1,216" not in body or True
     pg.wait_for_timeout(500); pg.evaluate("document.querySelector('#dr-body').scrollTop = 0"); pg.screenshot(path=SHOTS + "/profile.png")
     pg.keyboard.press("Escape")
@@ -111,6 +114,11 @@ with sync_playwright() as p:
     # revenue
     pg.click("#tab-revenue"); pg.wait_for_selector("#rev-routes tr, #rev-routes > div")
     assert "£" in pg.inner_text("#rev-routes") and "£" in pg.inner_text("#rev-matrix")
+    base_total = pg.inner_text("#rev-routes tr:first-child")
+    pg.click('#rev-scen button[data-s="sar"]'); assert pg.inner_text("#rev-routes tr:first-child") != base_total
+    pg.click('#rev-scen button[data-s="mix"]'); assert pg.is_visible("#rev-share"); mix_total = pg.inner_text("#rev-routes tr:first-child"); pg.fill("#rev-share", "0"); pg.dispatch_event("#rev-share", "change")
+    assert pg.inner_text("#rev-routes tr:first-child") == base_total and mix_total != base_total
+    pg.click('#rev-scen button[data-s="all"]'); assert pg.is_hidden("#rev-share")
     pg.click("#rev-metric") if pg.locator("#rev-metric").evaluate("e => e.tagName") == "BUTTON" else None
     pg.screenshot(path=SHOTS + "/revenue.png", full_page=True)
     # signals + data
@@ -132,7 +140,7 @@ with sync_playwright() as p:
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#d-fresh")
     assert pg.is_visible("#dp-overview") and pg.is_hidden("#dp-sources") and pg.is_hidden("#dp-pricing")
     pg.click("#data-sub button[data-d=pricing]"); assert "How prices are worked out" in pg.inner_text("#rev-config") and "PCNs / clusters" in pg.inner_text("#rev-config") and "Federations" in pg.inner_text("#rev-config")
-    CSV = ('DYNAMIC PRICING\nAnnual Sub List Price / Pt (excl. VAT):,£0.085,Monthly Sub List Price / Pt (excl. VAT):,£0.105,Practice Speed Incentive %:,5.0%,UK VAT Rate:,20.0%\nNo-Undercut,x,x,x,Absolute Margin Floor / Pt:,£0.050\n\n'
+    CSV = ('DYNAMIC PRICING\nAnnual Sub List Price / Pt (excl. VAT):,£0.085,Monthly Sub List Price / Pt (excl. VAT):,£0.105,SAR Only Annual List Price:,£0.055,SAR Only Monthly List Price:,£0.065,Practice Speed Incentive %:,5.0%,UK VAT Rate:,20.0%\nNo-Undercut,x,x,x,Absolute Margin Floor / Pt:,£0.050\n\n'
            '"1. SINGLE PRACTICE DISCOUNT SCHEDULE (Practice-Level Contracts)"\nTier,Classification,Patient Threshold (PuM ≥),Practice Count,Tier 1: Size Discount %,Tier 2: Speed Discount % (Year 1 only)\n'
            'Tier 1,Very Large,"20,000",415,12.0%,5.0%\nTier 4,Medium,"5,000",2532,0.0%,5.0%\n"2. PRIMARY CARE NETWORK (PCN) DISCOUNT SCHEDULE"\nTier,Classification,Patient Threshold (PuM ≥),PCN Count,Tier 1: Size Discount %,Tier 2: Speed Discount %\nTier 5,Small,0,105,12.5%,2.5%\n')
     MATRIX = 'MATRIX\nAnnual List Price / Pt:,£0.080,2-Yr Commitment Disc [EDITABLE]:,2.5%,Practice Speed %:,5.0%\nMonthly List Price / Pt:,£0.010,3-Yr Commitment Disc [EDITABLE]:,5.0%\n'
@@ -140,7 +148,7 @@ with sync_playwright() as p:
     pg.wait_for_selector("#ps-apply:not(.hidden)"); prev = pg.inner_text("#dp-pricing"); assert "£0.085" in prev and "£0.105" in prev and "size discount" in prev and "12%" in prev and "spreadsheet" in prev.lower(), prev
     pg.click("#ps-apply"); pg.wait_for_function("document.querySelector('#ps-msg').textContent.includes('Prices reloaded')")
     sp = pg.evaluate("window.__rpc.filter(c => c[0] === 'sync_pricing')")[0][1]
-    assert sp["p_settings"]["list_price_per_patient"] == 0.085 and sp["p_settings"]["monthly_list_price_per_patient"] == 0.105 and sp["p_settings"]["term_discount_3yr"] == 0.05 and sp["p_settings"]["price_floor_per_patient"] == 0.05 and any(t["route"] == "practice" and t["tier"] == 1 and t["size_discount"] == 0.12 and t["threshold"] == 20000 for t in sp["p_tiers"]), sp
+    assert sp["p_settings"]["list_price_per_patient"] == 0.085 and sp["p_settings"]["monthly_list_price_per_patient"] == 0.105 and sp["p_settings"]["list_price_sar_per_patient"] == 0.055 and sp["p_settings"]["monthly_list_price_sar_per_patient"] == 0.065 and sp["p_settings"]["term_discount_3yr"] == 0.05 and sp["p_settings"]["price_floor_per_patient"] == 0.05 and any(t["route"] == "practice" and t["tier"] == 1 and t["size_discount"] == 0.12 and t["threshold"] == 20000 for t in sp["p_tiers"]), sp
     assert pg.locator("#rev-config table").count() == 4, pg.locator("#rev-config table").count()
     pg.screenshot(path=SHOTS + "/pricing.png", full_page=True)
     pg.click("#data-sub button[data-d=sources]")
