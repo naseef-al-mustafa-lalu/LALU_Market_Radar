@@ -142,6 +142,11 @@ function hsBindFind(auto) {
 // shared form pieces for the create-deal and create-lead forms
 const hsField = (label, inner) => `<label class="block"><span class="mb-0.5 block text-xs font-semibold text-slate-600">${label}</span>${inner}</label>`, hsInp = "w-full rounded-lg border border-slate-300 px-2 py-1.5";
 const hsOpts = (list, sel) => list.map(([v, l]) => `<option value="${esc(v)}" ${v === sel ? "selected" : ""}>${esc(l)}</option>`).join("");
+// owners and pipelines are fetched once per modal in the background, so the lead and deal forms open without waiting on HubSpot
+let hsPreCache = null;   // owners and pipelines do not depend on the company: reuse them for ten minutes
+const hsPrefill = companyId => hs.pre ? Promise.resolve(hs.pre) : (hs.prePromise = hs.prePromise || hsCall({ action: "deal_prefill", companyId, noContacts: true }).then(r => (hsPreCache = { at: Date.now(), pre: r }, hs.pre = r), e => { hs.prePromise = null; throw e; }));
+const hsSkeleton = n => '<div class="space-y-3" aria-label="Loading">' + Array.from({ length: n }, () => '<div class="h-16 animate-pulse rounded-xl bg-slate-100"></div>').join("") + '</div>';
+const hsHubCache = {};   // companyId -> { at, hub }: reopening a company shows the last read at once, then refreshes it
 const hsTitle = (...parts) => { $("hs-title").textContent = ["Atlas", hs.p.practice_name, ...parts].join(" › "); };
 /* contacts Atlas holds for a practice: those that can be sent to HubSpot, and those that cannot (with the reason) */
 async function hsAtlasContacts(p, have = new Set()) {
@@ -164,15 +169,22 @@ const hsNameOf = c => [c.firstname, c.lastname].filter(Boolean).join(" ") || c.e
 /* the company page: Company > Contacts > Leads > Deals. Loaded once, then updated in place so going back is instant. */
 const hsStep = (n, label, done, note) => `<div class="flex min-w-0 flex-1 items-center gap-2"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${done ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"}">${done ? "✓" : n}</span><div class="min-w-0"><div class="text-xs font-semibold text-slate-700">${label}</div><div class="truncate text-[11px] text-slate-500">${note}</div></div></div>`;
 async function hsCompanyPage(companyId, force) {
+  if (!hs.pre && hsPreCache && Date.now() - hsPreCache.at < 600000) hs.pre = hsPreCache.pre;
   hsRender('<div id="hs-results"></div>'); hsTitle();
-  if (force || !hs.hub || hs.hub.company.id !== companyId) {
-    $("hs-results").innerHTML = '<div class="space-y-3" aria-label="Loading">' + [1, 2, 3].map(() => '<div class="h-16 animate-pulse rounded-xl bg-slate-100"></div>').join("") + '</div>';
-    try {
-      const h = await hsCall({ action: "hub", companyId }), a = await hsAtlasContacts(hs.p, new Set(h.contacts.map(c => (c.email || "").toLowerCase())));
-      hs.hub = { ...h, extra: a.ok, skipped: a.skipped };
-    } catch (e) { $("hs-results").innerHTML = `<p class="text-rose-700">${esc(e.message)}</p><button id="hs-retry" class="mt-2 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold">Retry</button>`; $("hs-retry").onclick = () => hsCompanyPage(companyId, true); return; }
+  const load = async () => {
+    const h = await hsCall({ action: "hub", companyId }), a = await hsAtlasContacts(hs.p, new Set(h.contacts.map(c => (c.email || "").toLowerCase())));
+    return (hsHubCache[companyId] = { at: Date.now(), hub: { ...h, extra: a.ok, skipped: a.skipped } }).hub;
+  };
+  const cached = hsHubCache[companyId];
+  if (!force && hs.hub && hs.hub.company.id === companyId) return hsHubRender();
+  if (!force && cached && Date.now() - cached.at < 300000) {
+    hs.hub = cached.hub; hsHubRender(); hsPrefill(companyId).catch(() => {});
+    load().then(h => { const idle = $("hs-newlead") && $("hs-addpanel")?.classList.contains("hidden") !== false; if (hs && idle && hs.hub === cached.hub) { hs.hub = h; hsHubRender(); } }).catch(() => {});   // refresh quietly unless the user is mid-action
+    return;
   }
-  hsHubRender();
+  $("hs-results").innerHTML = hsSkeleton(3);
+  try { hs.hub = await load(); } catch (e) { $("hs-results").innerHTML = `<p class="text-rose-700">${esc(e.message)}</p><button id="hs-retry" class="mt-2 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold">Retry</button>`; $("hs-retry").onclick = () => hsCompanyPage(companyId, true); return; }
+  hsHubRender(); hsPrefill(companyId).catch(() => {});
 }
 function hsHubRender() {
   const box = $("hs-results"), p = hs.p, h = hs.hub, co = h.company, leads = h.leads, nLeads = leads ? leads.length : 0, next = !h.contacts.length ? 2 : !nLeads && !h.deals.length ? 3 : 4;
@@ -223,9 +235,9 @@ function hsHubRender() {
 
 /* create a deal: every field is editable, then the normal push preview follows */
 async function hsDealForm(company) {
-  const box = $("hs-results"); box.innerHTML = '<p class="text-slate-500">Reading the company\'s contacts, pipelines and owners…</p>';
+  const box = $("hs-results");
   try {
-    hsTitle("Create deal"); const pre = hs.pre = hs.pre || await hsCall({ action: "deal_prefill", companyId: company.id }), p = hs.p, want = hs.want || hsDesired(p), contacts = (hs.hub && hs.hub.contacts) || pre.contacts;
+    hsTitle("Create deal"); if (!hs.pre) box.innerHTML = hsSkeleton(3); const pre = await hsPrefill(company.id), p = hs.p, want = hs.want || hsDesired(p), contacts = (hs.hub && hs.hub.contacts) || pre.contacts;
     const lead = contacts[0] ? hsNameOf(contacts[0]) : (p.manager_name || "");
     const pipes = pre.pipelines, def = pipes.find(x => x.id === "default") || pipes[0], stageNew = def.stages.find(s => s.id === "appointmentscheduled") || def.stages[0];
     const close = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10), amount = Math.round(p.total_patients * want.rate * 12 * 100) / 100;
@@ -261,7 +273,7 @@ async function hsDealForm(company) {
         const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: company.id, contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact),
           deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
             hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
-        hs.hub = null; Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false, auto: true }); hsPreview();
+        hs.hub = null; delete hsHubCache[company.id]; Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false, auto: true }); hsPreview();
       } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create deal and push pricing"; }
     };
   } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
@@ -271,7 +283,7 @@ async function hsDealForm(company) {
 async function hsLeadForm(company) {
   const box = $("hs-results"); hsTitle("Create lead");
   try {
-    const pre = hs.pre = hs.pre || await hsCall({ action: "deal_prefill", companyId: company.id }), p = hs.p, contacts = (hs.hub && hs.hub.contacts) || pre.contacts, openLeads = ((hs.hub && hs.hub.leads) || []).filter(l => l.open);
+    if (!hs.pre) box.innerHTML = hsSkeleton(2); const pre = await hsPrefill(company.id), p = hs.p, contacts = (hs.hub && hs.hub.contacts) || pre.contacts, openLeads = ((hs.hub && hs.hub.leads) || []).filter(l => l.open);
     const field = hsField, inp = hsInp;
     const opts = hsOpts;
     box.innerHTML = `<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New lead on ${esc(company.name)}</h4>

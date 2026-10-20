@@ -131,9 +131,8 @@ Deno.serve(async (req) => {
     const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
     });
-    const { data: allowed, error: aerr } = await supa.rpc("am_i_allowed");
+    const [{ data: allowed, error: aerr }, { data: u }] = await Promise.all([supa.rpc("am_i_allowed"), supa.auth.getUser()]);   // in parallel: both only need the caller's token
     if (aerr || allowed !== true) throw new Fail("Not authorised", 403);
-    const { data: u } = await supa.auth.getUser();
     const who = u?.user?.email ?? "unknown";
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const b = await req.json();
@@ -258,18 +257,21 @@ Deno.serve(async (req) => {
         summary: `Added ${done.length} contact(s) to ${co.properties?.name ?? companyId}`, detail: { done, warnings } });
       return reply({ ok: true, contacts: done, warnings });
     }
-    if (b.action === "deal_prefill") {      // what the create-deal form needs: the company's contacts, pipelines and stages, owners, and the signed-in user's owner
+    if (b.action === "deal_prefill") {      // what the create forms need: pipelines and stages, owners and the signed-in user's owner (and, unless noContacts, the company's contacts); fetched in parallel
       const companyId = idOf(b.companyId), warnings: string[] = [];
-      const a = await hs(`/crm/v4/objects/companies/${companyId}/associations/contacts?limit=10`);
-      const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId)).slice(0, 5);
-      const contacts = ids.length ? ((await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["firstname", "lastname", "jobtitle", "email"], inputs: ids.map((id: string) => ({ id })) }) }))?.results ?? []).map((c: any) => ({ id: c.id, ...c.properties })) : [];
-      const pipelines = ((await hs(`/crm/v3/pipelines/deals`))?.results ?? []).map((p: any) => ({ id: p.id, label: p.label, stages: (p.stages ?? []).sort((x: any, y: any) => x.displayOrder - y.displayOrder).map((s: any) => ({ id: s.id, label: s.label })) }));
-      let owners: any[] | null = null, ownerId: string | null = null;
-      try {
-        owners = ((await hs(`/crm/v3/owners?limit=100&archived=false`))?.results ?? []).map((o: any) => ({ id: String(o.id), name: `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim() || o.email, email: o.email }));
-        ownerId = owners.find((o) => o.email?.toLowerCase() === who.toLowerCase())?.id ?? null;
+      const contactsP = b.noContacts === true ? Promise.resolve([]) : (async () => {
+        const a = await hs(`/crm/v4/objects/companies/${companyId}/associations/contacts?limit=10`);
+        const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId)).slice(0, 5);
+        return ids.length ? ((await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["firstname", "lastname", "jobtitle", "email"], inputs: ids.map((id: string) => ({ id })) }) }))?.results ?? []).map((c: any) => ({ id: c.id, ...c.properties })) : [];
+      })();
+      const pipelinesP = hs(`/crm/v3/pipelines/deals`).then((r) => (r?.results ?? []).map((p: any) => ({ id: p.id, label: p.label, stages: (p.stages ?? []).sort((x: any, y: any) => x.displayOrder - y.displayOrder).map((s: any) => ({ id: s.id, label: s.label })) })));
+      const ownersP = hs(`/crm/v3/owners?limit=100&archived=false`).then((r) => (r?.results ?? []).map((o: any) => ({ id: String(o.id), name: `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim() || o.email, email: o.email }))).catch(() => null);
+      const [contacts, pipelines, owners] = await Promise.all([contactsP, pipelinesP, ownersP]);
+      let ownerId: string | null = null;
+      if (owners) {
+        ownerId = owners.find((o: any) => o.email?.toLowerCase() === who.toLowerCase())?.id ?? null;
         if (!ownerId) warnings.push(`No HubSpot owner matches ${who}; choose one or leave the deal unassigned.`);
-      } catch (_) { warnings.push("Owners could not be read: add the crm.objects.owners.read scope to the HubSpot token."); }
+      } else warnings.push("Owners could not be read: add the crm.objects.owners.read scope to the HubSpot token.");
       return reply({ contacts, pipelines, owners, ownerId, warnings });
     }
     if (b.action === "create_deal") {
