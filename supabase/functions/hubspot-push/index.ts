@@ -29,6 +29,10 @@ const VALUE_PER_PATIENT = new Set(["£0.05", "£0.06", "£0.07", "£0.08", "£0.
 const LINE_PRODUCTS = new Set(["440423339237", "440425147578", "440434162881", "440498134244"]);   // All Report annual / monthly, SAR Only annual / monthly
 const LINE_READ = ["name", "hs_product_id", "quantity", "price", "discount", "hs_discount_percentage", "amount", "hs_recurring_billing_period", "recurringbillingfrequency",
   "hs_recurring_billing_terms", "hs_recurring_billing_number_of_payments"];
+const DEAL_CREATE = new Set(["dealname", "pipeline", "dealstage", "dealtype", "product___service", "hubspot_owner_id", "closedate", "amount"]);
+const DEAL_TYPES = new Set(["newbusiness", "New Business GP eMR", "Existing Business - Freemium", "Existing Business - PAYG", "Existing Business - SAR Only", "Existing Business - GP eMR", "Renewal"]);
+const PRODUCT_SERVICE = new Set(["eMR", "eMR+"]);
+const ASSOC_DEAL_TO_COMPANY = 5, ASSOC_DEAL_TO_CONTACT = 3;   // HubSpot-defined association types
 const LINE_TO_DEAL = 20;   // HubSpot-defined association type: line item -> deal
 
 class Fail extends Error { constructor(msg: string, public status = 400) { super(msg); } }
@@ -205,6 +209,45 @@ Deno.serve(async (req) => {
         summary: b.action === "create_company" ? `Created company ${(b.company ?? {}).name ?? ods} with ${done.contacts.length} contact(s) and ${done.networks.length} PCN/ICB association(s)` : `Linked existing company ${companyId} to ${ods}`,
         detail: { done, warnings, company: b.company ?? null } });
       return reply({ ok: true, ...done, warnings });
+    }
+    if (b.action === "deal_prefill") {      // what the create-deal form needs: the company's contacts, pipelines and stages, owners, and the signed-in user's owner
+      const companyId = idOf(b.companyId), warnings: string[] = [];
+      const a = await hs(`/crm/v4/objects/companies/${companyId}/associations/contacts?limit=10`);
+      const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId)).slice(0, 5);
+      const contacts = ids.length ? ((await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["firstname", "lastname", "jobtitle", "email"], inputs: ids.map((id: string) => ({ id })) }) }))?.results ?? []).map((c: any) => ({ id: c.id, ...c.properties })) : [];
+      const pipelines = ((await hs(`/crm/v3/pipelines/deals`))?.results ?? []).map((p: any) => ({ id: p.id, label: p.label, stages: (p.stages ?? []).sort((x: any, y: any) => x.displayOrder - y.displayOrder).map((s: any) => ({ id: s.id, label: s.label })) }));
+      let owners: any[] | null = null, ownerId: string | null = null;
+      try {
+        owners = ((await hs(`/crm/v3/owners?limit=100&archived=false`))?.results ?? []).map((o: any) => ({ id: String(o.id), name: `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim() || o.email, email: o.email }));
+        ownerId = owners.find((o) => o.email?.toLowerCase() === who.toLowerCase())?.id ?? null;
+        if (!ownerId) warnings.push(`No HubSpot owner matches ${who}; choose one or leave the deal unassigned.`);
+      } catch (_) { warnings.push("Owners could not be read: add the crm.objects.owners.read scope to the HubSpot token."); }
+      return reply({ contacts, pipelines, owners, ownerId, warnings });
+    }
+    if (b.action === "create_deal") {
+      const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId);
+      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      const props: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(b.deal ?? {})) { if (!DEAL_CREATE.has(k)) throw new Fail(`Not allowed to set deal property ${k}`); if (v !== null && v !== "") props[k] = v; }
+      if (!String(props.dealname ?? "").trim()) throw new Fail("A deal name is required");
+      props.dealname = String(props.dealname).slice(0, 200);
+      const pipes = ((await hs(`/crm/v3/pipelines/deals`))?.results ?? []);
+      const pipe = pipes.find((p: any) => p.id === String(props.pipeline));
+      if (!pipe || !(pipe.stages ?? []).some((s: any) => s.id === String(props.dealstage))) throw new Fail("Pick a valid pipeline and stage");
+      if (props.dealtype && !DEAL_TYPES.has(String(props.dealtype))) throw new Fail("Unsupported deal type");
+      if (props.product___service && !PRODUCT_SERVICE.has(String(props.product___service))) throw new Fail("Unsupported product / service");
+      if (props.hubspot_owner_id) props.hubspot_owner_id = idOf(props.hubspot_owner_id);
+      if (props.amount != null && !(Number(props.amount) >= 0 && Number(props.amount) < 100000000)) throw new Fail("Invalid amount");
+      if (props.closedate && Number.isNaN(Date.parse(String(props.closedate)))) throw new Fail("Invalid close date");
+      props.deal_currency_code = "GBP";
+      const contactIds = (Array.isArray(b.contactIds) ? b.contactIds : []).slice(0, 5).map(idOf);
+      const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name`);   // proves the company exists
+      const d = await hs(`/crm/v3/objects/deals`, { method: "POST", body: JSON.stringify({ properties: props, associations: [
+        { to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ASSOC_DEAL_TO_COMPANY }] },
+        ...contactIds.map((id: string) => ({ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ASSOC_DEAL_TO_CONTACT }] }))] }) });
+      await log({ actor: who, kind: "create_deal", ods_code: ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
+        summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s)`, detail: { companyId, properties: props, contactIds } });
+      return reply({ ok: true, dealId: String(d.id) });
     }
     if (b.action === "log_check") {          // the dashboard reports whether HubSpot's recalculated fields matched the tool after a push
       const ods = String(b.ods ?? "").trim().toUpperCase();

@@ -140,11 +140,52 @@ async function hsDeals(companyId, company) {
     box.innerHTML = `<div class="mb-2 text-xs font-semibold text-slate-600">Deals for ${esc(company.name)}</div>` + (deals.length ? deals.map(d => `<button type="button" data-deal="${esc(d.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50">
         <div class="flex justify-between gap-3"><b>${esc(d.dealname)}</b><span class="text-xs text-slate-500">${esc(d.dealstage || "")}</span></div>
         <div class="text-xs text-slate-500">${d.amount ? "£" + Number(d.amount).toLocaleString() : "no amount"} · ${esc(d.size_tier || "no size tier")} · ${esc(d.value_per_patient || "no value per patient")}</div></button>`).join("")
-      : '<p class="text-slate-500 italic">This company has no deals.</p>');
+      : '<p class="text-slate-500 italic">This company has no deals yet.</p>') +
+      `<div class="mt-2 border-t border-slate-100 pt-2"><button id="hs-newdeal" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">+ Create a new deal for ${esc(company.name)}</button></div>`;
+    $("hs-newdeal").onclick = () => hsDealForm(company);
     box.querySelectorAll("[data-deal]").forEach(b => b.onclick = async () => {
       box.innerHTML = '<p class="text-slate-500">Reading the records…</p>';
       try { Object.assign(hs, await hsCall({ action: "read", companyId, dealId: b.dataset.deal }), { linked: false }); hsPreview(); } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
     });
+  } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
+}
+
+/* create a deal: every field is editable, then the normal push preview follows */
+async function hsDealForm(company) {
+  const box = $("hs-results"); box.innerHTML = '<p class="text-slate-500">Reading the company\'s contacts, pipelines and owners…</p>';
+  try {
+    const pre = await hsCall({ action: "deal_prefill", companyId: company.id }), p = hs.p, want = hs.want || hsDesired(p);
+    const lead = pre.contacts[0] ? [pre.contacts[0].firstname, pre.contacts[0].lastname].filter(Boolean).join(" ") : (p.manager_name || "");
+    const pipes = pre.pipelines, def = pipes.find(x => x.id === "default") || pipes[0], stageNew = def.stages.find(s => s.id === "appointmentscheduled") || def.stages[0];
+    const close = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10), amount = Math.round(p.total_patients * want.rate * 12 * 100) / 100;
+    const field = (label, inner) => `<label class="block"><span class="mb-0.5 block text-xs font-semibold text-slate-600">${label}</span>${inner}</label>`, inp = "w-full rounded-lg border border-slate-300 px-2 py-1.5";
+    const opts = (list, sel) => list.map(([v, l]) => `<option value="${esc(v)}" ${v === sel ? "selected" : ""}>${esc(l)}</option>`).join("");
+    box.innerHTML = `<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New deal on ${esc(company.name)}</h4>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <div class="sm:col-span-2">${field("Deal name", `<input id="nd-name" class="${inp}" value="${esc(lead ? lead + " - " + company.name : company.name)}">`)}</div>
+        ${field("Pipeline", `<select id="nd-pipe" class="${inp}">${opts(pipes.map(x => [x.id, x.label]), def.id)}</select>`)}
+        ${field("Stage", `<select id="nd-stage" class="${inp}">${opts(def.stages.map(s => [s.id, s.label]), stageNew.id)}</select>`)}
+        ${field("Deal type", `<select id="nd-type" class="${inp}">${opts([["newbusiness", "New Business"], ["New Business GP eMR", "New Business GP eMR"], ["Existing Business - Freemium", "Existing Business - Freemium"], ["Existing Business - PAYG", "Existing Business - PAYG"], ["Existing Business - SAR Only", "Existing Business - SAR Only"], ["Existing Business - GP eMR", "Existing Business - GP eMR"], ["Renewal", "Renewal"]], "newbusiness")}</select>`)}
+        ${field("Product / service", `<select id="nd-prod" class="${inp}">${opts([["eMR+", "ReportSure - Managed Service"], ["eMR", "ReportSure - Self Service"]], "eMR+")}</select>`)}
+        ${field("Deal owner", pre.owners ? `<select id="nd-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
+        ${field("Close date", `<input id="nd-close" type="date" class="${inp}" value="${close}">`)}
+        ${field("Amount (£, per year)", `<input id="nd-amount" type="number" min="0" step="0.01" class="${inp}" value="${amount}">`)}</div>
+      ${pre.contacts.length ? `<div class="mt-3"><div class="mb-1 text-xs font-semibold text-slate-600">Associate contacts</div>${pre.contacts.map(c => `<label class="flex items-center gap-2 py-0.5"><input type="checkbox" data-nd-contact="${esc(c.id)}" checked><span>${esc([c.firstname, c.lastname].filter(Boolean).join(" ") || c.email)} <span class="text-xs text-slate-500">${esc(c.jobtitle || "")} ${esc(c.email || "")}</span></span></label>`).join("")}</div>` : '<p class="mt-3 text-xs text-slate-500">This company has no contacts to associate.</p>'}
+      ${pre.warnings.map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
+      <p class="mt-2 text-xs text-slate-500">The pricing fields, size tier and line item are added on the next screen.</p>
+      <div id="nd-msg" class="mt-2" role="status"></div>
+      <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal</button></div></div>`;
+    $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value); $("nd-stage").innerHTML = opts(pp.stages.map(s => [s.id, s.label]), pp.stages[0].id); };
+    $("nd-cancel").onclick = () => hsDeals(company.id, company);
+    $("nd-create").onclick = async () => {
+      const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
+      try {
+        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: company.id, contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact),
+          deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
+            hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
+        Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false }); hsPreview();
+      } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create deal"; }
+    };
   } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
 }
 

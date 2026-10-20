@@ -46,6 +46,8 @@ window.supabase = { createClient: () => {
       if (b.action === 'write') { Object.assign(H.company, b.company || {}); const d = Object.assign(H.deal, b.deal || {});
         const t = Math.round((Number(d.size_discount) + Number(d.speed_discount) + Number(d.term_length_discount)) * 1000) / 1000; d.total_discount = String(t);
         d.actual_value_per_patient_calculated = String(Math.round(Number(String(d.value_per_patient).replace('£', '')) * (1 - t) * 100000) / 100000); if (window.__hsBlank) d.actual_value_per_patient_calculated = ''; window.__hslink = b.ods; const L = b.lineItem; if (L) { const P = { '440423339237': 0.96, '440425147578': 0.10, '440434162881': 0.6, '440498134244': 0.06 }[L.productId]; H.lineItems = [{ id: 'L1', name: 'Lalu Care line', hs_product_id: L.productId, quantity: String(L.quantity), price: String(P), discount: String(Math.round((P - L.netUnit) * 10000) / 10000), hs_recurring_billing_period: 'P' + L.termMonths + 'M' }]; } return { data: { ok: true, lineItems: H.lineItems } }; }
+      if (b.action === 'deal_prefill') return { data: { contacts: [{ id: 'c1', firstname: 'Lena', lastname: 'Contact', jobtitle: 'Manager', email: 'l@x.nhs' }], pipelines: [{ id: 'default', label: 'Sales Pipeline', stages: [{ id: 'appointmentscheduled', label: 'New' }, { id: 'contractsent', label: 'Contract Sent' }] }], owners: [{ id: '38848375', name: 'Naseef', email: 'new@lalu.co.uk' }], ownerId: '38848375', warnings: [] } };
+      if (b.action === 'create_deal') return { data: { ok: true, dealId: '88' } };
       if (b.action === 'create_company' || b.action === 'link_company') return { data: { ok: true, companyId: '900', contacts: [], networks: [], warnings: [] } };
       return { data: {} }; } } };
 } };
@@ -106,7 +108,12 @@ with sync_playwright() as p:
     assert pg.locator('#dr-body a[href$="/record/0-2/441"]').count() == 1   # link to the HubSpot company record
     # push to HubSpot: link, preview, write, validate
     pg.evaluate("window.__hsPoll = 30"); assert "Link deal" in pg.inner_text("#dr-hs .hs-bar"); pg.click('#dr-hs .hs-bar [data-hs-act="push"]'); pg.wait_for_selector("#hs-results [data-co]")
-    pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]"); pg.click("#hs-results [data-deal]"); pg.wait_for_selector("#hs-write")
+    pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]")
+    pg.click("#hs-newdeal"); pg.wait_for_selector("#nd-create"); assert pg.input_value("#nd-name") == "Lena Contact - Test Surgery 1 (HubSpot)" and pg.input_value("#nd-owner") == "38848375" and pg.locator("[data-nd-contact]:checked").count() == 1   # editable defaults: lead contact - company, signed-in owner
+    pg.fill("#nd-name", "Test deal from the tool"); pg.click("#nd-create"); pg.wait_for_selector("#hs-write")
+    cd = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_deal')")[0][1]
+    assert cd["companyId"] == "77" and cd["contactIds"] == ["c1"] and cd["deal"]["dealname"] == "Test deal from the tool" and cd["deal"]["pipeline"] == "default" and cd["deal"]["dealstage"] == "appointmentscheduled" and cd["deal"]["dealtype"] == "newbusiness" and cd["deal"]["product___service"] == "eMR+" and cd["deal"]["hubspot_owner_id"] == "38848375" and cd["deal"]["amount"] == "8640" and cd["deal"]["closedate"].endswith("T00:00:00Z"), cd
+    pg.click("#hs-back"); pg.click("#hs-search"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]"); pg.click("#hs-results [data-deal]"); pg.wait_for_selector("#hs-write")
     pv = pg.inner_text("#hs-body"); assert "Update HubSpot to match the tool" in pv and "Tier 4" in pv and "£0.10" in pv and "9,000" in pv and "size discount" in pv.lower() and "total discount" in pv.lower() and "line item" in pv.lower() and "ReportSure - All Report - Annual" in pv, pv
     assert pg.locator("#hs-fix-all").count() == 1 and pg.locator("#hs-body ul li").count() == 4 and "ReportSure - MS - SAR Only" in pv and "ReportSure - MS - All Reports" in pv, pv
     pg.screenshot(path=SHOTS + "/hubspot.png"); pg.evaluate("window.__hsBlank = true"); pg.click("#hs-write")
