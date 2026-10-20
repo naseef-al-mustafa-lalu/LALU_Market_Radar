@@ -55,12 +55,15 @@ function hsBarHtml(p) {
     if (count) { dot = "bg-amber-400"; text = `${name}: ${count} change${count > 1 ? "s" : ""} to push`; right = act("push", `Push pricing <span class="ml-1 rounded-full bg-white/25 px-1.5">${count}</span>`); }
     else { dot = "bg-emerald-500"; text = `${name}: in sync`; right = hsLink("0-3", i.pair.deal.id, "Open deal"); }
   }
-  return `<div class="hs-bar mt-3 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2" data-ods="${esc(p.ods_code)}">
+  return `<div class="hs-bar flex items-center justify-between gap-3" data-ods="${esc(p.ods_code)}">
     <div class="flex min-w-0 items-center gap-2"><span class="h-2 w-2 shrink-0 rounded-full ${dot}"></span><div class="min-w-0"><div class="text-xs font-semibold text-slate-700">HubSpot</div><div class="truncate text-xs text-slate-500">${text}</div></div></div>${right}</div>`;
 }
+// The bar lives in a slim strip under the drawer title (#dr-hs), so it is visible whatever section you scroll to. Practices only.
 function hsRefreshBars() {
-  document.querySelectorAll(".hs-bar").forEach(el => { const p = practices.find(x => x.ods_code === el.dataset.ods); if (p) el.outerHTML = hsBarHtml(p); });
+  const box = $("dr-hs"), el = box.querySelector(".hs-bar"); if (!el) return;
+  const p = practices.find(x => x.ods_code === el.dataset.ods); if (p) box.innerHTML = hsBarHtml(p);
 }
+function hsShowBar(p) { const html = p ? hsBarHtml(p) : ""; $("dr-hs").innerHTML = html; $("dr-hs").classList.toggle("hidden", !html); }
 async function hsSetLink(p, link) {
   const i = hsInfo[p.ods_code] = { link: link || null, pair: null, loading: !!link, error: null }; hsRefreshBars();
   if (!link) return;
