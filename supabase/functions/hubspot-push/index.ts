@@ -39,6 +39,14 @@ const LEAD_TYPES = new Set(["NEW_BUSINESS", "RE_ATTEMPTING"]);
 const LEAD_CAMPAIGNS = new Set(["PCN Prospecting", "ICB April 26", "Field Based Lead", "ICB Prospecting", "Atlas"]);
 const LINE_TO_DEAL = 20;   // HubSpot-defined association type: line item -> deal
 
+// Pipelines and owners change rarely: keep them for five minutes inside a warm function instance.
+const memo = new Map<string, { at: number; v: unknown }>();
+async function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.at < 300000) return hit.v as T;
+  const v = await fn(); memo.set(key, { at: Date.now(), v }); return v;
+}
+
 class Fail extends Error { constructor(msg: string, public status = 400) { super(msg); } }
 
 async function hs(path: string, init: RequestInit = {}) {
@@ -85,7 +93,7 @@ async function leadsOf(companyId: string) {
   if (!ids.length) return [];
   const [d, pipes] = await Promise.all([
     hs(`/crm/v3/objects/leads/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["hs_lead_name", "hs_pipeline", "hs_pipeline_stage", "hs_lead_is_open_v2", "hs_createdate"], inputs: ids.map((id: string) => ({ id })) }) }),
-    hs(`/crm/v3/pipelines/leads`).catch(() => null),
+    cached("pipelines:leads", () => hs(`/crm/v3/pipelines/leads`)).catch(() => null),
   ]);
   const stage = new Map<string, string>();
   for (const pl of pipes?.results ?? []) for (const st of pl.stages ?? []) stage.set(String(st.id), `${st.label} (${pl.label})`);
@@ -114,13 +122,13 @@ async function importContacts(admin: any, companyId: string, ods: string, list: 
 }
 
 async function readPair(companyId: string, dealId: string) {
-  const [company, deal, deals, lineItems] = await Promise.all([
+  const [company, deal, dealCompanies, lineItems] = await Promise.all([
     hs(`/crm/v3/objects/companies/${companyId}?properties=${COMPANY_READ.join(",")}`),
     hs(`/crm/v3/objects/deals/${dealId}?properties=${DEAL_READ.join(",")}`),
-    dealsOf(companyId),
+    hs(`/crm/v4/objects/deals/${dealId}/associations/companies?limit=100`),   // one call proves the deal belongs to the company
     lineItemsOf(dealId).catch(() => null),   // null when the token lacks the line item scope; the dashboard then says so
   ]);
-  if (!deals.some((d: any) => d.id === dealId)) throw new Fail("That deal is not associated with that company");
+  if (!(dealCompanies?.results ?? []).some((x: any) => String(x.toObjectId) === companyId)) throw new Fail("That deal is not associated with that company");
   return { company: { id: company.id, ...company.properties }, deal: { id: deal.id, ...deal.properties }, lineItems };
 }
 
@@ -264,8 +272,8 @@ Deno.serve(async (req) => {
         const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId)).slice(0, 5);
         return ids.length ? ((await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["firstname", "lastname", "jobtitle", "email"], inputs: ids.map((id: string) => ({ id })) }) }))?.results ?? []).map((c: any) => ({ id: c.id, ...c.properties })) : [];
       })();
-      const pipelinesP = hs(`/crm/v3/pipelines/deals`).then((r) => (r?.results ?? []).map((p: any) => ({ id: p.id, label: p.label, stages: (p.stages ?? []).sort((x: any, y: any) => x.displayOrder - y.displayOrder).map((s: any) => ({ id: s.id, label: s.label })) })));
-      const ownersP = hs(`/crm/v3/owners?limit=100&archived=false`).then((r) => (r?.results ?? []).map((o: any) => ({ id: String(o.id), name: `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim() || o.email, email: o.email }))).catch(() => null);
+      const pipelinesP = cached("pipelines:deals", () => hs(`/crm/v3/pipelines/deals`)).then((r) => (r?.results ?? []).map((p: any) => ({ id: p.id, label: p.label, stages: (p.stages ?? []).sort((x: any, y: any) => x.displayOrder - y.displayOrder).map((s: any) => ({ id: s.id, label: s.label })) })));
+      const ownersP = cached("owners", () => hs(`/crm/v3/owners?limit=100&archived=false`)).then((r) => (r?.results ?? []).map((o: any) => ({ id: String(o.id), name: `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim() || o.email, email: o.email }))).catch(() => null);
       const [contacts, pipelines, owners] = await Promise.all([contactsP, pipelinesP, ownersP]);
       let ownerId: string | null = null;
       if (owners) {
@@ -281,7 +289,7 @@ Deno.serve(async (req) => {
       for (const [k, v] of Object.entries(b.deal ?? {})) { if (!DEAL_CREATE.has(k)) throw new Fail(`Not allowed to set deal property ${k}`); if (v !== null && v !== "") props[k] = v; }
       if (!String(props.dealname ?? "").trim()) throw new Fail("A deal name is required");
       props.dealname = String(props.dealname).slice(0, 200);
-      const pipes = ((await hs(`/crm/v3/pipelines/deals`))?.results ?? []);
+      const pipes = ((await cached("pipelines:deals", () => hs(`/crm/v3/pipelines/deals`)))?.results ?? []);
       const pipe = pipes.find((p: any) => p.id === String(props.pipeline));
       if (!pipe || !(pipe.stages ?? []).some((s: any) => s.id === String(props.dealstage))) throw new Fail("Pick a valid pipeline and stage");
       if (props.dealtype && !DEAL_TYPES.has(String(props.dealtype))) throw new Fail("Unsupported deal type");

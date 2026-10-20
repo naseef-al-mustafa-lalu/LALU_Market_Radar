@@ -393,10 +393,10 @@ async function hsValidate(tries) {
   if (!hs) return;
   const { want, company, deal } = hs, msg = $("hs-msg"), expectTotal = hsPct(want.total);
   try {
-    let last = null;
+    let last = null, lastFull = null;
     for (let i = 0; i < tries; i++) {
       msg.innerHTML = `<p class="text-slate-500">Waiting for HubSpot to recalculate… (${i + 1}/${tries})</p>`;
-      last = (await hsCall({ action: "read", companyId: company.id, dealId: deal.id })).deal;
+      lastFull = await hsCall({ action: "read", companyId: company.id, dealId: deal.id }); last = lastFull.deal;
       if (!hs) return;
       if (Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6 && (hsNum(last.actual_value_per_patient_calculated) == null ? i >= 2 : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4)) break;
       if (i < tries - 1) await new Promise(r => setTimeout(r, window.__hsPoll ?? 4000));
@@ -404,7 +404,7 @@ async function hsValidate(tries) {
     const okT = Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6, blankV = hsNum(last.actual_value_per_patient_calculated) == null;
     const okV = blankV ? null : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4;   // null: HubSpot has not filled it in
     const line = (ok, label, got, exp) => `<div class="flex items-center justify-between rounded-lg border ${ok === null ? "border-amber-300 bg-amber-50 text-amber-900" : ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"} px-3 py-2"><span>${ok === null ? "?" : ok ? "✓" : "✗"} ${label}</span><span class="font-mono">HubSpot ${got} · tool ${exp}</span></div>`;
-    const lineNow = hsOurLine(await hsCall({ action: "read", companyId: company.id, dealId: deal.id })), lw = want.line;
+    const lineNow = hsOurLine(lastFull), lw = want.line;   // the last poll already read the line items
     const lineNet = lineNow ? (Number(lineNow.price) - (Number(lineNow.discount) || 0)) : null, okL = lineNow == null ? null : Math.abs(lineNet - lw.netUnit) < 0.0006 && Number(lineNow.quantity) === lw.quantity;
     const done = okT && okV && okL !== false;
     hsCall({ action: "log_check", ods: hs.p.ods_code, dealId: deal.id, dealName: deal.dealname, ok: okT && okV !== false && okL !== false,
