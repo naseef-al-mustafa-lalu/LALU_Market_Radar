@@ -120,20 +120,33 @@ async function hsWrite(checks) {
   $("hs-write").disabled = true; $("hs-write").textContent = "Writing…"; msg.innerHTML = "";
   try {
     await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps });
-    const expectTotal = hsPct(want.total);
+    $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
+    await hsValidate(6);
+  } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; $("hs-write").disabled = false; $("hs-write").textContent = "Write to HubSpot"; }
+}
+
+// Read the deal back until HubSpot's calculated fields match the tool (or give up after `tries` reads), then show the comparison.
+// The Re-check button runs it again, in case HubSpot is slower than usual.
+async function hsValidate(tries) {
+  if (!hs) return;
+  const { want, company, deal } = hs, msg = $("hs-msg"), expectTotal = hsPct(want.total);
+  try {
     let last = null;
-    for (let i = 0; i < 6; i++) {
-      msg.innerHTML = `<p class="text-slate-500">Written. Waiting for HubSpot to recalculate… (${i + 1}/6)</p>`;
+    for (let i = 0; i < tries; i++) {
+      msg.innerHTML = `<p class="text-slate-500">Waiting for HubSpot to recalculate… (${i + 1}/${tries})</p>`;
       last = (await hsCall({ action: "read", companyId: company.id, dealId: deal.id })).deal;
+      if (!hs) return;
       if (Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6 && (hsNum(last.actual_value_per_patient_calculated) == null ? i >= 2 : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4)) break;
-      if (i < 5) await new Promise(r => setTimeout(r, window.__hsPoll ?? 4000));
+      if (i < tries - 1) await new Promise(r => setTimeout(r, window.__hsPoll ?? 4000));
     }
     const okT = Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6, blankV = hsNum(last.actual_value_per_patient_calculated) == null;
     const okV = blankV ? null : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4;   // null: HubSpot has not filled it in
     const line = (ok, label, got, exp) => `<div class="flex items-center justify-between rounded-lg border ${ok === null ? "border-amber-300 bg-amber-50 text-amber-900" : ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"} px-3 py-2"><span>${ok === null ? "?" : ok ? "✓" : "✗"} ${label}</span><span class="font-mono">HubSpot ${got} · tool ${exp}</span></div>`;
+    const done = okT && okV;
     msg.innerHTML = `<div class="space-y-2">${line(okT, "Total Discount %", last.total_discount == null ? "not set" : pct(hsNum(last.total_discount) / HS_PCT), pct(want.total))}
-      ${line(okV, "Actual Value per Patient (Calculated)", last.actual_value_per_patient_calculated ? "£" + rate3(last.actual_value_per_patient_calculated) : "not set", "£" + rate3(want.rate))}</div>
-      <p class="mt-2 text-xs text-slate-500">${okT && okV ? "HubSpot matches the tool. The link is saved for next time." : okT && okV === null ? "Total Discount % matches. HubSpot has not filled in Actual Value per Patient (Calculated) on this deal, so it could not be compared. The link is saved." : "HubSpot's calculated fields do not match the tool. Check the deal's workflow, or whether the price floor applies in the tool but not in HubSpot."}</p>`;
-    $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
-  } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; $("hs-write").disabled = false; $("hs-write").textContent = "Write to HubSpot"; }
+      ${line(okV, "Actual Value per Patient (Calculated)", blankV ? "not set" : "£" + rate3(last.actual_value_per_patient_calculated), "£" + rate3(want.rate))}</div>
+      <p class="mt-2 text-xs text-slate-500">${done ? "HubSpot matches the tool. The link is saved for next time." : okT && okV === null ? "Total Discount % matches. HubSpot has not filled in Actual Value per Patient (Calculated) yet, so it could not be compared. The link is saved." : "HubSpot's calculated fields do not match the tool yet. Re-check in a moment, or check the deal's workflow and whether the price floor applies in the tool but not in HubSpot."}</p>
+      ${done ? "" : '<div class="mt-2 text-right"><button id="hs-recheck" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Re-check HubSpot</button></div>'}`;
+    const rc = $("hs-recheck"); if (rc) rc.onclick = () => { rc.disabled = true; hsValidate(3); };
+  } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p><div class="mt-2 text-right"><button id="hs-recheck" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold">Re-check HubSpot</button></div>`; $("hs-recheck").onclick = () => hsValidate(3); }
 }
