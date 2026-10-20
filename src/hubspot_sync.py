@@ -124,6 +124,7 @@ def _num(v):
 MAX_PCN_CREATES = 25          # safety limit per run; anything beyond is reported and picked up the next day
 MAX_PCN_REPAIRS = 25
 MAX_ASSOCIATIONS = 3000
+MAX_INACTIVATE = 50
 PCN_CODE = re.compile(r"^U\d{5}$")
 POSTCODE_RE = re.compile(r"^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$")
 BAD_ADDRESS = re.compile(r"^\d{8}$")   # an early version wrote a date into address line 1; those records are repaired from the ODS API
@@ -204,7 +205,7 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
             lines.append(f"Corrected the address details of PCN {pr.get('name', c)} ({c})")
     # 3. mark PCNs closed in ODS as inactive in HubSpot
     for c, pr in by_code.items():
-        if c in inactive and pr.get("status") != "inactive":
+        if c in inactive and pr.get("status") != "inactive" and stats["pcn_records_inactivated"] < MAX_INACTIVATE:
             end = ods_pcn_props(getj(f"{sources.ODS_API}/organisations/{c}")).get("operational_end_date")
             hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {"status": "inactive", **({"operational_end_date": end} if end else {})}})
             stats["pcn_records_inactivated"] += 1
