@@ -227,7 +227,7 @@ def test_hubspot_sync_flags_and_contact_matching():
             if table == "organisations":
                 return [dict(id="o1", kind="pcn", name="West PCN", source_key="ods:U00001"), dict(id="o2", kind="icb", name="NHS Essex ICB - D7T5G", source_key="icb:x"), dict(id="o3", kind="pcn", name="Scot cluster", source_key="ods:SC-aberd")]
             if table == "gp_practices":
-                return [dict(ods_code=c, practice_name=c, hubspot_company_id=None) for c in ("A10001", "A10002", "A10003")] + [dict(ods_code="A10004", practice_name="Old", hubspot_company_id="9")]
+                return [dict(ods_code=c, practice_name=c, hubspot_company_id=None, pcn_code={"A10002": "U00001", "A10003": "U99999"}.get(c)) for c in ("A10001", "A10002", "A10003")] + [dict(ods_code="A10004", practice_name="Old", hubspot_company_id="9")]
             return [dict(contact_urn=1, ods_code="A10001", email="Ann@x.nhs", hubspot_status="Not imported", hubspot_contact_id=None),
                     dict(contact_urn=2, ods_code="A10001", email="bob@x.nhs", hubspot_status="Imported", hubspot_contact_id="77")]
         def upsert(self, table, rows, on_conflict, batch=500):
@@ -255,7 +255,26 @@ def test_hubspot_sync_flags_and_contact_matching():
                 return {"results": [{"id": "31", "properties": {"hs_is_closed_won": "true"}}]}
             raise AssertionError(path)
 
+    epcn_csv = b"U00001,WEST PCN,x,NHS ESSEX ICB - D7T5G,1 HIGH ST,,,TOWN,COUNTY,CM1 1QH,20200701,,,,D7T5G,,,01245 123456\nU99999,NEW PCN,x,NHS ESSEX ICB - D7T5G,2 LOW ST,,,TOWN,COUNTY,not a postcode,20250101,,,,D7T5G\nU88888,CLOSED PCN,x,NHS ESSEX ICB - D7T5G,,,,,,,20200101,20240331,,,D7T5G\n"
+    hsy.sources.fetch = lambda url, timeout=120: epcn_csv
+    hsy.slack.post = lambda text, blocks=None: posted.append(text)
+    posted = []
     rest = FakeRest()
+    created, patched, assoc = [], [], []
+    base_call = FakeHub.call
+    def call(self, method, path, **kw):
+        if "p145802630_pcns/search" in path:
+            return {"results": [{"id": "501", "properties": {"ods_code": "U00001", "name": "West PCN", "total_amount_in_won_deals": "1200", "count_of_active_emr_practices": "2"}}, {"id": "502", "properties": {"ods_code": "U88888", "name": "Closed PCN", "status": "active"}}]}
+        if method == "POST" and path == "/crm/v3/objects/p145802630_pcns":
+            created.append(kw["json"]["properties"]); return {"id": "700"}
+        if method == "PATCH" and "p145802630_pcns" in path:
+            patched.append((path, kw["json"]["properties"])); return {}
+        if "associations/companies/p145802630_pcns/batch/read" in path:
+            return {"results": [{"from": {"id": "1"}, "to": [{"toObjectId": 501}]}]}
+        if "batch/associate/default" in path:
+            assoc.extend(kw["json"]["inputs"]); return {}
+        return base_call(self, method, path, **kw)
+    FakeHub.call = call
     stats = hsy.sync(rest, FakeHub())
     g = {r["ods_code"]: r for r in rest.up["gp_practices"]}
     assert g["A10001"]["hubspot_engaged"] and not g["A10001"]["hubspot_customer"] and g["A10001"]["hubspot_stage"] == "Opportunity"
@@ -268,3 +287,6 @@ def test_hubspot_sync_flags_and_contact_matching():
     nl = {r["org_id"]: r for r in rest.up["hubspot_network_links"]}
     assert nl["o1"]["object_id"] == "501" and nl["o1"]["object_type"].endswith("pcns") and nl["o1"]["won_deals_amount"] == 1200 and nl["o2"]["object_id"] == "601" and "o3" not in nl   # PCN by ODS code, ICB by name, Scottish cluster unmatched
     assert stats["networks_linked"] == 2 and stats["networks_unmatched"] == 1
+    assert [c["ods_code"] for c in created] == ["U99999"] and "postcode" not in created[0] and created[0]["status"] == "active" and created[0]["icb_ods_code"] == "D7T5G" and created[0]["address_line_1"] == "2 Low St"   # new PCN created; the invalid postcode is left out
+    assert {(a["from"]["id"], a["to"]["id"]) for a in assoc} == {("2", "501"), ("3", "700")} and posted   # only missing associations; Slack told
+    assert patched and patched[0][1]["status"] == "inactive" and patched[0][1]["operational_end_date"] == "2024-03-31"

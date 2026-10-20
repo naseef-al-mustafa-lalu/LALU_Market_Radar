@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 
 import requests
 
-from .common import Rest, need_env, norm_ods, send_alert
+from . import slack, sources
+from .common import Rest, need_env, norm_ods, send_alert, title_case
 
 BASE = "https://api.hubapi.com"
 LIFECYCLE = {"lead": "New", "2207373534": "Engaged", "marketingqualifiedlead": "Marketing Qualified Lead", "5640141025": "Prospecting",
@@ -120,6 +121,82 @@ def _num(v):
         return None
 
 
+MAX_PCN_CREATES = 25          # safety limit per run; anything beyond is reported and picked up the next day
+MAX_ASSOCIATIONS = 3000
+PCN_CODE = re.compile(r"^U\d{5}$")
+POSTCODE_RE = re.compile(r"^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$")
+YMD = re.compile(r"^\d{8}$")
+
+
+def _ymd(v):
+    v = str(v or "").strip()
+    return f"{v[:4]}-{v[4:6]}-{v[6:8]}" if YMD.match(v) else None
+
+
+def parse_epcn(data, icb_codes=None):
+    """NHS ODS 'epcn' export (headerless) -> {pcn code: HubSpot PCN properties}. Every column is validated, and anything that does not look
+    right (postcode, dates, phone) is left out rather than written."""
+    out = {}
+    for row in sources._csv(data, header=None).values.tolist():
+        code = str(row[0]).strip().upper()
+        if not PCN_CODE.match(code):
+            continue
+        col = lambda i: str(row[i]).strip() if len(row) > i else ""
+        postcode = col(9).upper()
+        start, end = _ymd(col(10)), _ymd(col(11))
+        m = re.search(r"-\s*([0-9A-Z]{3,6})\s*$", col(3).upper())   # parent ICB code: from the name suffix, else from HubSpot's own ICB records by name
+        icb_code = m.group(1) if m else (icb_codes or {}).get(norm_icb(sources.clean_icb(col(3)))) or ""
+        phone = re.sub(r"[^0-9+ ]", "", col(17))
+        props = {"name": title_case(col(1)), "ods_code": code, "address_line_1": title_case(col(4)), "address_line_2": title_case(col(5)), "address_line_3": title_case(col(6)),
+                 "town": title_case(col(7)), "county": title_case(col(8)), "postcode": postcode if POSTCODE_RE.match(postcode) else "", "country": "England",
+                 "icb_name": title_case(sources.clean_icb(col(3))), "icb_ods_code": icb_code,
+                 "operational_start_date": start or "", "operational_end_date": end or "", "phone": phone if len(phone) >= 8 else "",
+                 "status": "inactive" if end and end <= datetime.now(timezone.utc).date().isoformat() else "active"}
+        out[code] = {k: v for k, v in props.items() if v not in ("", None)}
+    return out
+
+
+def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of):
+    """Keep HubSpot's PCN custom object in step with NHS ODS: create missing PCNs (capped), mark closed ones inactive, and add missing
+    company -> PCN associations. Add-only: nothing is deleted or de-associated. Returns (stats, lines for Slack)."""
+    stats, lines = {"pcn_records_created": 0, "pcn_records_inactivated": 0, "pcn_associations_added": 0, "pcn_create_capped": 0}, []
+    ours = {c for c in (p.get("pcn_code") for p in practices.values()) if c}
+    by_code = {pr["ods_code"].strip().upper(): pr for pr in hs_pcns if pr.get("ods_code")}
+    # 1. create PCNs the tool knows (they have active practices) that HubSpot lacks
+    missing = sorted(c for c in ours if c in epcn and c not in by_code and epcn[c].get("status") != "inactive")
+    for c in missing[:MAX_PCN_CREATES]:
+        r = hub.call("POST", f"/crm/v3/objects/{PCN_OBJECT}", json={"properties": epcn[c]})
+        by_code[c] = {"id": r["id"], **epcn[c]}
+        stats["pcn_records_created"] += 1
+        lines.append(f"Created PCN {epcn[c]['name']} ({c})")
+    stats["pcn_create_capped"] = max(0, len(missing) - MAX_PCN_CREATES)
+    # 2. mark PCNs closed in ODS as inactive in HubSpot
+    for c, pr in by_code.items():
+        e = epcn.get(c)
+        if e and e.get("status") == "inactive" and pr.get("status") != "inactive" and e.get("operational_end_date"):
+            hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {"status": "inactive", "operational_end_date": e["operational_end_date"]}})
+            stats["pcn_records_inactivated"] += 1
+            lines.append(f"Marked PCN {pr.get('name', c)} ({c}) inactive (closed {e['operational_end_date']})")
+    # 3. associate each linked practice company to its PCN record
+    want = {}   # company id -> PCN record id
+    for ods, cid in company_of.items():
+        pcn = (practices.get(ods) or {}).get("pcn_code")
+        if pcn and pcn in by_code:
+            want[cid] = str(by_code[pcn]["id"])
+    have = {}
+    for ch in chunks(sorted(want), 1000):
+        d = hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/read", json={"inputs": [{"id": i} for i in ch]})
+        for r in d.get("results", []):
+            have[str(r["from"]["id"])] = {str(t["toObjectId"]) for t in r.get("to", [])}
+    todo = [{"from": {"id": cid}, "to": {"id": pid}} for cid, pid in want.items() if pid not in have.get(cid, set())][:MAX_ASSOCIATIONS]
+    for ch in chunks(todo, 100):
+        hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/associate/default", json={"inputs": ch})
+    stats["pcn_associations_added"] = len(todo)
+    if todo:
+        lines.append(f"Associated {len(todo)} practice companies with their PCN record")
+    return stats, lines
+
+
 def sync_networks(rest, hub, now):
     """Link PCN and ICB networks to HubSpot's PCN / ICB custom objects (PCN by ODS code, ICB by normalised name) and keep their HubSpot figures."""
     orgs = rest.select_all("organisations", "id,kind,name,source_key", order="id", params={"kind": "in.(pcn,icb)"})
@@ -152,7 +229,7 @@ def sync_networks(rest, hub, now):
 
 def sync(rest, hub, now=None):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
+    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
     by_ods = {}
     for c in raw:
@@ -191,8 +268,22 @@ def sync(rest, hub, now=None):
         if (c["hubspot_status"], c.get("hubspot_contact_id")) != (want[0], want[2]):
             crow.append({"contact_urn": c["contact_urn"], "ods_code": c["ods_code"], "hubspot_status": want[0], "hubspot_imported_at": want[1], "hubspot_contact_id": want[2]})
     rest.upsert("contacts", crow, "contact_urn")
+    pcn_stats = {}
+    try:   # mirror NHS ODS into HubSpot's PCN object; a failure here must not undo the practice sync above
+        icb_codes = {norm_icb(o.get("properties", {}).get("name")): o["properties"]["ods_code"] for o in fetch_custom(hub, ICB_OBJECT) if o.get("properties", {}).get("ods_code")}
+        epcn = parse_epcn(sources.fetch(sources.ODS_EXPORT + "epcn"), icb_codes)
+        hs_pcns = [{"id": o["id"], **o.get("properties", {})} for o in fetch_custom(hub, PCN_OBJECT)]
+        company_of = {ods: str(sorted(cs, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]["id"]) for ods, cs in by_ods.items()}
+        pcn_stats, lines = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of)
+        if lines:
+            try:
+                slack.post("HubSpot sync updated the PCN records:\n• " + "\n• ".join(slack.mrkdwn(x) for x in lines[:20]) + (f"\n…and {len(lines) - 20} more" if len(lines) > 20 else ""))
+            except Exception as e:  # noqa: BLE001
+                print("Slack post skipped:", e)
+    except Exception as e:  # noqa: BLE001
+        pcn_stats = {"pcn_sync_error": str(e)[:300]}
     nets = sync_networks(rest, hub, now)
-    return {**nets, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
+    return {**nets, **pcn_stats, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
             "contacts_updated": len(crow), "search_capped": total > len(raw)}
 
 
