@@ -109,7 +109,8 @@ async function connTestHubspot() {
 let dataSub = "overview";
 function setDataSub(which) {
   dataSub = which;
-  for (const k of ["overview", "sources", "signals", "pricing"]) $("dp-" + k).classList.toggle("hidden", k !== which);
+  for (const k of ["overview", "sources", "audit", "signals", "pricing"]) $("dp-" + k).classList.toggle("hidden", k !== which);
+  if (which === "audit") renderAudit();
   $("data-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.d === which ? "bg-white shadow-sm" : "text-slate-500"));
   stateToUrl();
 }
@@ -419,3 +420,48 @@ $("pc-run").addEventListener("click", async () => {
     else if (Date.now() - t0 > 10 * 60 * 1000) { clearInterval(pcTimer); msg.textContent = "Still waiting after 10 minutes: is the runner on? The request stays queued. Or use the England upload box."; btn.disabled = false; }
   }, 10000);
 });
+
+
+/* ---------- Data > HubSpot audit: HubSpot companies that do not match the NHS practice list (rebuilt by every HubSpot sync) ---------- */
+const AUDIT_ISSUES = {
+  closed_practice: { label: "Closed or merged practice", tone: "bg-rose-100 text-rose-800", help: "The NHS shows this practice as closed or merged, but HubSpot still has a company for it." },
+  name_mismatch: { label: "Name differs", tone: "bg-amber-100 text-amber-800", help: "Same ODS code, but the HubSpot company name and the NHS practice name look like different places. One of them is probably on the wrong code." },
+  duplicate_code: { label: "Code on several companies", tone: "bg-violet-100 text-violet-800", help: "More than one HubSpot company carries the same GP ODS Code. Merge or correct them." },
+  unknown_code: { label: "Not a GP practice code", tone: "bg-slate-200 text-slate-700", help: "The code is not a GP practice in the NHS list (a typo, a PCN or hospital code, or a practice that no longer exists)." },
+};
+let auditRows = [], auditIssue = "all", auditQuery = "", auditShown = 100;
+async function renderAudit() {
+  const box = $("d-audit"); if (!box.innerHTML) box.innerHTML = '<p class="text-sm text-slate-500">Loading…</p>';
+  try { auditRows = await fetchAll("hubspot_audit", "*", "id"); } catch (e) { box.innerHTML = `<p class="text-sm text-rose-700">${esc(e.message || e)}</p>`; return; }
+  const when = auditRows.reduce((m, r) => (r.found_at > m ? r.found_at : m), "");
+  const count = k => auditRows.filter(r => r.issue === k).length;
+  box.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold">HubSpot audit <span class="text-xs font-normal text-slate-500">HubSpot companies that do not match the NHS practice list${when ? ", as of the sync " + hsAgo(when) : ""}</span></h2>
+      <div class="flex items-center gap-2"><input id="au-q" value="${esc(auditQuery)}" placeholder="Search name or code" class="rounded-md border border-slate-300 px-2 py-1 text-xs" aria-label="Search the audit"><button id="au-csv" class="rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold hover:bg-slate-50">Download CSV</button></div></div>
+    <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5"><button data-au="all" class="rounded-xl border p-3 text-left ${auditIssue === "all" ? "border-slate-500 bg-slate-50" : "border-slate-200 hover:bg-slate-50"}"><div class="text-xs uppercase tracking-wider text-slate-500">All issues</div><div class="text-xl font-bold">${auditRows.length.toLocaleString()}</div></button>
+      ${Object.entries(AUDIT_ISSUES).map(([k, v]) => `<button data-au="${k}" class="rounded-xl border p-3 text-left ${auditIssue === k ? "border-slate-500 bg-slate-50" : "border-slate-200 hover:bg-slate-50"}"><div class="text-xs uppercase tracking-wider text-slate-500">${esc(v.label)}</div><div class="text-xl font-bold">${count(k).toLocaleString()}</div></button>`).join("")}</div>
+    <p id="au-help" class="mt-2 text-xs text-slate-500">${auditIssue === "all" ? "Pick a tile to see what each issue means." : esc(AUDIT_ISSUES[auditIssue].help)}</p>
+    <div id="au-list" class="mt-2"></div>`;
+  box.querySelectorAll("[data-au]").forEach(b => b.onclick = () => { auditIssue = b.dataset.au; auditShown = 100; renderAudit(); });
+  $("au-q").oninput = e => { auditQuery = e.target.value; auditShown = 100; auditList(); };
+  $("au-csv").onclick = () => downloadCsv("Lalu_HubSpot_audit", ["Issue", "HubSpot company", "HubSpot company id", "ODS code", "NHS practice", "NHS status", "Detail"], auditFiltered().map(r => [AUDIT_ISSUES[r.issue]?.label || r.issue, r.company_name, r.company_id, r.ods_code, r.nhs_name, r.nhs_status, r.detail]));
+  auditList();
+}
+function auditFiltered() {
+  const q = auditQuery.trim().toLowerCase();
+  return auditRows.filter(r => (auditIssue === "all" || r.issue === auditIssue) && (!q || [r.company_name, r.ods_code, r.nhs_name].some(v => (v || "").toLowerCase().includes(q))))
+    .sort((a, b) => Object.keys(AUDIT_ISSUES).indexOf(a.issue) - Object.keys(AUDIT_ISSUES).indexOf(b.issue) || (a.company_name || "").localeCompare(b.company_name || ""));
+}
+function auditList() {
+  const box = $("au-list"); if (!box) return;
+  if (!auditRows.length) { box.innerHTML = '<p class="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">No mismatches recorded. The list is rebuilt by each HubSpot sync (daily 08:30 UTC, or Run sync now on Overview). If it has never run since this tab was added, run it once.</p>'; return; }
+  const rows = auditFiltered();
+  box.innerHTML = rows.slice(0, auditShown).map(r => { const iss = AUDIT_ISSUES[r.issue] || { label: r.issue, tone: "bg-slate-100 text-slate-700" }, p = practices.find(x => x.ods_code === r.ods_code);
+    return `<div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 py-2 first:border-0"><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><span class="rounded-full px-2 py-0.5 text-[11px] font-semibold ${iss.tone}">${esc(iss.label)}</span>${p && p.hubspot_customer ? chip("Customer", "bg-emerald-100 text-emerald-800") : ""}
+        <span class="font-mono text-xs text-slate-500">${esc(r.ods_code || "")}</span></div>
+      <div class="mt-0.5 text-sm"><span class="text-xs text-slate-500">HubSpot</span> <b>${esc(r.company_name || "(no name)")}</b>${r.nhs_name ? ` <span class="ml-2 text-xs text-slate-500">NHS</span> <b>${esc(r.nhs_name)}</b>` : ""}</div><div class="text-xs text-slate-500">${esc(r.detail || "")}</div></div>
+      <div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-2", r.company_id, "Company")}${p ? `<button data-au-open="${esc(p.ods_code)}" class="font-semibold text-blue-600 hover:underline">Open practice</button>` : ""}</div></div>`; }).join("")
+    || '<p class="text-sm text-slate-500">Nothing matches.</p>';
+  if (rows.length > auditShown) box.insertAdjacentHTML("beforeend", `<div class="pt-2 text-center"><button id="au-more" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(rows.length - auditShown).toLocaleString()} left)</button></div>`);
+  const more = $("au-more"); if (more) more.onclick = () => { auditShown += 200; auditList(); };
+  box.querySelectorAll("[data-au-open]").forEach(b => b.onclick = () => { const p = practices.find(x => x.ods_code === b.dataset.auOpen); if (p) { showTab("practices"); openDrawer(p); } });
+}

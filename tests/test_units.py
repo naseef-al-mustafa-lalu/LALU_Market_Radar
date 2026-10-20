@@ -319,3 +319,20 @@ def test_hubspot_sync_ex_customer_is_not_a_customer():
     assert hsy.classify([ex], [], {}, ["d1"], won)["hubspot_customer"] is False   # an old won deal does not make an ex-customer current
     assert hsy.classify([cur], [], {}, [], {})["hubspot_customer"] is True
     assert hsy.classify([ex, cur], [], {}, [], {})["hubspot_customer"] is True      # another live company with the same ODS code still counts
+
+
+def test_hubspot_audit_names_and_issues():
+    from src import hubspot_sync as hsy
+    assert hsy.names_match("The Grantham Practice", "Grantham Medical Practice")
+    assert hsy.names_match("St Mary's Surgery", "St Marys Surgery")
+    assert hsy.names_match("Dr Smith & Partners", "Smith and Partners Medical Centre")
+    assert not hsy.names_match("Dr Jefferies & Partners", "GP at Hand")
+    practices = {"A10001": {"practice_name": "Alpha Surgery", "status": "Active", "merged_into": None}, "B20002": {"practice_name": "Beta Health Centre", "status": "Closed", "merged_into": None},
+                 "C30003": {"practice_name": "Gamma Practice", "status": "Active", "merged_into": None}}
+    raw = [{"id": 1, "properties": {"name": "Alpha Surgery", "partner_organisation_code": "a10001"}},
+           {"id": 2, "properties": {"name": "Beta Health Centre", "partner_organisation_code": "B20002"}},
+           {"id": 3, "properties": {"name": "Something Else Ltd", "partner_organisation_code": "C30003"}},
+           {"id": 4, "properties": {"name": "Gamma Practice", "partner_organisation_code": "C30003"}},
+           {"id": 5, "properties": {"name": "Nowhere", "partner_organisation_code": "Z90009"}}]
+    got = {(r["issue"], r["company_id"]) for r in hsy.audit_rows(raw, practices, "now")}
+    assert got == {("closed_practice", "2"), ("name_mismatch", "3"), ("duplicate_code", "3"), ("duplicate_code", "4"), ("unknown_code", "5")}, got

@@ -239,9 +239,7 @@ async function openDrawer(p) {
     sec("Notes (Oscar)", p.org_notes ? `<div class="text-sm text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : "");
   body.scrollTop = 0;
   body.onclick = ev => { const a = ev.target.closest("a[data-net]"); if (a) { ev.preventDefault(); const [kind, key, label] = a.dataset.net.split("|"); openNetwork(kind, key, label); } };
-  const hiringHtml = jobAdverts.filter(j => j.ods_code === p.ods_code).sort((a, b) => (b.post_date || "").localeCompare(a.post_date || "")).slice(0, 8).map(j =>
-      `<div class="py-1 border-t border-slate-100 first:border-0 text-sm"><a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(j.url)}">${esc(j.title)}</a>
-       <div class="text-xs text-slate-500">${esc(j.matched_role)} · posted ${esc(fmtDate(j.post_date))}${j.close_date ? " · closes " + esc(fmtDate(j.close_date)) : ""}</div></div>`).join("");
+  const jobs = jobAdverts.filter(j => j.ods_code === p.ods_code).sort((a, b) => (b.post_date || "").localeCompare(a.post_date || "")).slice(0, 8);
   const [{ data: cs }, { data: sg }, { data: hl }] = await Promise.all([
     db.from("contacts").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
     db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10),
@@ -253,5 +251,28 @@ async function openDrawer(p) {
       <span class="text-slate-500 text-sm"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span>
       <div class="text-xs text-slate-600">${c.email ? (c.email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : `<a class="text-blue-600 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : ""} ${esc(c.phone)}</div>
       <div class="mt-0.5">${c.hubspot_status === "Imported" ? (c.hubspot_contact_id ? hsLink("0-1", c.hubspot_contact_id, "In HubSpot · " + fmtDate(c.hubspot_imported_at)) : chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800")) : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-500">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
-  $("dr-signals").outerHTML = sec("Signals and hiring", (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</span> <b class="text-xs">${esc(s.headline)}</b> ${chip(SIG_STATUS[s.status || "new"], s.status === "done" ? "bg-emerald-100 text-emerald-800" : s.status === "in_progress" ? "bg-blue-100 text-blue-800" : s.status === "dismissed" ? "bg-slate-100 text-slate-500" : "bg-amber-100 text-amber-800")} ${sigLink(s)}<div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700 mt-0.5"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</div>`).join("") + (hiringHtml ? `<div class="text-xs font-semibold text-slate-500 mt-2">Hiring: report / records roles (NHS Jobs)</div>` + hiringHtml : ""));
+  $("dr-signals").outerHTML = sec("Signals and hiring", sigTiles(sg || [], jobs));
+}
+
+/* signals and hiring in the profile: one collapsible tile each, newest unactioned signal open */
+const SIG_DOT = { new: "bg-amber-400", in_progress: "bg-blue-500", done: "bg-emerald-500", dismissed: "bg-slate-300" };
+const SIG_CHIP = { new: "bg-amber-100 text-amber-800", in_progress: "bg-blue-100 text-blue-800", done: "bg-emerald-100 text-emerald-800", dismissed: "bg-slate-100 text-slate-500" };
+const tileChev = '<svg class="dchev h-4 w-4 shrink-0 text-slate-400 transition-transform" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>';
+function sigTiles(sg, jobs) {
+  const open = sg.findIndex(s => ["new", "in_progress"].includes(s.status || "new"));
+  const sigTile = (s, i) => { const st = s.status || "new", type = String(s.trigger_type || "").replaceAll("_", " ").toLowerCase();
+    return `<details class="dtile rounded-xl border border-slate-200 bg-white" ${i === open ? "open" : ""}>
+      <summary class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50"><span class="h-2.5 w-2.5 shrink-0 rounded-full ${SIG_DOT[st]}"></span>
+        <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">${esc(s.headline)}</span><span class="block truncate text-xs text-slate-500">${esc(fmtDate(s.detected_at))} · ${esc(type)}</span></span>
+        <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${SIG_CHIP[st]}">${esc(SIG_STATUS[st])}</span>${tileChev}</summary>
+      <div class="space-y-2 border-t border-slate-100 px-3 py-2.5 text-sm">${s.description ? `<p class="text-slate-700">${esc(s.description)}</p>` : ""}
+        ${s.action ? `<div class="rounded-lg bg-blue-50 p-2 text-blue-900"><div class="text-[11px] font-semibold uppercase tracking-wider text-blue-700">Next step</div><div class="mt-0.5">${esc(s.action)}</div></div>` : ""}
+        ${s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="inline-block text-xs font-semibold text-blue-600 hover:underline">Open source ↗</a>` : ""}</div></details>`; };
+  const jobTile = j => `<details class="dtile rounded-xl border border-slate-200 bg-white"><summary class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50"><span class="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-400"></span>
+      <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">${esc(j.title)}</span><span class="block truncate text-xs text-slate-500">${esc(j.matched_role)} · posted ${esc(fmtDate(j.post_date))}</span></span>
+      ${j.close_date ? `<span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">closes ${esc(fmtDate(j.close_date))}</span>` : ""}${tileChev}</summary>
+      <div class="border-t border-slate-100 px-3 py-2.5 text-sm"><a href="${esc(j.url)}" target="_blank" rel="noopener" class="text-xs font-semibold text-blue-600 hover:underline">Open the advert on NHS Jobs ↗</a></div></details>`;
+  const head = (t, n) => `<div class="mb-1 mt-1 flex items-center gap-2 text-xs font-semibold text-slate-600">${t}<span class="rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">${n}</span></div>`;
+  if (!sg.length && !jobs.length) return "";   // nothing to show: the whole section hides
+  return (sg.length ? head("Signals", sg.length) + `<div class="space-y-1.5">${sg.map(sigTile).join("")}</div>` : "") + (jobs.length ? `<div class="${sg.length ? "mt-3" : ""}">${head("Hiring: report / records roles (NHS Jobs)", jobs.length)}<div class="space-y-1.5">${jobs.map(jobTile).join("")}</div></div>` : "");
 }

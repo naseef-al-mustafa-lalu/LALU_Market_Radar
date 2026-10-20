@@ -4,6 +4,7 @@ customer / engaged status, lifecycle stage and which of the practice's contacts 
 Customer: company lifecycle stage is Customer, or any associated deal is Closed Won, unless the company's Company Status is Ex-Customer.
 Engaged: the company's lifecycle stage is past New / Prospecting (Engaged, MQL, SQL, Opportunity, Evangelist, Client Services).
 """
+import difflib
 import os
 import re
 import sys
@@ -268,6 +269,72 @@ def sync_networks(rest, hub, now):
             "networks_unmatched": len(orgs) - len(rows)}
 
 
+AUDIT_NOISE = {"the", "and", "surgery", "practice", "medical", "centre", "center", "health", "group", "gp", "partners", "partnership", "dr", "drs", "clinic", "ltd", "limited", "nhs"}
+
+
+def name_tokens(name):
+    t = re.sub(r"[^a-z0-9 ]+", " ", (name or "").lower().replace("&", " and "))
+    words = t.split()
+    return [w for w in words if w not in AUDIT_NOISE] or words
+
+
+def names_match(a, b):
+    """True when two practice names plausibly refer to the same place (ignores filler words, order and small spelling differences)."""
+    ta, tb = name_tokens(a), name_tokens(b)
+    if not ta or not tb:
+        return True   # nothing to compare
+    sa, sb = set(ta), set(tb)
+    if sa <= sb or sb <= sa:
+        return True
+    return difflib.SequenceMatcher(None, " ".join(sorted(ta)), " ".join(sorted(tb))).ratio() >= 0.72
+
+
+def audit_rows(raw, practices, now):
+    """Mismatches between HubSpot companies (that carry a GP ODS Code) and the NHS practice list."""
+    rows, by_code = [], {}
+    for c in raw:
+        p = {"id": str(c["id"]), **c.get("properties", {})}
+        by_code.setdefault(norm_ods(p.get("partner_organisation_code")), []).append(p)
+
+    def add(issue, c, ods, pr, detail):
+        rows.append({"id": f"{issue}-{c['id']}", "issue": issue, "company_id": c["id"], "company_name": c.get("name"), "ods_code": ods, "nhs_name": (pr or {}).get("practice_name"),
+                     "nhs_status": (pr or {}).get("status"), "detail": detail, "found_at": now})
+    for ods, cs in by_code.items():
+        if not ods:
+            continue
+        pr = practices.get(ods)
+        for c in cs:
+            if pr is None:
+                add("unknown_code", c, ods, None, f"{ods} is not a GP practice in the NHS list")
+                continue
+            if len(cs) > 1:
+                add("duplicate_code", c, ods, pr, f"{len(cs)} HubSpot companies carry {ods}")
+            if pr.get("status") != "Active" or pr.get("merged_into"):
+                add("closed_practice", c, ods, pr, "Merged into " + str(pr["merged_into"]) if pr.get("merged_into") else f"NHS status: {pr.get('status')}")
+            if not names_match(c.get("name"), pr.get("practice_name")):
+                add("name_mismatch", c, ods, pr, "HubSpot and NHS names differ")
+    return rows
+
+
+def sync_audit(rest, raw, practices, now):
+    """Replace the stored mismatch list with today's; never stops the sync."""
+    try:
+        rows = audit_rows(raw, practices, now)
+        if rows:
+            rest.upsert("hubspot_audit", rows, "id")
+        have = {r["id"] for r in rest.select_all("hubspot_audit", "id", order="id")}
+        stale = sorted(have - {r["id"] for r in rows})
+        if stale:
+            rest.delete_in("hubspot_audit", "id", stale)
+        counts = {}
+        for r in rows:
+            counts[r["issue"]] = counts.get(r["issue"], 0) + 1
+        return {"audit_issues": len(rows), "audit_by_issue": counts}
+    except Exception as e:  # noqa: BLE001
+        print("Audit skipped:", e)
+        return {"audit_error": str(e)[:200]}
+
+
 def record(rest, rows, actor):
     """Append rows to the HubSpot activity log; the log must never stop the sync."""
     try:
@@ -278,7 +345,7 @@ def record(rest, rows, actor):
 
 def sync(rest, hub, now=None, actor="daily sync"):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
+    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,status,merged_into,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
     by_ods = {}
     for c in raw:
@@ -306,6 +373,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
+    audit = sync_audit(rest, raw, practices, now)
 
     ours = rest.select_all("contacts", "contact_urn,ods_code,email,hubspot_status,hubspot_contact_id", order="contact_urn")
     crow = []
@@ -334,7 +402,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         pcn_stats = {"pcn_sync_error": str(e)[:300]}
     nets = sync_networks(rest, hub, now)
     return {**nets, **pcn_stats, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
-            "contacts_updated": len(crow), "search_capped": total > len(raw)}
+            "contacts_updated": len(crow), "search_capped": total > len(raw), **audit}
 
 
 def main():
