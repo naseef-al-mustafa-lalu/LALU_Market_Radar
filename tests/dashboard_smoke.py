@@ -43,7 +43,7 @@ window.supabase = { createClient: () => {
       if (b.action === 'find') return { data: { companies: [Object.assign({ match: 'ODS code' }, H.company)] } };
       if (b.action === 'deals') return { data: { deals: [H.deal] } };
       if (b.action === 'hub') return { data: { company: H.company, contacts: [{ id: 'c1', firstname: 'Lena', lastname: 'Contact', jobtitle: 'Manager', email: 'l@x.nhs' }], deals: [H.deal], leads: window.__noLeadScope ? null : (window.__hasLead ? [{ id: '99', name: 'Lead 99', stage: 'New (Prospecting Pipeline)', open: true }] : []) } };
-      if (b.action === 'add_contacts') return { data: { ok: true, contacts: [], warnings: [] } };
+      if (b.action === 'add_contacts') return { data: { ok: true, contacts: (b.contacts || []).map((c, i) => ({ email: c.email.toLowerCase(), id: 'n' + i, existed: false })), warnings: [] } };
       if (b.action === 'read') return { data: { company: H.company, deal: H.deal, lineItems: H.lineItems } };
       if (b.action === 'write') { Object.assign(H.company, b.company || {}); const d = Object.assign(H.deal, b.deal || {});
         const t = Math.round((Number(d.size_discount) + Number(d.speed_discount) + Number(d.term_length_discount)) * 1000) / 1000; d.total_discount = String(t);
@@ -113,10 +113,14 @@ with sync_playwright() as p:
     pg.evaluate("window.__hsPoll = 30"); assert "Continue" in pg.inner_text("#dr-hs .hs-bar"); pg.click('#dr-hs .hs-bar [data-hs-act="push"]'); pg.wait_for_selector("#hs-results [data-co]")
     pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]")
     hub = pg.inner_text("#hs-results"); assert "contacts" in hub.lower() and "Lena Contact" in hub and "No leads yet" in hub and "deals" in hub.lower() and "Test Surgery 1 - SAR" in hub, hub
-    pg.click("#hs-newlead"); pg.wait_for_selector("#nl-create"); assert pg.input_value("#nl-camp") == "Atlas"; assert "lifecycle" in pg.inner_text("#hs-results").lower() and "Prospecting Pipeline" in pg.inner_text("#hs-results")
-    pg.evaluate("window.__leadExisting = true"); pg.click("#nl-create"); pg.wait_for_selector("#nl-force"); assert "already has an open lead" in pg.inner_text("#nl-msg"); pg.click("#nl-force"); pg.wait_for_selector("#nl-deals")
+    assert "Add from Atlas (1)" in hub; pg.screenshot(path=SHOTS + "/hubspot-hub.png"); pg.click("#hs-addcontacts"); pg.wait_for_selector("#hs-addgo"); assert "Ann Lee" in pg.inner_text("#hs-addpanel")
+    pg.click("#hs-addgo"); pg.wait_for_function("document.querySelector('#hs-results').innerText.includes('1 contact added')")
+    ad = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'add_contacts')"); assert len(ad) == 1 and ad[0][1]["contacts"][0]["email"] == "a@nhs.net" and ad[0][1]["companyId"] == "77", ad
+    pg.click("#hs-newlead"); pg.wait_for_selector("#nl-create"); assert pg.input_value("#nl-camp") == "Atlas"; pg.click("#hs-results summary"); assert "lifecycle" in pg.inner_text("#hs-results").lower() and "Prospecting Pipeline" in pg.inner_text("#hs-results")
+    pg.evaluate("window.__leadExisting = true"); pg.click("#nl-create"); pg.wait_for_selector("#nl-force"); assert "already has an open lead" in pg.inner_text("#nl-msg"); pg.click("#nl-force"); pg.wait_for_selector("#hs-newdeal")
     cl = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_lead')"); assert len(cl) == 2 and cl[1][1]["force"] is True and cl[1][1]["leadType"] == "NEW_BUSINESS" and cl[1][1]["contactId"] == "c1" and cl[1][1]["companyId"] == "77", cl
-    assert pg.locator('#hs-results a[href$="/record/0-136/99"]').count() == 1; pg.evaluate("window.__hasLead = true"); pg.click("#nl-deals"); pg.wait_for_selector("#hs-newdeal"); assert "Lead 99" in pg.inner_text("#hs-results")
+    assert pg.locator('#hs-results a[href$="/record/0-136/99"]').count() == 2 and "Lead created" in pg.inner_text("#hs-results") and "Test Surgery 1 (HubSpot) | Atlas" in pg.inner_text("#hs-results")   # flash link + the new row, no reload
+    assert "Atlas › " in pg.inner_text("#hs-title")
     pg.click("#hs-newdeal"); pg.wait_for_selector("#nd-create"); dp = pg.inner_text("#hs-results"); assert "pricing to be sent with this deal" in dp.lower() and "£8,640" in dp and "ReportSure - All Report - Annual" in dp and "10%" in dp, dp; assert pg.input_value("#nd-name") == "Lena Contact - Test Surgery 1 (HubSpot)" and pg.input_value("#nd-owner") == "38848375" and pg.locator("[data-nd-contact]:checked").count() == 1   # editable defaults: lead contact - company, signed-in owner
     pg.fill("#nd-name", "Test deal from the tool"); pg.click("#nd-create"); pg.wait_for_selector("#hs-write")
     cd = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_deal')")[0][1]
