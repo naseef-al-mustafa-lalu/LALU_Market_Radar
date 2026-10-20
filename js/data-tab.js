@@ -363,16 +363,21 @@ const UPLOADS = [
 function renderUploads() {
   const box = $("uploads");
   if (!box.children.length) {
-    box.innerHTML = UPLOADS.map(u => `<div class="border border-slate-200 rounded-lg p-3 ${u.multiple ? "md:col-span-2" : ""}" id="up-${u.id}">
-      <div class="flex justify-between gap-2"><h3 class="font-semibold text-sm">${esc(u.title)}</h3><span class="text-xs text-slate-500 whitespace-nowrap">${esc(u.cadence)}</span></div>
-      <p class="text-xs text-slate-500">${esc(u.gives)}</p>
-      <p class="text-xs mt-1">${u.links.map(([h, l]) => `<a class="text-blue-600 underline" target="_blank" rel="noopener" href="${esc(h)}">${esc(l)}</a>`).join("<br>")}<br><span class="text-slate-500">File${u.multiple ? "s" : ""}: ${esc(u.file)}</span></p>
-      <div class="mt-2 flex flex-wrap items-center gap-2"><input type="file" accept=".csv,text/csv" ${u.multiple ? "multiple" : ""} class="up-file text-xs max-w-[22rem]"><input type="month" class="up-month border border-slate-300 rounded px-2 py-1 text-xs"><button disabled class="up-load bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-1.5 text-xs font-semibold">Load</button></div>
-      <p class="up-msg mt-1 text-xs text-slate-600 min-h-[1rem] whitespace-pre-line"></p><p class="up-status mt-1 text-xs text-slate-500"></p></div>`).join("");
+    box.innerHTML = UPLOADS.map(u => `<details id="up-${u.id}" class="dtile rounded-xl border border-slate-200 bg-white">
+      <summary class="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-slate-50"><span class="up-dot h-2.5 w-2.5 shrink-0 rounded-full bg-slate-300"></span>
+        <span class="min-w-0 flex-1"><span class="block truncate font-semibold">${esc(u.title)}</span><span class="up-status block truncate text-xs text-slate-500"></span></span>
+        <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">${esc(u.cadence)}</span>
+        <svg class="dchev h-4 w-4 shrink-0 text-slate-400 transition-transform" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg></summary>
+      <div class="grid gap-3 border-t border-slate-100 px-3 py-3 md:grid-cols-2">
+        <div><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">What it gives</div><p class="mt-0.5 text-sm text-slate-700">${esc(u.gives)}</p></div>
+        <div><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Download</div><p class="mt-0.5 text-sm">${u.links.map(([h, l]) => `<a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(h)}">${esc(l)}</a>`).join("<br>")}<span class="mt-0.5 block text-xs text-slate-500">File${u.multiple ? "s" : ""}: ${esc(u.file)}</span></p></div>
+        <div class="md:col-span-2 rounded-lg bg-slate-50 p-2"><div class="flex flex-wrap items-center gap-2"><input type="file" accept=".csv,text/csv" ${u.multiple ? "multiple" : ""} class="up-file max-w-[22rem] text-xs"><input type="month" class="up-month rounded border border-slate-300 bg-white px-2 py-1 text-xs"><button disabled class="up-load rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40">Load</button></div>
+          <p class="up-msg mt-1 min-h-[1rem] whitespace-pre-line text-xs text-slate-600"></p></div>
+      </div></details>`).join("");
     for (const u of UPLOADS) {
       const el = $("up-" + u.id), q = c => el.querySelector(c), say = t => { q(".up-msg").textContent = t; }; let parsed = [];
       q(".up-file").addEventListener("change", async e => {
-        const files = [...e.target.files]; parsed = []; q(".up-load").disabled = true; if (!files.length) return;
+        const files = [...e.target.files]; parsed = []; q(".up-load").disabled = true; if (!files.length) return; el.open = true;
         const lines = []; let ok = true;
         for (const f of files) {
           if (f.size > 60 * 1024 * 1024) { lines.push(`${f.name}: too large, check you have the right file.`); ok = false; continue; }
@@ -394,7 +399,7 @@ function renderUploads() {
       });
     }
   }
-  for (const u of UPLOADS) $("up-" + u.id).querySelector(".up-status").textContent = "In the database: " + u.status();
+  for (const u of UPLOADS) { const el = $("up-" + u.id), s = u.status(); el.querySelector(".up-status").textContent = "In the database: " + s; el.querySelector(".up-dot").className = "up-dot h-2.5 w-2.5 shrink-0 rounded-full " + (/nothing loaded/i.test(s) ? "bg-slate-300" : "bg-emerald-500"); }
 }
 $("pc-run").addEventListener("click", async () => {
   const btn = $("pc-run"), msg = $("pc-run-msg");
