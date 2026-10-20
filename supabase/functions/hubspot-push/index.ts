@@ -14,9 +14,10 @@ const reply = (body: unknown, status = 200) =>
 
 const COMPANY_READ = ["name", "partner_organisation_code", "patient_list_size", "domain"];
 const DEAL_READ = ["dealname", "dealstage", "amount", "size_tier", "size_discount", "speed_discount", "term_length_discount", "term_length_years",
-  "total_discount", "value_per_patient", "actual_value_per_patient_calculated", "patient_list_size"];
+  "total_discount", "value_per_patient", "actual_value_per_patient_calculated", "patient_list_size", "commercial_model"];
 const COMPANY_WRITE = new Set(["patient_list_size"]);
-const DEAL_WRITE = new Set(["size_tier", "size_discount", "speed_discount", "term_length_discount", "term_length_years", "value_per_patient"]);
+const DEAL_WRITE = new Set(["size_tier", "size_discount", "speed_discount", "term_length_discount", "term_length_years", "value_per_patient", "commercial_model"]);
+const COMMERCIAL_MODEL = new Set(["Subscription", "eMR+ SAR Only"]);   // ReportSure - MS - All Reports / ReportSure - MS - SAR Only
 const VALUE_PER_PATIENT = new Set(["£0.05", "£0.06", "£0.07", "£0.08", "£0.10"]);
 
 class Fail extends Error { constructor(msg: string, public status = 400) { super(msg); } }
@@ -87,6 +88,7 @@ Deno.serve(async (req) => {
       for (const [k, v] of Object.entries(b.company ?? {})) { if (!COMPANY_WRITE.has(k)) throw new Fail(`Not allowed to write company property ${k}`); companyProps[k] = v; }
       for (const k of ["size_discount", "speed_discount", "term_length_discount"]) if (k in dealProps && !(Number(dealProps[k]) >= 0 && Number(dealProps[k]) <= 1)) throw new Fail(`${k} out of range`);
       if ("value_per_patient" in dealProps && !VALUE_PER_PATIENT.has(String(dealProps.value_per_patient))) throw new Fail("Unsupported Value per Patient option");
+      if ("commercial_model" in dealProps && !COMMERCIAL_MODEL.has(String(dealProps.commercial_model))) throw new Fail("Unsupported Commercial Model option");
       if ("term_length_years" in dealProps && !["1", "2", "3"].includes(String(dealProps.term_length_years))) throw new Fail("Term length must be 1, 2 or 3");
       if ("size_tier" in dealProps && !/^Tier [1-5]$/.test(String(dealProps.size_tier))) throw new Fail("Invalid size tier");
       if ("patient_list_size" in companyProps && !(Number(companyProps.patient_list_size) >= 0)) throw new Fail("Invalid list size");

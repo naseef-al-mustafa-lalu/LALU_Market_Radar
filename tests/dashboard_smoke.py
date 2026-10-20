@@ -38,7 +38,7 @@ window.supabase = { createClient: () => {
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async (name, o) => { const b = (o && o.body) || {}; (window.__rpc = window.__rpc || []).push(['fn:' + name, b]);
       if (name !== 'hubspot-push') return { data: {} };
       const H = window.__hsdb = window.__hsdb || { company: { id: '77', name: 'Test Surgery 1 (HubSpot)', partner_organisation_code: 'A10001', patient_list_size: '9000' },
-        deal: { id: '88', dealname: 'Test Surgery 1 - SAR', dealstage: 'contractsent', size_tier: 'Tier 4', value_per_patient: '£0.10', size_discount: '0', speed_discount: '0', term_length_discount: '0', term_length_years: '1', total_discount: '0', actual_value_per_patient_calculated: '0.10' } };
+        deal: { id: '88', dealname: 'Test Surgery 1 - SAR', dealstage: 'contractsent', size_tier: 'Tier 4', commercial_model: 'eMR+ SAR Only', value_per_patient: '£0.10', size_discount: '0', speed_discount: '0', term_length_discount: '0', term_length_years: '1', total_discount: '0', actual_value_per_patient_calculated: '0.10' } };
       if (b.action === 'find') return { data: { companies: [Object.assign({ match: 'ODS code' }, H.company)] } };
       if (b.action === 'deals') return { data: { deals: [H.deal] } };
       if (b.action === 'read') return { data: { company: H.company, deal: H.deal } };
@@ -104,12 +104,12 @@ with sync_playwright() as p:
     pg.evaluate("window.__hsPoll = 30"); pg.click('#dr-body [data-hs-open="A10001"]'); pg.wait_for_selector("#hs-results [data-co]")
     pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]"); pg.click("#hs-results [data-deal]"); pg.wait_for_selector("#hs-write")
     pv = pg.inner_text("#hs-body"); assert "HubSpot does not match the tool" in pv and "Tier 4" in pv and "£0.10" in pv and "9,000" in pv and "Size Discount %" in pv and "Total Discount %" in pv, pv
-    assert pg.locator("#hs-body [data-fix]").count() == 3
+    assert pg.locator("#hs-body [data-fix]").count() == 4 and "ReportSure - MS - SAR Only" in pv and "ReportSure - MS - All Reports" in pv, pv
     pg.screenshot(path=SHOTS + "/hubspot.png"); pg.evaluate("window.__hsBlank = true"); pg.click("#hs-write")
     pg.wait_for_selector("#hs-recheck"); assert "not filled in" in pg.inner_text("#hs-msg") or "has not filled in" in pg.inner_text("#hs-msg"), pg.inner_text("#hs-msg")   # blank calculated value: amber, with a Re-check button
     pg.evaluate("window.__hsBlank = false; window.__hsdb.deal.actual_value_per_patient_calculated = '0.072'"); pg.click("#hs-recheck"); pg.wait_for_function("document.querySelector('#hs-msg').innerText.includes('HubSpot matches the tool')")
     wr = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'write')")[0][1]
-    assert wr["ods"] == "A10001" and wr["company"] == {"patient_list_size": 10000} and wr["deal"]["size_tier"] == "Tier 3" and wr["deal"]["value_per_patient"] == "£0.08" and wr["deal"]["size_discount"] == 0.05 and wr["deal"]["speed_discount"] == 0.05 and wr["deal"]["term_length_discount"] == 0 and wr["deal"]["term_length_years"] == "1", wr
+    assert wr["ods"] == "A10001" and wr["company"] == {"patient_list_size": 10000} and wr["deal"]["size_tier"] == "Tier 3" and wr["deal"]["value_per_patient"] == "£0.08" and wr["deal"]["commercial_model"] == "Subscription" and wr["deal"]["size_discount"] == 0.05 and wr["deal"]["speed_discount"] == 0.05 and wr["deal"]["term_length_discount"] == 0 and wr["deal"]["term_length_years"] == "1", wr
     pg.click("#hs-cancel"); pg.wait_for_selector("#hs-modal", state="hidden")
     pg.keyboard.press("Escape")
     pg.set_viewport_size({"width": 1180, "height": 800}); noflow("#view-practices .overflow-x-auto", "practices@1180"); pg.screenshot(path=SHOTS + "/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})

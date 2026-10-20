@@ -9,6 +9,7 @@ const hsCall = async body => {
   return data;
 };
 const hsPct = f => Math.round(f * HS_PCT * 10000) / 10000;      // fraction -> HubSpot number
+const HS_MODELS = { "Subscription": "ReportSure - MS - All Reports", "eMR+ SAR Only": "ReportSure - MS - SAR Only", Freemium: "ReportSure Freemium", PAYG: "eMR+ - PAYG", "GP eMR - Subscripton": "ReportSure - Self Service" };
 const hsNum = v => (v === "" || v == null ? null : Number(v));
 const hsClose = () => { $("hs-modal").classList.add("hidden"); hs = null; };
 
@@ -16,7 +17,7 @@ const hsClose = () => { $("hs-modal").classList.add("hidden"); hs = null; };
 function hsDesired(p) {
   const row = cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), monthly = billing === "monthly";
   const size = monthly ? 0 : Number(row.size_discount), term = monthly ? 0 : termDiscount(termYrs), speed = monthly || !speedOn ? 0 : Number(row.speed_discount);
-  return { size, term, speed, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, vpp: "£" + baseRate().toFixed(2), rate: dealRate(size, term, speed), list: baseRate(),
+  return { size, term, speed, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size, term, speed), list: baseRate(),
     total: size + term + speed, label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }
 function hsPushBar(p) {
@@ -84,12 +85,13 @@ function hsPreview() {
   const checks = [
     { id: "ls", label: "Company list size", now: company.patient_list_size ? Number(company.patient_list_size).toLocaleString() : "not set", next: p.total_patients.toLocaleString(), same: sameNum(company.patient_list_size, p.total_patients), what: "company" },
     { id: "tier", label: "Deal size tier", now: deal.size_tier || "not set", next: want.tier, same: deal.size_tier === want.tier, what: "deal" },
+    { id: "cm", label: "Deal commercial model", now: HS_MODELS[deal.commercial_model] || deal.commercial_model || "not set", next: want.modelLabel, same: deal.commercial_model === want.model, what: "deal" },
     { id: "vpp", label: "Deal value per patient", now: deal.value_per_patient || "not set", next: want.vpp, same: deal.value_per_patient === want.vpp, what: "deal" }];
   const diffs = checks.filter(c => !c.same);
   const warn = diffs.length ? `<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3"><div class="font-semibold text-amber-900">HubSpot does not match the tool</div>
       <div class="text-xs text-amber-800">Check this is the right company and deal. Tick the fields you want updated to match the tool.</div>${diffs.map(c => `<label class="mt-2 flex items-start gap-2"><input type="checkbox" class="mt-0.5" data-fix="${c.id}" checked>
         <span><b>${c.label}</b>: HubSpot has <span class="font-mono">${esc(c.now)}</span>, the tool has <span class="font-mono">${esc(c.next)}</span></span></label>`).join("")}</div>`
-    : '<div class="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">List size, size tier and value per patient all match the tool.</div>';
+    : '<div class="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">List size, size tier, commercial model and value per patient all match the tool.</div>';
   hsRender(`<div class="rounded-lg bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><div class="font-semibold">${esc(company.name)}</div><div class="text-xs text-slate-500">ODS ${esc(company.partner_organisation_code || "not set")}</div></div>
       <div class="text-right"><div class="font-semibold">${esc(deal.dealname)}</div><div class="text-xs text-slate-500">${esc(deal.dealstage || "")}</div></div></div>
       <div class="mt-1 flex justify-between text-xs text-slate-500"><span>${hs.linked ? "Saved link" : "New link, saved after the write"}</span>${hs.linked ? '<button id="hs-relink" class="text-blue-600 hover:underline">Change link</button>' : '<button id="hs-back" class="text-blue-600 hover:underline">Choose another</button>'}</div></div>
@@ -115,6 +117,7 @@ async function hsWrite(checks) {
   const dealProps = { size_discount: hsPct(want.size), speed_discount: hsPct(want.speed), term_length_discount: hsPct(want.term), term_length_years: String(want.termYears) };
   const companyProps = {};
   if (ticked("tier")) dealProps.size_tier = want.tier;
+  if (ticked("cm")) dealProps.commercial_model = want.model;
   if (ticked("vpp")) dealProps.value_per_patient = want.vpp;
   if (ticked("ls")) companyProps.patient_list_size = p.total_patients;
   $("hs-write").disabled = true; $("hs-write").textContent = "Writing…"; msg.innerHTML = "";
