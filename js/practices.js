@@ -169,22 +169,32 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
 }
 function routeComparison(p) {
   if (!(p.total_patients > 0) || p.est_arr == null) return "";
-  const rows = [];
+  const list = setting("list_price_per_patient"), rows = [];
+  const off = price => list > 0 ? "−" + pct(1 - price / list) : "–";
   const add = (kind, key, label) => {
     const n = networks.find(x => x.kind === kind && keyOf(x) === key);
     if (!n || !n.network_tier || n.network_base_price == null) return;
-    const arr = yearly(p.total_patients, Number(n.network_base_price));
-    rows.push(`<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2"><a href="#" class="text-blue-600 hover:underline font-medium" data-net="${kind}|${esc(key)}|${esc(n.name)}">${esc(n.name)}</a><div class="text-xs text-slate-500">${label} · Tier ${n.network_tier} · ${Number(n.patients).toLocaleString()} patients across ${n.practices} practices</div></td>
-      <td class="text-right font-mono">£${Number(n.network_base_price).toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(arr)}</td><td class="text-right text-xs ${arr < p.est_arr ? "text-emerald-700" : "text-slate-500"}">${arr === Math.round(p.est_arr) ? "same" : (arr < p.est_arr ? "−" : "+") + gbpFull(Math.abs(arr - p.est_arr))}</td></tr>`);
+    const price = Number(n.network_base_price);
+    rows.push({ name: n.name, net: `${kind}|${esc(key)}|${esc(n.name)}`, sub: `${label} · Tier ${n.network_tier} · ${Number(n.patients).toLocaleString()} patients, ${n.practices} practices`, price, arr: yearly(p.total_patients, price) });
   };
   if (p.pcn_code) add("pcn", p.pcn_code, "PCN / cluster");
   if (p.group_size > 1) add("group", p.cqc_provider_id, "Provider group");
   if (p.gp_federation) add("federation", p.gp_federation.toLowerCase(), "Federation");
   if (!rows.length) return "";
-  return `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Other ways to sign this practice <span class="font-normal text-slate-500">(All reports, annual, size discount only)</span></div>
-    <table class="w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="text-left font-medium">Route</th><th class="text-right font-medium whitespace-nowrap">£ / patient / mo</th><th class="text-right font-medium whitespace-nowrap pl-2">£ / year</th><th class="text-right font-medium whitespace-nowrap pl-2">vs alone</th></tr></thead><tbody>
-    <tr><td class="py-1.5 pr-2"><div class="font-medium">On its own</div><div class="text-xs text-slate-500">Single practice · Tier ${p.price_tier}</div></td><td class="text-right font-mono">£${Number(p.base_price).toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(p.est_arr)}</td><td class="text-right text-xs text-slate-500">–</td></tr>${rows.join("")}</tbody></table>
-    <p class="mt-1 text-xs text-slate-500">Routes are alternatives: a network price applies only if the whole network signs together.</p></div>`;
+  const alone = { name: "On its own", sub: `Single practice · Tier ${p.price_tier}`, price: Number(p.base_price), arr: Number(p.est_arr) };
+  const all = [alone, ...rows], best = Math.min(...all.map(r => r.price)), worst = Math.max(...all.map(r => r.price));
+  const th = t => `<th class="px-2 py-1.5 text-right font-medium whitespace-nowrap">${t}</th>`;
+  const delta = r => { if (r === alone) return '<span class="text-slate-400">–</span>'; const d = r.arr - alone.arr; return Math.abs(d) < 1 ? '<span class="text-slate-500">same</span>' : `<span class="${d < 0 ? "text-emerald-700" : "text-amber-700"} font-medium">${d < 0 ? "−" : "+"}${gbpFull(Math.abs(d))}</span>`; };
+  const body = all.map(r => `<tr class="border-t border-slate-100 ${r === alone ? "bg-slate-50" : ""}"><td class="px-2 py-2 align-top">
+      <div class="font-medium leading-tight">${r === alone ? "On its own" : `<a href="#" class="text-blue-600 hover:underline" data-net="${r.net}">${esc(r.name)}</a>`}${r.price === best && best < worst ? ' <span class="ml-1 rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Lowest</span>' : ""}</div>
+      <div class="text-xs text-slate-500 leading-snug">${esc(r.sub)}</div></td>
+    <td class="px-2 py-2 text-right align-top whitespace-nowrap font-semibold">${off(r.price)}</td>
+    <td class="px-2 py-2 text-right align-top whitespace-nowrap font-mono">£${r.price.toFixed(3)}</td>
+    <td class="px-2 py-2 text-right align-top whitespace-nowrap font-mono font-semibold">${gbpFull(r.arr)}</td>
+    <td class="px-2 py-2 text-right align-top whitespace-nowrap">${delta(r)}</td></tr>`).join("");
+  return `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Other ways to sign this practice <span class="font-normal text-slate-500">(All reports, annual plan, size discount only)</span></div>
+    <div class="overflow-x-auto rounded-lg border border-slate-200"><table class="w-full text-sm tabular-nums"><caption class="sr-only">Price of each route for this practice</caption><thead class="text-[11px] uppercase tracking-wider text-slate-500 bg-white"><tr><th class="px-2 py-1.5 text-left font-medium">Route</th>${th("Discount")}${th("£ / patient / mo")}${th("£ / year")}${th("vs alone")}</tr></thead><tbody>${body}</tbody></table></div>
+    <p class="mt-1 text-xs text-slate-500">Discount is off the list price. Routes are alternatives: a network price applies only if the whole network signs together.</p></div>`;
 }
 
 /* ---------- practice profile (side panel) ---------- */
