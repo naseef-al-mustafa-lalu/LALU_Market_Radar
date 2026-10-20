@@ -1,7 +1,7 @@
 """Daily HubSpot -> dashboard sync: link each practice to its HubSpot company (matched on the GP ODS Code field) and fill in
 customer / engaged status, lifecycle stage and which of the practice's contacts already exist in HubSpot. Read-only on HubSpot.
 
-Customer: company lifecycle stage is Customer, or any associated deal is Closed Won.
+Customer: company lifecycle stage is Customer, or any associated deal is Closed Won, unless the company's Company Status is Ex-Customer.
 Engaged: the company's lifecycle stage is past New / Prospecting (Engaged, MQL, SQL, Opportunity, Evangelist, Client Services).
 """
 import os
@@ -50,7 +50,7 @@ def fetch_companies(hub):
     out, after = [], None
     while True:
         body = {"filterGroups": [{"filters": [{"propertyName": "partner_organisation_code", "operator": "HAS_PROPERTY"}]}], "limit": 100,
-                "properties": ["name", "partner_organisation_code", "lifecyclestage", "createdate"], "sorts": ["createdate"]}
+                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "createdate"], "sorts": ["createdate"]}
         if after:
             body["after"] = after
         d = hub.call("POST", "/crm/v3/objects/companies/search", json=body)
@@ -83,10 +83,12 @@ def read_objects(hub, obj, ids, props):
 
 def classify(companies, contact_ids, contacts, deal_ids, deals):
     """One practice's flags from all HubSpot companies that carry its ODS code. Returns dict of the dashboard fields."""
-    customer = any((c.get("lifecyclestage") == "customer") for c in companies) or any(deals.get(d, {}).get("hs_is_closed_won") == "true" for d in deal_ids)
+    # HubSpot never moves a company back out of the Customer stage, so a company whose Company Status is Ex-Customer is not a customer
+    live = [c for c in companies if c.get("company_status") != "Ex-Customer"]
+    customer = any(c.get("lifecyclestage") == "customer" for c in live) or (bool(live) and any(deals.get(d, {}).get("hs_is_closed_won") == "true" for d in deal_ids))
     engaged = any(c.get("lifecyclestage") in ENGAGED_STAGES for c in companies)
     primary = sorted(companies, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]
-    stage = LIFECYCLE.get(primary.get("lifecyclestage") or "", primary.get("lifecyclestage") or None)
+    stage = "Ex-customer" if primary.get("company_status") == "Ex-Customer" else LIFECYCLE.get(primary.get("lifecyclestage") or "", primary.get("lifecyclestage") or None)
     return {"hubspot_company_id": str(primary["id"]), "hubspot_company_imported_at": primary.get("createdate"), "hubspot_stage": stage,
             "hubspot_engaged": bool(engaged), "hubspot_customer": bool(customer)}
 

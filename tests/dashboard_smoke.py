@@ -202,6 +202,8 @@ with sync_playwright() as p:
     pg.click("#sig-sub button[data-s=feed]"); assert pg.is_visible("#s-count")
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#d-fresh")
     assert pg.is_visible("#dp-overview") and pg.is_hidden("#dp-sources") and pg.is_hidden("#dp-pricing")
+    pg.click("#data-sub button[data-d=sources]"); pg.wait_for_selector("#conn-test"); cn = pg.inner_text("#d-connections"); assert "Daily market radar" in cn and "HubSpot sync" in cn and "if it fails" in cn.lower() and "CQC_API_KEY" in cn, cn[:400]
+    pg.click("#conn-test"); pg.wait_for_function("document.querySelector('#conn-test-out').innerText.includes('Companies (read)')"); co = pg.inner_text("#conn-test-out"); assert "Leads (read)" in co and "Owners (read)" in co and "Line items" in co, co; pg.screenshot(path=SHOTS + "/connections.png", full_page=True)
     pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#hsp-run")   # HubSpot integration panel
     hp = pg.inner_text("#d-hubspot"); assert "HubSpot integration" in hp and "Healthy" in hp and "Needs attention" in hp and "not in HubSpot" in hp and "manual sync" in hp and "Pushed pricing to Deal X" in hp and "did not match" in hp, hp
     tt = pg.evaluate("document.querySelector('#d-hubspot').textContent"); assert "Create company" in tt and "Median" in tt and "Find company" in tt, tt[-600:]   # every edge call is timed

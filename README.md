@@ -57,6 +57,8 @@ One-off setup:
 Until counts are loaded practices show 0 patients (Tier 3); no false growth alerts fire when counts arrive.
 
 ## Data sources (what feeds the central database)
+The dashboard's **Data > Data sources** tab opens with a **Connections** card for every integration (what it is for, when it runs, which secrets and scopes it needs, what breaks if it fails, and a health chip from the latest run). It has a **Test connection** button that runs read-only checks of the HubSpot token (companies, contacts, deals, leads, pipelines, owners, line items). Keep it true by editing `CONNECTIONS` in `js/data-tab.js` whenever an integration is added or changed. The HubSpot token lives in two places, the GitHub secret (sync) and the Supabase function secret (actions): rotate both together.
+
 | Source | Gives | Cadence |
 |---|---|---|
 | NHS ODS API + ODS export | Active GP practices, names, postcodes, closures, PCN and ICB | Daily, automatic |

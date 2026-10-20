@@ -13,6 +13,67 @@ async function renderData() {
     (runs || []).map(r => { const st = r.stats || {}, notes = r.error ? r.error.split("\n")[0].slice(0, 90) : [st.practices_changed != null ? st.practices_changed + " practices changed" : "", st.cqc_error ? "CQC error" : "", st.oscar_error ? "Oscar not loaded" : "", st.patients_missing ? "no patient counts" : ""].filter(Boolean).join(" · ");
       return `<tr class="border-t border-slate-100"><td class="py-1 whitespace-nowrap">${esc(fmtDate(r.started_at))}</td><td>${chip(r.status, r.status === "success" ? "bg-emerald-100 text-emerald-800" : r.status === "failed" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600")}</td><td class="text-slate-500">${esc(notes)}</td></tr>`; }).join("") + `</tbody></table>`;
   renderRateCard();
+  window.__lastRuns = runs; window.__lastCount = row; renderConnections(runs, row);
+}
+
+/* ---------- Data > Data sources: every connection, what it is for, what it needs and what breaks if it fails ---------- */
+// Maintain this list when an integration is added or changed. It only describes; secrets are never shown or stored here.
+const CONNECTIONS = [
+  { id: "radar", name: "Daily market radar (NHS ODS, CQC, Oscar, NHS Jobs, websites)", forWhat: "The practice list, closures and mergers, CQC ratings, Oscar contacts, hiring adverts and every signal.", runs: "GitHub Action “Daily market radar”, 07:30 UTC",
+    needs: "SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CQC_API_KEY, OSCAR_API_URL (GitHub secrets)", fails: "The practice list, ratings and signals go stale. A failed run is posted to Slack and shown below." },
+  { id: "patients", name: "NHS patient numbers", forWhat: "List sizes, which drive tiers, prices and estimated revenue.", runs: "GitHub Action “Patient numbers”, Mondays 09:00 UTC (safe to repeat), or upload below",
+    needs: "SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (GitHub secrets). “Update from NHS now” uses the trigger-patient-load function and its GITHUB_TOKEN (Supabase secret).", fails: "Prices and revenue use the last month loaded." },
+  { id: "hssync", name: "HubSpot sync (HubSpot to Atlas)", forWhat: "Customer and engaged flags, lifecycle stage, which contacts exist in HubSpot, PCN and ICB links, and keeping HubSpot PCN records in step with NHS ODS.", runs: "GitHub Action “HubSpot sync”, 08:30 UTC, or Run sync now (Data > Overview)",
+    needs: "HUBSPOT_TOKEN (GitHub secret) with read access to companies, contacts, deals and the PCN/ICB custom objects, and write access to PCN records. Run sync now uses hubspot-sync-trigger and its GITHUB_TOKEN (Supabase secret).", fails: "HubSpot columns go stale. The Slack summary and the activity log show failures." },
+  { id: "hsactions", name: "HubSpot actions (Atlas to HubSpot)", forWhat: "Creating companies, contacts, leads and deals, and pushing pricing and line items from a practice profile.", runs: "On demand, through the hubspot-push function",
+    needs: "HUBSPOT_TOKEN (Supabase function secret, a separate copy from the GitHub one) with scopes for companies, contacts, deals, leads, line items, products and owners (read).", fails: "Create and push buttons show the HubSpot error. Use Test connection to see which scope is missing." },
+  { id: "slack", name: "Slack", forWhat: "New signals, failed runs, patient-number and HubSpot sync summaries.", runs: "Sent by the three workflows above", needs: "SLACK_WEBHOOK_URL or SLACK_BOT_TOKEN (GitHub secrets), SLACK_CHANNEL (variable), SLACK_MODE ON or DISABLED", fails: "Nothing is posted. The data still updates." },
+  { id: "supabase", name: "Supabase (database, sign-in, functions)", forWhat: "Stores everything, signs people in, and runs the HubSpot and patient-number trigger functions.", runs: "Always on", needs: "Invited emails on the allowlist (Data > users). The service-role key is only in GitHub and function secrets, never in the page.", fails: "The dashboard cannot load or sign in." },
+  { id: "github", name: "GitHub (hosting and automation)", forWhat: "Hosts this dashboard (Pages) and runs every scheduled job and the Tests workflow.", runs: "Every push to main redeploys the page", needs: "Actions enabled; a personal token (GITHUB_TOKEN) held by the two trigger functions.", fails: "Scheduled jobs stop and the page stops updating." },
+];
+const CONN_TO_DO = ["Rotate the HubSpot token in both places together: the GitHub secret (sync) and the Supabase function secret (actions).", "When a HubSpot scope is added, run Test connection below.", "If CQC or Oscar stop updating, check the latest run in the table and the matching GitHub secret.", "Add any new integration to CONNECTIONS in js/data-tab.js so this list stays true."];
+async function renderConnections(runs, countRow) {
+  const box = $("d-connections"); if (!box) return;
+  const hrs = iso => iso ? (Date.now() - new Date(iso)) / 36e5 : Infinity, ago = iso => iso ? hsAgo(iso) : "never";
+  const { data: sy } = await db.from("hubspot_activity").select("at,ok,summary").eq("kind", "sync_run").order("at", { ascending: false }).limit(1);
+  const run = (runs || [])[0], sync = (sy || [])[0], st = run?.stats || {};
+  const H = (tone, text) => ({ tone, text });
+  const health = {
+    radar: !run ? H("grey", "No runs yet") : run.status === "failed" ? H("red", "Last run failed " + ago(run.finished_at || run.started_at)) : hrs(run.finished_at || run.started_at) > 36 ? H("amber", "Last run " + ago(run.finished_at || run.started_at)) : st.cqc_error ? H("amber", "CQC error on the last run") : H("green", "Ran " + ago(run.finished_at || run.started_at)),
+    patients: countRow ? (hrs(countRow.updated_at) > 24 * 45 ? H("amber", "Loaded " + ago(countRow.updated_at)) : H("green", "NHS " + (countRow.data_month || "?") + ", loaded " + ago(countRow.updated_at))) : H("red", "Not loaded"),
+    hssync: !sync ? H("grey", "Never synced") : !sync.ok ? H("red", "Last sync failed " + ago(sync.at)) : hrs(sync.at) > 36 ? H("amber", "Last sync " + ago(sync.at)) : H("green", "Synced " + ago(sync.at)),
+    hsactions: connTestResult ? H(connTestResult.every(c => c.ok !== false) ? "green" : "amber", connTestResult.every(c => c.ok !== false) ? "Read access OK" : connTestResult.filter(c => c.ok === false).length + " read check(s) failed") : H("grey", "Not tested this session"),
+  };
+  const TONE = { green: "bg-emerald-100 text-emerald-800", amber: "bg-amber-100 text-amber-800", red: "bg-rose-100 text-rose-800", grey: "bg-slate-100 text-slate-600" };
+  const dl = (k, v) => `<div class="mt-1.5"><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">${k}</div><div class="text-sm text-slate-700">${esc(v)}</div></div>`;
+  box.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold">Connections <span class="text-xs font-normal text-slate-500">what feeds Atlas, and what to look after</span></h2>
+      <div class="flex flex-wrap gap-1.5">${CONNECTIONS.filter(c => health[c.id]).map(c => `<span class="rounded-full px-2 py-0.5 text-[11px] font-semibold ${TONE[health[c.id].tone]}" title="${esc(health[c.id].text)}">${esc(c.name.split(" (")[0])}</span>`).join("")}</div></div>
+    <div class="mt-3 grid gap-3 lg:grid-cols-2">${CONNECTIONS.map(c => { const h = health[c.id];
+      return `<section class="rounded-xl border border-slate-200 p-3"><div class="flex items-start justify-between gap-2"><h3 class="font-semibold">${esc(c.name)}</h3>${h ? `<span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${TONE[h.tone]}">${esc(h.text)}</span>` : ""}</div>
+        ${dl("What it is for", c.forWhat)}${dl("Runs", c.runs)}${dl("Needs", c.needs)}${dl("If it fails", c.fails)}
+        ${c.id === "hsactions" ? `<div class="mt-2"><button id="conn-test" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Test connection</button><div id="conn-test-out" class="mt-2 text-sm" role="status"></div></div>` : ""}</section>`; }).join("")}</div>
+    <h3 class="mt-4 text-sm font-bold">Looking after the connections</h3><ul class="mt-1 list-disc space-y-0.5 pl-5 text-sm text-slate-700">${CONN_TO_DO.map(t => `<li>${esc(t)}</li>`).join("")}</ul>`;
+  $("conn-test").onclick = connTestHubspot;
+  if (connTestResult) connTestShow();
+}
+let connTestResult = null;
+function connTestShow() { const o = $("conn-test-out"); if (o) o.innerHTML = connTestResult.map(c => `<div class="flex gap-2 py-0.5"><span class="${c.ok === null ? "text-slate-400" : c.ok ? "text-emerald-700" : "text-rose-700"}">${c.ok === null ? "–" : c.ok ? "✓" : "✗"}</span><span>${esc(c.label)}${c.ok === true || !c.note ? "" : `<span class="block text-xs text-slate-500">${esc(c.note)}</span>`}</span></div>`).join("") + '<p class="mt-1 text-xs text-slate-500">Reads are tested here. Write permissions (create and push) are only proven by doing the action; check them under Private apps in HubSpot.</p>'; }
+// Read-only checks through the same function the buttons use, so a failure here is what a button would hit.
+async function connTestHubspot() {
+  const btn = $("conn-test"), out = $("conn-test-out"); btn.disabled = true; btn.textContent = "Testing…"; out.textContent = "";
+  const res = [], add = (label, ok, note = "") => res.push({ label, ok, note });
+  const linkP = practices.find(p => p.hubspot_company_id && p.status === "Active");
+  const { data: lk } = await db.from("hubspot_links").select("company_id,deal_id").limit(1);
+  try {
+    if (!linkP) add("Companies (read)", false, "No practice is linked to a HubSpot company yet. Run the sync first.");
+    else {
+      try { await hsCall({ action: "find", ods: linkP.ods_code, name: linkP.practice_name }); add("Companies (read)", true); } catch (e) { add("Companies (read)", false, e.message); }
+      try { const h = await hsCall({ action: "hub", companyId: linkP.hubspot_company_id }); add("Contacts and deals (read)", true); add("Leads (read)", h.leads !== null, "Add the crm.objects.leads.read scope to the HubSpot token."); } catch (e) { add("Contacts and deals (read)", false, e.message); }
+      try { const pre = await hsCall({ action: "deal_prefill", companyId: linkP.hubspot_company_id, noContacts: true }); add("Deal pipelines (read)", pre.pipelines.length > 0); add("Owners (read)", !!pre.owners, "Add the crm.objects.owners.read scope."); } catch (e) { add("Deal pipelines and owners (read)", false, e.message); }
+    }
+    if (lk && lk[0]) { try { const r = await hsCall({ action: "read", companyId: lk[0].company_id, dealId: lk[0].deal_id }); add("Line items (read)", r.lineItems !== null, "Add the crm.objects.line_items.read scope (and e-commerce)."); } catch (e) { add("Line items (read)", false, e.message); } }
+    else add("Line items (read)", null, "Not tested: no practice has a linked deal yet.");
+  } finally { connTestResult = res; btn.disabled = false; btn.textContent = "Test connection"; connTestShow(); renderConnections(window.__lastRuns, window.__lastCount); }
 }
 
 /* ---------- Data tab: sub-tabs ---------- */

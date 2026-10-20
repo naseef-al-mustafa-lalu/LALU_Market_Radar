@@ -307,3 +307,15 @@ def test_hubspot_sync_flags_and_contact_matching():
     assert fixed["address_line_1"] == "2 Low St" and fixed["postcode"] == "CM1 1QH"        # the early bad address (a date) is repaired
     closed = next(p for path, p in patched if path.endswith("/502"))
     assert closed["status"] == "inactive" and closed["operational_end_date"] == "2024-03-31"
+
+
+def test_hubspot_sync_ex_customer_is_not_a_customer():
+    from src import hubspot_sync as hsy
+    ex = {"id": "9", "company_status": "Ex-Customer", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}
+    cur = {"id": "8", "company_status": "Current Customer", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}
+    won = {"d1": {"hs_is_closed_won": "true"}}
+    f = hsy.classify([ex], [], {}, [], {})
+    assert f["hubspot_customer"] is False and f["hubspot_stage"] == "Ex-customer"
+    assert hsy.classify([ex], [], {}, ["d1"], won)["hubspot_customer"] is False   # an old won deal does not make an ex-customer current
+    assert hsy.classify([cur], [], {}, [], {})["hubspot_customer"] is True
+    assert hsy.classify([ex, cur], [], {}, [], {})["hubspot_customer"] is True      # another live company with the same ODS code still counts
