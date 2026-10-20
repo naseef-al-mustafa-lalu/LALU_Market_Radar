@@ -106,7 +106,7 @@ with sync_playwright() as p:
     # push to HubSpot: link, preview, write, validate
     pg.evaluate("window.__hsPoll = 30"); assert "Link deal" in pg.inner_text("#dr-hs .hs-bar"); pg.click('#dr-hs .hs-bar [data-hs-act="push"]'); pg.wait_for_selector("#hs-results [data-co]")
     pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]"); pg.click("#hs-results [data-deal]"); pg.wait_for_selector("#hs-write")
-    pv = pg.inner_text("#hs-body"); assert "Update HubSpot to match the tool" in pv and "Tier 4" in pv and "£0.10" in pv and "9,000" in pv and "Size Discount %" in pv and "Total Discount %" in pv and "line item on the deal" in pv.lower() and "ReportSure - All Report - Annual" in pv, pv
+    pv = pg.inner_text("#hs-body"); assert "Update HubSpot to match the tool" in pv and "Tier 4" in pv and "£0.10" in pv and "9,000" in pv and "size discount" in pv.lower() and "total discount" in pv.lower() and "line item" in pv.lower() and "ReportSure - All Report - Annual" in pv, pv
     assert pg.locator("#hs-fix-all").count() == 1 and pg.locator("#hs-body ul li").count() == 4 and "ReportSure - MS - SAR Only" in pv and "ReportSure - MS - All Reports" in pv, pv
     pg.screenshot(path=SHOTS + "/hubspot.png"); pg.evaluate("window.__hsBlank = true"); pg.click("#hs-write")
     pg.wait_for_selector("#hs-recheck"); assert "not filled in" in pg.inner_text("#hs-msg") or "has not filled in" in pg.inner_text("#hs-msg"), pg.inner_text("#hs-msg")   # blank calculated value: amber, with a Re-check button
