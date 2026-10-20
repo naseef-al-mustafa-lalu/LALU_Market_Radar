@@ -181,7 +181,7 @@ function routeComparison(p) {
   if (p.group_size > 1) add("group", p.cqc_provider_id, "Provider group");
   if (p.gp_federation) add("federation", p.gp_federation.toLowerCase(), "Federation");
   if (!rows.length) return "";
-  return `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Other ways to sign this practice</div>
+  return `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Other ways to sign this practice <span class="font-normal text-slate-500">(All reports, annual, size discount only)</span></div>
     <table class="w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="text-left font-medium">Route</th><th class="text-right font-medium whitespace-nowrap">£ / patient / mo</th><th class="text-right font-medium whitespace-nowrap pl-2">£ / year</th><th class="text-right font-medium whitespace-nowrap pl-2">vs alone</th></tr></thead><tbody>
     <tr><td class="py-1.5 pr-2"><div class="font-medium">On its own</div><div class="text-xs text-slate-500">Single practice · Tier ${p.price_tier}</div></td><td class="text-right font-mono">£${Number(p.base_price).toFixed(3)}</td><td class="text-right font-mono font-semibold">${gbpFull(p.est_arr)}</td><td class="text-right text-xs text-slate-500">–</td></tr>${rows.join("")}</tbody></table>
     <p class="mt-1 text-xs text-slate-500">Routes are alternatives: a network price applies only if the whole network signs together.</p></div>`;

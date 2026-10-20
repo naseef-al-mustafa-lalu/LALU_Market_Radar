@@ -137,7 +137,7 @@
     <section id="view-revenue" class="hidden space-y-4">
       <div class="bg-white rounded-xl border border-slate-200 p-4">
         <h2 class="font-bold">Estimated annual recurring revenue (ARR) by route</h2>
-        <p class="text-sm text-slate-500 mt-1">Patients under management × the tier price per patient per month × 12. A network route is the <b>aggregate of its linked practices&rsquo; patients</b>. Routes are alternative ways to sell to the same patients, so do not add them together.</p>
+        <p class="text-sm text-slate-500 mt-1">Patients under management × the annual-plan tier price per patient per month × 12 (size discount only, no term or speed discount). Use the scenario switch to price everyone as All reports, SAR only, or a mix. A network route is the <b>aggregate of its linked practices&rsquo; patients</b>. Routes are alternative ways to sell to the same patients, so do not add them together.</p>
         <div class="flex flex-wrap items-center gap-3 mt-3"><div id="rev-scen" class="flex gap-1 bg-slate-100 rounded-lg p-1 text-xs font-semibold" role="group" aria-label="Product scenario"></div><label id="rev-share-wrap" class="hidden items-center gap-2 text-xs text-slate-600">SAR-only share of customers <input id="rev-share" type="number" min="0" max="100" step="5" value="30" class="w-16 border border-slate-300 rounded-md px-2 py-1 text-sm"> %</label></div>
         <div class="overflow-x-auto mt-3"><table class="w-full text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="py-1.5 text-left">Route</th><th class="py-1.5 text-right">Entities</th><th class="py-1.5 text-right">Patients</th><th class="py-1.5 text-right">Est. ARR</th><th class="py-1.5 text-right">Avg £ / patient / month</th></tr></thead><tbody id="rev-routes" class="divide-y divide-slate-100"></tbody></table></div>
       </div>
@@ -235,7 +235,7 @@
       <div id="dp-pricing" class="hidden">
         <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
           <h2 class="font-bold">Update rates from the pricing spreadsheet</h2>
-          <p class="text-sm text-slate-500 mt-1">In the spreadsheet, open the <b>Pricing-Discount-Model</b> tab, then File &gt; Download &gt; Comma-separated values (.csv). For the 2 and 3-year term discounts and the price floor, do the same for the <b>Multi-Year-Matrix</b> tab. Choose one or both files here: you see what would change before anything is saved.</p>
+          <p class="text-sm text-slate-500 mt-1">In the spreadsheet, open the <b>Pricing-Discount-Model</b> tab, then File &gt; Download &gt; Comma-separated values (.csv). For the 2 and 3-year term discounts and the price floor, do the same for the <b>Multi-Year-Matrix</b> tab. SAR-only rates sync from cells labelled &ldquo;SAR Only Annual List Price&rdquo; and &ldquo;SAR Only Monthly List Price&rdquo;. Choose one or both files here: you see what would change before anything is saved.</p>
           <div class="mt-2 flex flex-wrap items-center gap-3"><input id="ps-file" type="file" accept=".csv,text/csv" multiple class="text-sm" aria-label="Pricing spreadsheet CSV files"><button id="ps-apply" class="hidden bg-blue-600 text-white rounded px-3 py-1.5 text-sm font-semibold">Apply</button></div>
           <p id="ps-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]" aria-live="polite"></p><div id="ps-preview"></div>
         </div>

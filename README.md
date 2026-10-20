@@ -73,8 +73,8 @@ Requires the `CQC_API_KEY` secret (free key from the CQC API portal).
 ## Pricing, tiers and estimated ARR
 Tiers and ARR follow Lalu's pricing model (the "Patient Size Threshold Analysis For Discounts" sheet) and are driven by two editable tables
 in Supabase, so nothing is hard-coded:
-- `pricing_tiers`: per route (`practice`, `pcn`, `icb`; `group` / `federation` allowed when you define them) the patient threshold, size discount and year-1 speed discount for tiers 1-5.
-- `pricing_settings`: list price per patient, discount caps, prepayment/indexation ranges, margin floor, minimum term.
+- `pricing_tiers`: per route (`practice`, `pcn`, `icb`; `group` / `federation` allowed when you define them) the patient threshold, size discount and optional speed discount for tiers 1-5.
+- `pricing_settings`: list prices per patient per month (All reports and SAR only, annual and monthly), term discounts, price floor (All reports), VAT.
 Rates are per patient per **month**; Est. ARR = patients x price x 12. Two products: **All reports** (annual 0.08 / monthly 0.10) and **SAR only** (annual 0.05 / monthly 0.06). Discounts apply to **annual plans only** (monthly has none): price = list x (1 - size - term - speed), with the price floor protecting All reports only. The optional speed discount (off by default) applies to every year of the term and ends at renewal. The practice and network tables carry a "SAR ARR" column; the Revenue tab has an All reports / SAR only / Mix scenario with an editable SAR-only share.
 The views `practice_pricing` and `org_pricing` calculate it live, so editing a row (Supabase -> Table Editor) updates the dashboard immediately.
 The dashboard shows it per practice, per network (Networks tab) and in the **Revenue** tab (route totals, tier breakdown, pipeline by lead status, rate card).
