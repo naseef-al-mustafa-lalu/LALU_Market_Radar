@@ -14,7 +14,7 @@ import requests
 from .common import norm_ods
 
 BASE = "https://api.service.cqc.org.uk/public/v1"
-FIELDS = ["cqc_location_id", "cqc_provider_id", "cqc_status", "cqc_rating", "cqc_last_inspection", "cqc_manager_absent_date", "cqc_brand_name"]
+FIELDS = ["cqc_location_id", "cqc_provider_id", "cqc_status", "cqc_rating", "cqc_last_inspection", "cqc_manager_absent_date", "cqc_brand_name", "address", "town", "county"]
 GROUP_FIELDS = ["group_name", "group_size"]
 PROVIDER_NAME_CAP = 300
 BACKFILL_BUDGET_SECONDS = 25 * 60
@@ -52,7 +52,9 @@ def summarise(detail):
             "cqc_status": detail.get("registrationStatus"), "cqc_rating": overall.get("rating"),
             "cqc_last_inspection": _date((detail.get("lastInspection") or {}).get("date")),
             "cqc_manager_absent_date": _date(detail.get("registeredManagerAbsentDate")),
-            "cqc_brand_name": (detail.get("brandName") or "").removeprefix("BRAND ").strip() or None}
+            "cqc_brand_name": (detail.get("brandName") or "").removeprefix("BRAND ").strip() or None,
+            "address": ", ".join(x.strip() for x in (detail.get("postalAddressLine1"), detail.get("postalAddressLine2")) if x and x.strip()) or None,
+            "town": (detail.get("postalAddressTownCity") or "").strip() or None, "county": (detail.get("postalAddressCounty") or "").strip() or None}
 
 
 def paged(getj, path, key, params=None, per_page=1000):
@@ -162,6 +164,8 @@ def build_rows(rest, practices, found, getj, now, stats):
     rows = []
     for ods, old in practices.items():
         new = {**{k: old.get(k) for k in FIELDS}, **found.get(ods, {})}
+        for k in ("address", "town", "county"):  # CQC fills gaps only: never replace an address we already hold (Oscar, devolved loads)
+            new[k] = old.get(k) or new.get(k)
         grp = dict(zip(GROUP_FIELDS, assigned.get(ods, (None, None))))
         if grp["group_name"] == "":
             grp["group_name"] = None
