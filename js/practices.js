@@ -130,8 +130,6 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
   // The speed discount applies to every year of the term and ends at renewal.
   const termRate = dealRate(size, term, useSpeed ? speed : 0), renewal = dealRate(size, term, 0);
   const sum = size + term + (useSpeed ? speed : 0), floored = !sar && !monthly && list * (1 - sum) < floor - 1e-9;
-  const tiersAsc = cfgTiers.filter(t => t.route === route).sort((a, b) => a.threshold - b.threshold);
-  const next = monthly ? null : tiersAsc.find(t => Number(t.threshold) > patients && t.tier < tierRow.tier);
   const sub = t => `<div class="text-xs text-slate-500 font-normal leading-snug">${t}</div>`, amt = x => "−£" + x.toFixed(3);
   const line = (label, detail, pctText, value, cls = "") => `<tr class="border-t border-emerald-100 ${cls}"><td class="py-1.5 pr-3 align-top"><div class="font-medium leading-snug">${label}</div>${detail ? sub(detail) : ""}</td><td class="py-1.5 px-2 text-right align-top whitespace-nowrap text-slate-600">${pctText}</td><td class="py-1.5 pl-2 text-right align-top whitespace-nowrap font-mono">${value}</td></tr>`;
   const adj = termRate - list * (1 - sum);
@@ -165,7 +163,7 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
     ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
       `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
     ${steps}${yearTable}
-    ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${dealRate(Number(next.size_discount), term, useSpeed ? Number(next.speed_discount) : 0).toFixed(3)} per patient per month with your current term and speed choices).</p>` : ""}</div>`;
+    </div>`;
 }
 // "Other ways to sign": follows the product, billing, term and speed choices on the price card, so every number on the profile agrees.
 let routeCmpPractice = null;
@@ -220,12 +218,14 @@ async function openDrawer(p) {
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
   $("dr-title").textContent = p.practice_name; stateToUrl();
   const st = hsState(p);
-  $("dr-sub").innerHTML = `<span class="font-mono">${esc(p.ods_code)}</span>${p.merged_into ? " " + chip("Merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : ""}${p.town ? " · " + esc(p.town) : ""} ${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${p.cqc_rating && CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : ""} ${st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st]) : ""}`;
+  $("dr-sub").innerHTML = `<span class="font-mono">${esc(p.ods_code)}</span>${p.merged_into ? " " + chip("Merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : ""}${p.town ? " · " + esc(p.town) : ""} ${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${p.cqc_rating && CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : ""}${p.cqc_status === "Deregistered" ? " " + chip("CQC deregistered", "bg-amber-100 text-amber-800", "CQC lists this location as deregistered; check whether the practice still operates") : ""} ${st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st]) : ""}`;
   const link = (label, kind, key) => `<a href="#" class="text-blue-600 hover:underline" data-net="${kind}|${esc(key)}|${esc(label)}">${esc(label)}</a>`;
   const web = p.website ? `<a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(/^https?:/.test(p.website) ? p.website : "https://" + p.website)}">${esc(p.website)}</a>` : "";
   const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
   const body = $("dr-body");
   body.innerHTML = mergeSection(p) + `<div id="dr-contacts" class="text-sm text-slate-500">Loading contacts…</div>` +
+    sec("Practice details", kv("Address", addr) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Region", esc(p.region)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
+      kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)) + kv("Categories", esc(p.oscar_categories))) +
     sec("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + " practices)", "group", p.cqc_provider_id) : "") +
       kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") + kv("ICB", p.icb_name && p.icb_name !== "Unallocated ICB" ? link(p.icb_name, "icb", p.icb_name.toLowerCase()) : "")) +
     sec("Pricing", p.total_patients > 0 ? priceCard({ patients: p.total_patients, tierRow: cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), route: "practice", arr: p.est_arr }) +
@@ -235,8 +235,6 @@ async function openDrawer(p) {
     sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st])) + kv("Lifecycle stage", esc(p.hubspot_stage)) + kv("Company imported", esc(fmtDate(p.hubspot_company_imported_at))) +
       kv("Contacts imported", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + kv("Last contact import", esc(fmtDate(p.hs_last_imported_at))) + kv("Last synced", esc(fmtDate(p.hubspot_synced_at))) +
       (!p.hubspot_synced_at && !p.hs_imported ? '<div class="text-xs text-slate-500 italic py-0.5">Not synced yet: filled in by the HubSpot integration.</div>' : "")) +
-    sec("Practice details", kv("Address", addr) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Region", esc(p.region)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
-      kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)) + kv("Categories", esc(p.oscar_categories))) +
     sec("Notes (Oscar)", p.org_notes ? `<div class="text-sm text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : "") +
     sec("Hiring: report / records roles (NHS Jobs)", jobAdverts.filter(j => j.ods_code === p.ods_code).sort((a, b) => (b.post_date || "").localeCompare(a.post_date || "")).slice(0, 8).map(j =>
       `<div class="py-1 border-t border-slate-100 first:border-0 text-sm"><a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(j.url)}">${esc(j.title)}</a>
