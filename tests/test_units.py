@@ -197,3 +197,11 @@ def test_slack_post_webhook_and_failures(monkeypatch):
         slack.post("hi")
     monkeypatch.delenv("SLACK_BOT_TOKEN"); monkeypatch.delenv("SLACK_WEBHOOK_URL")
     slack.alert("t", "b")   # not configured: prints, never raises
+
+
+def test_job_employer_without_postcode_match_gets_name_candidates():
+    from src import jobs
+    practices = [dict(ods_code="M1", practice_name="Station Street Surgery", postcode="CV9 1DB", status="Active"),
+                 dict(ods_code="M2", practice_name="Grange Medical Centre", postcode="CV11 6AB", status="Active")]
+    status, ods, cands, _ = jobs.candidates_for("Station Street Surgery", {"CV116HH"}, {}, None, jobs.build_pool(practices))
+    assert status == "review" and ods is None and [c["ods_code"] for c in cands] == ["M1"]   # offered for review, never auto-linked

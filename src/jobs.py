@@ -103,7 +103,36 @@ def fetch_all(get=requests.get, pause=0.5, max_pages=400):
     return adverts, total
 
 
-def candidates_for(name, postcodes, by_postcode, networks=None):
+GENERIC = {"surgery", "medical", "centre", "center", "practice", "health", "group", "clinic", "care", "partnership", "and", "gp", "doctors", "dr", "drs", "street", "road"}
+
+
+def build_pool(practices):
+    """Active practices indexed by normalised name and by postcode area, so an employer whose own postcode matches nothing can still be offered likely candidates."""
+    by_name, by_area = {}, {}
+    for p in practices:
+        if p.get("status", "Active") != "Active":
+            continue
+        by_name.setdefault(norm_name(p["practice_name"]), []).append(p)
+        pc = norm_postcode(p.get("postcode"))
+        if pc:
+            by_area.setdefault(pc[:-3][:4], []).append(p)
+    return {"by_name": by_name, "by_area": by_area}
+
+
+def name_candidates(name, postcodes, pool, limit=6):
+    """Suggestions only (never auto-linked): the same name elsewhere, or a practice in the same postcode area sharing a distinctive word."""
+    found = {}
+    for p in pool["by_name"].get(norm_name(name), []):
+        found[p["ods_code"]] = p
+    words = set(norm_name(name).split()) - GENERIC
+    for pc in postcodes:
+        for p in pool["by_area"].get(pc[:-3][:4], []):
+            if words & (set(norm_name(p["practice_name"]).split()) - GENERIC):
+                found.setdefault(p["ods_code"], p)
+    return [{"ods_code": p["ods_code"], "name": p["practice_name"], "postcode": p.get("postcode"), "reason": "similar name"} for p in list(found.values())[:limit]]
+
+
+def candidates_for(name, postcodes, by_postcode, networks=None, pool=None):
     """Practices at the employer's postcodes. Returns (status, ods_code or None, candidate list, org_id or None).
     A PCN / federation employer is linked only when exactly one network has the same normalised name."""
     cands = {p["ods_code"]: p for pc in postcodes for p in by_postcode.get(pc, [])}
@@ -116,6 +145,8 @@ def candidates_for(name, postcodes, by_postcode, networks=None):
         if len(same) == 1:
             return "auto", None, cand_list, same[0]["id"]
         return "network", None, cand_list, None
+    if pool and not cand_list:
+        cand_list = name_candidates(name, postcodes, pool)
     return "review", None, cand_list, None
 
 
@@ -123,6 +154,8 @@ def sync(rest, practices, today=None, fetch=fetch_all):
     """Returns stats. `practices` = iterable of gp_practices rows (ods_code, practice_name, postcode, status)."""
     today = today or date.today()
     adverts, total = fetch()
+    practices = list(practices)
+    pool = build_pool(practices)
     by_postcode = {}
     for p in practices:
         if p.get("status", "Active") == "Active" and p.get("postcode"):
@@ -142,7 +175,7 @@ def sync(rest, practices, today=None, fetch=fetch_all):
     for code, e in emp.items():
         old = existing.get(code)
         keep = old and old["match_status"] in ("confirmed", "rejected")
-        status, ods, cands, org = candidates_for(e["employer_name"], e["postcodes"], by_postcode, networks)
+        status, ods, cands, org = candidates_for(e["employer_name"], e["postcodes"], by_postcode, networks, pool)
         row = {"employer_code": code, "employer_name": e["employer_name"], "postcodes": sorted(e["postcodes"]), "candidates": cands, "last_seen": now_iso}
         if keep:
             row.update(match_status=old["match_status"], ods_code=old["ods_code"], org_id=old.get("org_id"))
