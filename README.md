@@ -171,3 +171,7 @@ Needs the GitHub secret `HUBSPOT_TOKEN` (the same private-app token as the Supab
 ### Keeping HubSpot's PCN records in step with NHS ODS
 
 The daily HubSpot sync reads the NHS ODS PCN list and, add-only: creates a HubSpot PCN record for any PCN that has practices in the tool but no HubSpot record (name, ODS code, address, town, county, postcode, parent ICB name and code, start date, phone; at most 25 per run), marks PCNs that ODS has closed as inactive with their end date, and associates every linked practice company with its PCN record when the association is missing. Anything it changes is posted to the Slack channel. It never deletes records or removes associations. Fields that fail validation (for example a malformed postcode) are left blank rather than written.
+
+### HubSpot integration panel and activity log
+
+Data > Overview > **HubSpot integration** shows sync health (last run, who started it, linked / customer / engaged counts), a **Needs attention** list (practices not in HubSpot, PCNs and ICBs without a HubSpot record, pricing pushes whose recalculated values did not match), a searchable **Activity log** with CSV export, and a **Run sync now** button (edge function `hubspot-sync-trigger`, which starts the HubSpot sync workflow). Every user push, company created or linked, PCN record created / corrected / closed, association batch and sync run is recorded in `hubspot_activity` with who, what and the before/after values.

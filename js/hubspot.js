@@ -193,6 +193,9 @@ async function hsValidate(tries) {
     const okV = blankV ? null : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4;   // null: HubSpot has not filled it in
     const line = (ok, label, got, exp) => `<div class="flex items-center justify-between rounded-lg border ${ok === null ? "border-amber-300 bg-amber-50 text-amber-900" : ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"} px-3 py-2"><span>${ok === null ? "?" : ok ? "✓" : "✗"} ${label}</span><span class="font-mono">HubSpot ${got} · tool ${exp}</span></div>`;
     const done = okT && okV;
+    hsCall({ action: "log_check", ods: hs.p.ods_code, dealId: deal.id, dealName: deal.dealname, ok: okT && okV !== false,
+      note: okT ? "Actual Value per Patient (Calculated) does not match the tool" : "Total Discount % does not match the tool",
+      hubspot: { total_discount: last.total_discount, actual_value: last.actual_value_per_patient_calculated }, tool: { total_discount: want.total, actual_value: want.rate } }).catch(() => {});
     msg.innerHTML = `<div class="space-y-2">${line(okT, "Total Discount %", last.total_discount == null ? "not set" : pct(hsNum(last.total_discount) / HS_PCT), pct(want.total))}
       ${line(okV, "Actual Value per Patient (Calculated)", blankV ? "not set" : "£" + rate3(last.actual_value_per_patient_calculated), "£" + rate3(want.rate))}</div>
       <p class="mt-2 text-xs text-slate-500">${done ? "HubSpot matches the tool. The link is saved for next time." : okT && okV === null ? "Total Discount % matches. HubSpot has not filled in Actual Value per Patient (Calculated) yet, so it could not be compared. The link is saved." : "HubSpot's calculated fields do not match the tool yet. Re-check in a moment, or check the deal's workflow and whether the price floor applies in the tool but not in HubSpot."}</p>
@@ -271,4 +274,71 @@ async function hsCreateRun(action, extra) {
     const nx = $("hs-next"); if (nx) nx.onclick = () => { hs = null; hsOpen(p); };
     if (drawerCode === p.ods_code) openDrawer(p);
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; btn.disabled = false; btn.textContent = "Create in HubSpot"; }
+}
+
+/* ---------- Data > Overview: HubSpot integration panel (health, what needs attention, activity log, run sync now) ---------- */
+const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_check: ["Check", "bg-slate-100 text-slate-700"], create_company: ["Company created", "bg-emerald-100 text-emerald-800"],
+  link_company: ["Company linked", "bg-emerald-100 text-emerald-800"], pcn_created: ["PCN created", "bg-violet-100 text-violet-800"], pcn_repaired: ["PCN corrected", "bg-violet-100 text-violet-800"],
+  pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"] };
+let hsLog = [], hsLogFilter = "all", hsLogQuery = "", hsPanelTimer = null;
+const hsAgo = iso => { if (!iso) return "never"; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago"; };
+async function renderHubspotPanel() {
+  const box = $("d-hubspot"); if (!box) return;
+  if (!box.innerHTML) box.innerHTML = '<p class="text-sm text-slate-500">Loading HubSpot status…</p>';
+  const [{ data: act }, { data: links }] = await Promise.all([db.from("hubspot_activity").select("*").order("at", { ascending: false }).limit(300), db.from("hubspot_network_links").select("org_id")]);
+  hsLog = act || [];
+  const run = hsLog.find(r => r.kind === "sync_run"), st = (run && run.detail) || {}, ok = run ? run.ok : null;
+  const eligible = practices.filter(p => p.status === "Active" && p.total_patients > 0), missing = eligible.filter(p => !p.hubspot_company_id);
+  const linkedIds = new Set((links || []).map(l => l.org_id));
+  const eng = kind => networks.filter(n => n.kind === kind && n.patients > 0 && (kind === "pcn" ? /^ods:U\d{5}$/.test(n.source_key) : /ICB/i.test(n.name)));
+  const pcnMiss = eng("pcn").filter(n => !linkedIds.has(n.id)), icbMiss = eng("icb").filter(n => !linkedIds.has(n.id));
+  const latestCheck = new Map(); for (const r of hsLog) if (r.kind === "push_check" && r.ods_code && !latestCheck.has(r.ods_code)) latestCheck.set(r.ods_code, r);
+  const badChecks = [...latestCheck.values()].filter(r => !r.ok);
+  const tile = (k, v, sub = "") => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-xl font-bold leading-tight">${v}</div>${sub ? `<div class="text-xs text-slate-500">${sub}</div>` : ""}</div>`;
+  const attn = (n, label, action = "") => n ? `<div class="flex items-center justify-between gap-3 border-t border-slate-100 py-1.5 first:border-0"><span class="text-sm"><b>${n.toLocaleString()}</b> ${label}</span>${action}</div>` : "";
+  const items = [attn(ok === false ? 1 : 0, "The last sync failed: " + esc((run?.summary || "").slice(0, 120))),
+    attn(missing.length, "active practices with a list size are not in HubSpot", '<button id="hsp-missing" class="text-xs font-semibold text-blue-600 hover:underline">View them</button>'),
+    attn(pcnMiss.length, "PCNs have no HubSpot PCN record yet (the next sync creates English ones)"), attn(icbMiss.length, "ICBs have no HubSpot ICB record"),
+    attn(badChecks.length, "recent pricing pushes where HubSpot's calculated values did not match the tool", '<button id="hsp-bad" class="text-xs font-semibold text-blue-600 hover:underline">Show</button>')].join("");
+  box.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3"><div class="flex items-center gap-2"><h2 class="font-bold">HubSpot integration</h2>
+      ${chip(ok === null ? "Never synced" : ok ? "Healthy" : "Last sync failed", ok === null ? "bg-slate-100 text-slate-700" : ok ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800")}</div>
+      <div class="flex items-center gap-3"><span id="hsp-msg" class="text-xs text-slate-500" role="status"></span><button id="hsp-run" class="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">Run sync now</button></div></div>
+    <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">${tile("Last sync", run ? hsAgo(run.at) : "never", run ? esc(run.actor) : "")}
+      ${tile("Practices linked", (eligible.length - missing.length).toLocaleString(), "of " + eligible.length.toLocaleString() + " active with a list size")}${tile("Customers", practices.filter(p => p.hubspot_customer).length.toLocaleString())}
+      ${tile("Engaged", practices.filter(p => p.hubspot_engaged && !p.hubspot_customer).length.toLocaleString())}${tile("PCN / ICB records linked", linkedIds.size.toLocaleString(), (st.pcn_records_created ? st.pcn_records_created + " created last run" : ""))}</div>
+    <h3 class="mt-4 text-sm font-bold">Needs attention</h3><div id="hsp-attn">${items || '<p class="text-sm text-slate-500">Nothing needs attention.</p>'}</div>
+    <div class="mt-4 flex flex-wrap items-center justify-between gap-2"><h3 class="text-sm font-bold">Activity log <span class="font-normal text-xs text-slate-500">everything the tool has done to HubSpot</span></h3>
+      <div class="flex flex-wrap items-center gap-2"><select id="hsp-filter" class="rounded-md border border-slate-300 px-2 py-1 text-xs" aria-label="Filter activity">${[["all", "All activity"], ["push", "Pricing pushes"], ["create", "Companies created or linked"], ["pcn", "PCN records"], ["sync", "Sync runs"], ["bad", "Needs attention"]].map(([k, l]) => `<option value="${k}" ${hsLogFilter === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <input id="hsp-q" value="${esc(hsLogQuery)}" placeholder="Search practice or text" class="rounded-md border border-slate-300 px-2 py-1 text-xs" aria-label="Search activity"><button id="hsp-csv" class="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold hover:bg-slate-50">Export CSV</button></div></div>
+    <div id="hsp-log" class="mt-2 max-h-96 overflow-y-auto text-sm"></div>`;
+  hsLogRender();
+  $("hsp-missing").onclick = () => { showTab("practices"); $("f-hs").value = "missing"; applyFilters(); };
+  const bad = $("hsp-bad"); if (bad) bad.onclick = () => { hsLogFilter = "bad"; $("hsp-filter").value = "bad"; hsLogRender(); };
+  $("hsp-filter").onchange = e => { hsLogFilter = e.target.value; hsLogRender(); };
+  $("hsp-q").oninput = e => { hsLogQuery = e.target.value; hsLogRender(); };
+  $("hsp-csv").onclick = () => downloadCsv("Lalu_HubSpot_Activity", ["Time", "Who", "Type", "Practice", "Record", "Summary", "OK"], hsLogRows().map(r => [r.at, r.actor, (HS_KINDS[r.kind] || [r.kind])[0], r.ods_code, r.target, r.summary, r.ok ? "yes" : "no"]));
+  $("hsp-run").onclick = async () => {
+    const b = $("hsp-run"), msg = $("hsp-msg"); b.disabled = true; msg.textContent = "Starting…";
+    const { data, error } = await db.functions.invoke("hubspot-sync-trigger");
+    if (error || data?.error) { let m = data?.error || error?.message || "Could not start the sync"; try { const j = await error?.context?.json?.(); if (j?.error) m = j.error; } catch (e) {} msg.textContent = m; b.disabled = false; return; }
+    msg.textContent = "Sync started. It takes about 3 minutes; this panel refreshes by itself.";
+    clearTimeout(hsPanelTimer); hsPanelTimer = setTimeout(() => { renderHubspotPanel(); hsPanelTimer = setTimeout(renderHubspotPanel, 90000); }, 120000);
+  };
+}
+function hsLogRows() {
+  const q = hsLogQuery.trim().toLowerCase(), badOds = new Set(), seen = new Set();
+  for (const r of hsLog) if (r.kind === "push_check" && r.ods_code && !seen.has(r.ods_code)) { seen.add(r.ods_code); if (!r.ok) badOds.add(r.ods_code); }
+  const inF = r => hsLogFilter === "all" || (hsLogFilter === "push" && (r.kind === "push" || r.kind === "push_check")) || (hsLogFilter === "create" && (r.kind === "create_company" || r.kind === "link_company")) ||
+    (hsLogFilter === "pcn" && /^pcn_|associations/.test(r.kind)) || (hsLogFilter === "sync" && r.kind === "sync_run") || (hsLogFilter === "bad" && (!r.ok || (r.kind === "push_check" && badOds.has(r.ods_code))));
+  return hsLog.filter(r => inF(r) && (!q || `${r.ods_code} ${r.target} ${r.summary} ${r.actor}`.toLowerCase().includes(q)));
+}
+function hsLogRender() {
+  const rows = hsLogRows().slice(0, 150), box = $("hsp-log"); if (!box) return;
+  box.innerHTML = rows.length ? `<table class="w-full text-left"><thead class="sticky top-0 bg-white text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-1 pr-2 font-medium">When</th><th class="font-medium">Who</th><th class="font-medium">Type</th><th class="font-medium">What</th></tr></thead><tbody>` +
+    rows.map(r => { const [lab, cls] = HS_KINDS[r.kind] || [r.kind, "bg-slate-100 text-slate-700"], p = r.ods_code && practices.find(x => x.ods_code === r.ods_code);
+      return `<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2 whitespace-nowrap text-xs text-slate-500" title="${esc(r.at)}">${esc(fmtDate(r.at))}<div>${esc(hsAgo(r.at))}</div></td><td class="pr-2 text-xs">${esc(r.actor)}</td><td class="pr-2">${chip(lab, r.ok ? cls : "bg-rose-100 text-rose-800")}</td>
+        <td class="py-1.5"><div>${p ? `<a href="#" data-hsp-open="${esc(p.ods_code)}" class="font-medium text-blue-600 hover:underline">${esc(p.practice_name)}</a> ` : ""}${esc(r.summary)}</div>
+        ${r.detail ? `<details class="text-xs text-slate-500"><summary class="cursor-pointer">Details</summary><pre class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2">${esc(JSON.stringify(r.detail, null, 1).slice(0, 4000))}</pre></details>` : ""}</td></tr>`; }).join("") + "</tbody></table>"
+    : '<p class="py-3 text-sm italic text-slate-500">No activity matches.</p>';
+  box.querySelectorAll("[data-hsp-open]").forEach(a => a.onclick = e => { e.preventDefault(); const p = practices.find(x => x.ods_code === a.dataset.hspOpen); if (p) { showTab("practices"); openDrawer(p); } });
 }

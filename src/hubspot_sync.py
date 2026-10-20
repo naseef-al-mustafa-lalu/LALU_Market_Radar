@@ -178,7 +178,8 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
     """Keep HubSpot's PCN custom object in step with NHS ODS: create missing PCNs (capped), repair records with a bad address, mark closed ones
     inactive, and add missing company -> PCN associations. Add-only: nothing is deleted or de-associated. Returns (stats, lines for Slack)."""
     getj = getj or sources.get_json
-    stats, lines = {"pcn_records_created": 0, "pcn_records_repaired": 0, "pcn_records_inactivated": 0, "pcn_associations_added": 0, "pcn_create_capped": 0}, []
+    stats, lines, events = {"pcn_records_created": 0, "pcn_records_repaired": 0, "pcn_records_inactivated": 0, "pcn_associations_added": 0, "pcn_create_capped": 0}, [], []
+    ev = lambda kind, c, name, hid, summary, detail=None: events.append({"kind": kind, "target": name, "hubspot_type": "pcn", "hubspot_id": str(hid), "summary": summary, "detail": {"ods": c, **(detail or {})}})
     ours = {c for c in (p.get("pcn_code") for p in practices.values()) if c}
     by_code = {pr["ods_code"].strip().upper(): pr for pr in hs_pcns if pr.get("ods_code")}
     inactive = load_inactive_pcns(getj)
@@ -190,6 +191,7 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
         by_code[c] = {"id": r["id"], **props}
         stats["pcn_records_created"] += 1
         lines.append(f"Created PCN {props['name']} ({c})")
+        ev("pcn_created", c, props["name"], r["id"], f"Created PCN record {props['name']} ({c}) from NHS ODS", {"properties": props})
     stats["pcn_create_capped"] = max(0, len(missing) - MAX_PCN_CREATES)
     # 2. repair records an early version wrote with a date in address line 1
     for c, pr in list(by_code.items())[:]:
@@ -203,6 +205,7 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
             hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {**blank, **fix}})
             stats["pcn_records_repaired"] += 1
             lines.append(f"Corrected the address details of PCN {pr.get('name', c)} ({c})")
+            ev("pcn_repaired", c, pr.get("name", c), pr["id"], f"Corrected the address details of PCN {pr.get('name', c)} ({c})", {"properties": {**blank, **fix}})
     # 3. mark PCNs closed in ODS as inactive in HubSpot
     for c, pr in by_code.items():
         if c in inactive and pr.get("status") != "inactive" and stats["pcn_records_inactivated"] < MAX_INACTIVATE:
@@ -210,6 +213,7 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
             hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {"status": "inactive", **({"operational_end_date": end} if end else {})}})
             stats["pcn_records_inactivated"] += 1
             lines.append(f"Marked PCN {pr.get('name', c)} ({c}) inactive" + (f" (closed {end})" if end else ""))
+            ev("pcn_inactivated", c, pr.get("name", c), pr["id"], f"Marked PCN {pr.get('name', c)} ({c}) inactive" + (f" (closed {end})" if end else ""), {"end": end})
     # 4. associate each linked practice company to its PCN record
     want = {}   # company id -> PCN record id
     for ods, cid in company_of.items():
@@ -227,7 +231,8 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
     stats["pcn_associations_added"] = len(todo)
     if todo:
         lines.append(f"Associated {len(todo)} practice companies with their PCN record")
-    return stats, lines
+        events.append({"kind": "associations", "hubspot_type": "company", "summary": f"Associated {len(todo)} practice companies with their PCN record", "detail": {"count": len(todo)}})
+    return stats, lines, events
 
 
 def sync_networks(rest, hub, now):
@@ -260,7 +265,15 @@ def sync_networks(rest, hub, now):
             "networks_unmatched": len(orgs) - len(rows)}
 
 
-def sync(rest, hub, now=None):
+def record(rest, rows, actor):
+    """Append rows to the HubSpot activity log; the log must never stop the sync."""
+    try:
+        rest.insert("hubspot_activity", [{"actor": actor, "ok": True, **r} for r in rows])
+    except Exception as e:  # noqa: BLE001
+        print("Activity log write skipped:", e)
+
+
+def sync(rest, hub, now=None, actor="daily sync"):
     now = (now or datetime.now(timezone.utc)).isoformat()
     practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
@@ -307,7 +320,8 @@ def sync(rest, hub, now=None):
         epcn = parse_epcn(sources.fetch(sources.ODS_EXPORT + "epcn"), icb_codes)
         hs_pcns = [{"id": o["id"], **o.get("properties", {})} for o in fetch_custom(hub, PCN_OBJECT)]
         company_of = {ods: str(sorted(cs, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]["id"]) for ods, cs in by_ods.items()}
-        pcn_stats, lines = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of)
+        pcn_stats, lines, events = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of)
+        record(rest, events, actor)
         if lines:
             try:
                 slack.post("HubSpot sync updated the PCN records:\n• " + "\n• ".join(slack.mrkdwn(x) for x in lines[:20]) + (f"\n…and {len(lines) - 20} more" if len(lines) > 20 else ""))
@@ -326,11 +340,19 @@ def main():
         return
     need_env("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
     try:
-        stats = sync(Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]), Hub(os.environ["HUBSPOT_TOKEN"]))
+        rest = Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+        actor = "manual sync" if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" else "daily sync"
+        stats = sync(rest, Hub(os.environ["HUBSPOT_TOKEN"]), actor=actor)
         print("OK", stats)
+        record(rest, [{"kind": "sync_run", "summary": f"{stats['practices_linked']:,} practices linked, {stats['customers']} customers, {stats['engaged']} engaged, {stats.get('networks_linked', 0)} PCN/ICB records linked", "detail": stats}], actor)
         if stats["search_capped"]:
             send_alert("Lalu Market Radar: HubSpot sync hit the 10,000 company search limit", f"{stats}. Some companies were not read; ask for the sync to be windowed by created date.")
     except Exception as e:  # noqa: BLE001
+        try:
+            record(Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]), [{"kind": "sync_run", "ok": False, "summary": "HubSpot sync failed: " + str(e)[:250], "detail": {"error": str(e)[:1000]}}],
+                   "manual sync" if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" else "daily sync")
+        except Exception:  # noqa: BLE001
+            pass
         send_alert("Lalu Market Radar: HubSpot sync FAILED", str(e))
         print(e, file=sys.stderr)
         sys.exit(1)

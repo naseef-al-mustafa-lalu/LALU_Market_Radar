@@ -232,6 +232,8 @@ def test_hubspot_sync_flags_and_contact_matching():
                     dict(contact_urn=2, ods_code="A10001", email="bob@x.nhs", hubspot_status="Imported", hubspot_contact_id="77")]
         def upsert(self, table, rows, on_conflict, batch=500):
             self.up[table] = rows
+        def insert(self, table, rows, **kw):
+            self.up.setdefault("ins_" + table, []).extend(rows)
 
     class FakeHub:
         def call(self, method, path, **kw):
@@ -298,6 +300,8 @@ def test_hubspot_sync_flags_and_contact_matching():
     nl = {r["org_id"]: r for r in rest.up["hubspot_network_links"]}
     assert nl["o1"]["object_id"] == "501" and nl["o1"]["object_type"].endswith("pcns") and nl["o1"]["won_deals_amount"] == 1200 and nl["o2"]["object_id"] == "601" and "o3" not in nl   # PCN by ODS code, ICB by name, Scottish cluster unmatched
     assert stats["networks_linked"] == 2 and stats["networks_unmatched"] == 1
+    kinds = {e["kind"] for e in rest.up["ins_hubspot_activity"]}
+    assert {"pcn_created", "pcn_repaired", "pcn_inactivated", "associations"} <= kinds and all(e["actor"] == "daily sync" for e in rest.up["ins_hubspot_activity"])   # every change is logged
     assert [c["ods_code"] for c in created] == ["U99999"] and created[0]["address_line_1"] == "2 Low St" and created[0]["postcode"] == "CM1 1QH" and created[0]["status"] == "active" and created[0]["operational_start_date"] == "2025-01-01"   # created from the named ODS API fields
     fixed = next(p for path, p in patched if path.endswith("/501"))
     assert fixed["address_line_1"] == "2 Low St" and fixed["postcode"] == "CM1 1QH"        # the early bad address (a date) is repaired

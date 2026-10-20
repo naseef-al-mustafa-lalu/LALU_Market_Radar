@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
     const who = u?.user?.email ?? "unknown";
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const b = await req.json();
+    const log = async (row: Record<string, unknown>) => { try { await admin.from("hubspot_activity").insert({ ok: true, ...row }); } catch (_) { /* logging must never block the action */ } };
 
     if (b.action === "find") {                       // companies by ODS code first, then by name
       const ods = String(b.ods ?? "").trim().toUpperCase().slice(0, 12), name = String(b.name ?? "").trim().slice(0, 100);
@@ -104,8 +105,9 @@ Deno.serve(async (req) => {
 
       await admin.from("hubspot_links").upsert({ ods_code: ods, company_id: companyId, company_name: before.company.name ?? null, deal_id: dealId, deal_name: before.deal.dealname ?? null,
         linked_by: who, linked_at: new Date().toISOString(), last_pushed_at: new Date().toISOString() }, { onConflict: "ods_code" });
-      await admin.from("hubspot_push_log").insert({ ods_code: ods, company_id: companyId, deal_id: dealId, pushed_by: who,
-        before_values: { company: before.company, deal: before.deal }, written_values: { company: companyProps, deal: dealProps } });
+      await log({ actor: who, kind: "push", ods_code: ods, target: before.deal.dealname ?? before.company.name ?? null, hubspot_type: "deal", hubspot_id: dealId,
+        summary: `Pushed pricing to ${before.deal.dealname ?? "deal"}: ${Object.keys(dealProps).length} deal field(s)${Object.keys(companyProps).length ? ", company list size" : ""}`,
+        detail: { companyId, dealId, before: { company: before.company, deal: before.deal }, written: { company: companyProps, deal: dealProps } } });
       return reply({ ok: true, ...(await readPair(companyId, dealId)) });
     }
     if (b.action === "create_company" || b.action === "link_company") {
@@ -151,8 +153,18 @@ Deno.serve(async (req) => {
       const now = new Date().toISOString();
       await admin.from("gp_practices").update({ hubspot_company_id: companyId, hubspot_company_imported_at: now, hubspot_synced_at: now }).eq("ods_code", ods);
       for (const c of done.contacts) await admin.from("contacts").update({ hubspot_status: "Imported", hubspot_contact_id: c.id, hubspot_imported_at: now }).eq("ods_code", ods).ilike("email", c.email);
-      await admin.from("hubspot_push_log").insert({ ods_code: ods, company_id: companyId, pushed_by: who, before_values: null, written_values: { action: b.action, done, warnings } });
+      await log({ actor: who, kind: b.action, ods_code: ods, target: String((b.company ?? {}).name ?? ""), hubspot_type: "company", hubspot_id: companyId,
+        summary: b.action === "create_company" ? `Created company ${(b.company ?? {}).name ?? ods} with ${done.contacts.length} contact(s) and ${done.networks.length} PCN/ICB association(s)` : `Linked existing company ${companyId} to ${ods}`,
+        detail: { done, warnings, company: b.company ?? null } });
       return reply({ ok: true, ...done, warnings });
+    }
+    if (b.action === "log_check") {          // the dashboard reports whether HubSpot's recalculated fields matched the tool after a push
+      const ods = String(b.ods ?? "").trim().toUpperCase();
+      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      await log({ actor: who, kind: "push_check", ok: b.ok === true, ods_code: ods, target: String(b.dealName ?? "").slice(0, 120), hubspot_type: "deal", hubspot_id: b.dealId ? idOf(b.dealId) : null,
+        summary: b.ok === true ? "HubSpot's Total Discount % and Actual Value per Patient match the tool" : String(b.note ?? "HubSpot's calculated fields did not match the tool").slice(0, 300),
+        detail: { hubspot: b.hubspot ?? null, tool: b.tool ?? null } });
+      return reply({ ok: true });
     }
     if (b.action === "unlink") {
       const ods = String(b.ods ?? "").trim().toUpperCase();

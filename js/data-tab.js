@@ -1,6 +1,7 @@
 // Data tab: overview, rate card and file uploads.
 /* ---------- data tab ---------- */
 async function renderData() {
+  renderHubspotPanel();
   const row = await latestCountRow(), withCounts = practices.filter(p => p.total_patients > 0).length, withCqc = practices.filter(p => p.cqc_location_id).length;
   renderUploads();
   $("pc-status").textContent = row ? `Data for ${row.data_month || "?"}, loaded ${fmtDate(row.updated_at)}. ${withCounts.toLocaleString()} of ${practices.length.toLocaleString()} practices have counts.` : "No patient counts loaded yet: practices show no list size or ARR until you load the NHS file.";
