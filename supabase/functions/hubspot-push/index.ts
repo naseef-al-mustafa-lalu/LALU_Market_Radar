@@ -33,6 +33,10 @@ const DEAL_CREATE = new Set(["dealname", "pipeline", "dealstage", "dealtype", "p
 const DEAL_TYPES = new Set(["newbusiness", "New Business GP eMR", "Existing Business - Freemium", "Existing Business - PAYG", "Existing Business - SAR Only", "Existing Business - GP eMR", "Renewal"]);
 const PRODUCT_SERVICE = new Set(["eMR", "eMR+"]);
 const ASSOC_DEAL_TO_COMPANY = 5, ASSOC_DEAL_TO_CONTACT = 3;   // HubSpot-defined association types
+const LEAD_PIPELINE = "1654501563", LEAD_STAGE_NEW = "2248591599";   // Prospecting Pipeline, stage New
+const LEAD_TO_PRIMARY_CONTACT = 578;   // HubSpot-defined association type: lead -> primary contact
+const LEAD_TYPES = new Set(["NEW_BUSINESS", "RE_ATTEMPTING"]);
+const LEAD_CAMPAIGNS = new Set(["PCN Prospecting", "ICB April 26", "Field Based Lead", "ICB Prospecting"]);
 const LINE_TO_DEAL = 20;   // HubSpot-defined association type: line item -> deal
 
 class Fail extends Error { constructor(msg: string, public status = 400) { super(msg); } }
@@ -248,6 +252,30 @@ Deno.serve(async (req) => {
       await log({ actor: who, kind: "create_deal", ods_code: ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
         summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s)`, detail: { companyId, properties: props, contactIds } });
       return reply({ ok: true, dealId: String(d.id) });
+    }
+    if (b.action === "create_lead") {       // a Prospecting-pipeline lead at New, before any deal; warns when the contact already has an open lead
+      const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), contactId = idOf(b.contactId);
+      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      const name = String(b.name ?? "").trim().slice(0, 200);
+      if (!name) throw new Fail("A lead name is required");
+      const type = String(b.leadType ?? "NEW_BUSINESS"); if (!LEAD_TYPES.has(type)) throw new Fail("Unsupported lead type");
+      const campaign = String(b.campaign ?? ""); if (campaign && !LEAD_CAMPAIGNS.has(campaign)) throw new Fail("Unsupported prospecting campaign");
+      const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name`);
+      const a = await hs(`/crm/v4/objects/contacts/${contactId}/associations/leads?limit=100`);
+      const lids = (a?.results ?? []).map((x: any) => String(x.toObjectId));
+      const open = lids.length ? ((await hs(`/crm/v3/objects/leads/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["hs_lead_name", "hs_pipeline", "hs_pipeline_stage", "hs_lead_is_open_v2"], inputs: lids.map((id: string) => ({ id })) }) }))?.results ?? [])
+        .filter((l: any) => String(l.properties?.hs_lead_is_open_v2) !== "false").map((l: any) => ({ id: l.id, name: l.properties?.hs_lead_name ?? "Lead", pipeline: l.properties?.hs_pipeline })) : [];
+      if (open.length && b.force !== true) return reply({ ok: false, existing: open });
+      const props: Record<string, unknown> = { hs_lead_name: name, hs_pipeline: LEAD_PIPELINE, hs_pipeline_stage: LEAD_STAGE_NEW, hs_lead_type: type, gp_ods_code: ods };
+      if (campaign) props.prospecting_campaign = campaign;
+      if (b.ownerId) props.hubspot_owner_id = idOf(b.ownerId);
+      const l = await hs(`/crm/v3/objects/leads`, { method: "POST", body: JSON.stringify({ properties: props, associations: [
+        { to: { id: contactId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: LEAD_TO_PRIMARY_CONTACT }] }] }) });
+      let companyLinked = true;
+      try { await hs(`/crm/v4/objects/leads/${l.id}/associations/default/companies/${companyId}`, { method: "PUT" }); } catch (_) { companyLinked = false; }
+      await log({ actor: who, kind: "create_lead", ods_code: ods, target: name, hubspot_type: "lead", hubspot_id: String(l.id),
+        summary: `Created lead ${name} on ${co.properties?.name ?? companyId}${open.length ? " (contact already had an open lead)" : ""}`, detail: { companyId, contactId, properties: props, companyLinked, existing: open } });
+      return reply({ ok: true, leadId: String(l.id), companyLinked });
     }
     if (b.action === "log_check") {          // the dashboard reports whether HubSpot's recalculated fields matched the tool after a push
       const ods = String(b.ods ?? "").trim().toUpperCase();

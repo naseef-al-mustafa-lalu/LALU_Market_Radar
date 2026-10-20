@@ -141,8 +141,10 @@ async function hsDeals(companyId, company) {
         <div class="flex justify-between gap-3"><b>${esc(d.dealname)}</b><span class="text-xs text-slate-500">${esc(d.dealstage || "")}</span></div>
         <div class="text-xs text-slate-500">${d.amount ? "£" + Number(d.amount).toLocaleString() : "no amount"} · ${esc(d.size_tier || "no size tier")} · ${esc(d.value_per_patient || "no value per patient")}</div></button>`).join("")
       : '<p class="text-slate-500 italic">This company has no deals yet.</p>') +
-      `<div class="mt-2 border-t border-slate-100 pt-2"><button id="hs-newdeal" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">+ Create a new deal for ${esc(company.name)}</button></div>`;
+      `<div class="mt-2 border-t border-slate-100 pt-2"><button id="hs-newdeal" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">+ Create a new deal for ${esc(company.name)}</button>
+        <button id="hs-newlead" class="ml-2 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">+ Create a lead first</button></div>`;
     $("hs-newdeal").onclick = () => hsDealForm(company);
+    $("hs-newlead").onclick = () => hsLeadForm(company);
     box.querySelectorAll("[data-deal]").forEach(b => b.onclick = async () => {
       box.innerHTML = '<p class="text-slate-500">Reading the records…</p>';
       try { Object.assign(hs, await hsCall({ action: "read", companyId, dealId: b.dataset.deal }), { linked: false }); hsPreview(); } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
@@ -193,6 +195,42 @@ async function hsDealForm(company) {
         Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false }); hsPreview();
       } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create deal"; }
     };
+  } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
+}
+
+/* create a lead (Prospecting pipeline, New) before there is a deal */
+async function hsLeadForm(company) {
+  const box = $("hs-results"); box.innerHTML = '<p class="text-slate-500">Reading the company\'s contacts and owners…</p>';
+  try {
+    const pre = await hsCall({ action: "deal_prefill", companyId: company.id }), p = hs.p;
+    const field = (label, inner) => `<label class="block"><span class="mb-0.5 block text-xs font-semibold text-slate-600">${label}</span>${inner}</label>`, inp = "w-full rounded-lg border border-slate-300 px-2 py-1.5";
+    const opts = (list, sel) => list.map(([v, l]) => `<option value="${esc(v)}" ${v === sel ? "selected" : ""}>${esc(l)}</option>`).join("");
+    const cname = c => [c.firstname, c.lastname].filter(Boolean).join(" ") || c.email;
+    box.innerHTML = `<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New lead on ${esc(company.name)}</h4>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <div class="sm:col-span-2">${field("Lead name", `<input id="nl-name" class="${inp}" value="${esc(company.name + " | Market Radar")}">`)}</div>
+        ${field("Primary contact", pre.contacts.length ? `<select id="nl-contact" class="${inp}">${opts(pre.contacts.map(c => [c.id, cname(c) + (c.jobtitle ? " · " + c.jobtitle : "")]), pre.contacts[0].id)}</select>` : '<div class="rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-800">A lead needs a contact. Add one in HubSpot first.</div>')}
+        ${field("Lead owner", pre.owners ? `<select id="nl-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
+        ${field("Lead type", `<select id="nl-type" class="${inp}">${opts([["NEW_BUSINESS", "New business"], ["RE_ATTEMPTING", "Re-attempting"]], "NEW_BUSINESS")}</select>`)}
+        ${field("Prospecting campaign", `<select id="nl-camp" class="${inp}">${opts([["", "None"], ["Field Based Lead", "Field Based Lead"], ["PCN Prospecting", "PCN Prospecting"], ["ICB Prospecting", "ICB Prospecting"], ["ICB April 26", "ICB April 26"]], "")}</select>`)}</div>
+      <p class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">Goes into the Prospecting Pipeline at New. HubSpot's lifecycle workflow will then set the contact's lifecycle stage to Prospecting (only when it is New or Engaged). Created by the tool, the lead gets no automatic owner rotation and no sequence.</p>
+      ${pre.warnings.map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
+      <div id="nl-msg" class="mt-2" role="status"></div>
+      <div class="mt-3 flex justify-end gap-2"><button id="nl-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nl-create" ${pre.contacts.length ? "" : "disabled"} class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Create lead</button></div></div>`;
+    $("nl-cancel").onclick = () => hsDeals(company.id, company);
+    const go = async force => {
+      const b = $("nl-create"), msg = $("nl-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
+      try {
+        const r = await hsCall({ action: "create_lead", ods: p.ods_code, companyId: company.id, contactId: $("nl-contact").value, name: $("nl-name").value.trim(), ownerId: $("nl-owner")?.value || "", leadType: $("nl-type").value, campaign: $("nl-camp").value, force });
+        if (r.ok === false) {
+          msg.innerHTML = `<div class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">This contact already has an open lead: ${r.existing.map(l => esc(l.name)).join(", ")}. Creating another can duplicate work. <button id="nl-force" class="ml-1 font-semibold underline">Create anyway</button></div>`;
+          $("nl-force").onclick = () => go(true); b.disabled = false; b.textContent = "Create lead"; return;
+        }
+        box.innerHTML = `<div class="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900"><b>Lead created.</b> ${hsLink("0-136", r.leadId, "Open the lead in HubSpot")}${r.companyLinked ? "" : " It could not be linked to the company; link it in HubSpot."}<div class="mt-2"><button id="nl-deals" class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold">Back to deals</button></div></div>`;
+        $("nl-deals").onclick = () => hsDeals(company.id, company);
+      } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create lead"; }
+    };
+    $("nl-create").onclick = () => go(false);
   } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
 }
 
@@ -367,7 +405,7 @@ async function hsCreateRun(action, extra) {
 }
 
 /* ---------- Data > Overview: HubSpot integration panel (health, what needs attention, activity log, run sync now) ---------- */
-const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_check: ["Check", "bg-slate-100 text-slate-700"], create_company: ["Company created", "bg-emerald-100 text-emerald-800"],
+const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_check: ["Check", "bg-slate-100 text-slate-700"], create_company: ["Company created", "bg-emerald-100 text-emerald-800"], create_lead: ["Lead created", "bg-emerald-100 text-emerald-800"],
   link_company: ["Company linked", "bg-emerald-100 text-emerald-800"], pcn_created: ["PCN created", "bg-violet-100 text-violet-800"], pcn_repaired: ["PCN corrected", "bg-violet-100 text-violet-800"],
   pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"] };
 let hsLog = [], hsLogFilter = "all", hsLogQuery = "", hsPanelTimer = null;

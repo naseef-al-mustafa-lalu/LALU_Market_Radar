@@ -48,6 +48,7 @@ window.supabase = { createClient: () => {
         d.actual_value_per_patient_calculated = String(Math.round(Number(String(d.value_per_patient).replace('£', '')) * (1 - t) * 100000) / 100000); if (window.__hsBlank) d.actual_value_per_patient_calculated = ''; window.__hslink = b.ods; const L = b.lineItem; if (L) { const P = { '440423339237': 0.96, '440425147578': 0.10, '440434162881': 0.6, '440498134244': 0.06 }[L.productId]; H.lineItems = [{ id: 'L1', name: 'Lalu Care line', hs_product_id: L.productId, quantity: String(L.quantity), price: String(P), discount: String(Math.round((P - L.netUnit) * 10000) / 10000), hs_recurring_billing_period: 'P' + L.termMonths + 'M' }]; } return { data: { ok: true, lineItems: H.lineItems } }; }
       if (b.action === 'deal_prefill') return { data: { contacts: [{ id: 'c1', firstname: 'Lena', lastname: 'Contact', jobtitle: 'Manager', email: 'l@x.nhs' }], pipelines: [{ id: 'default', label: 'Sales Pipeline', stages: [{ id: 'appointmentscheduled', label: 'New' }, { id: 'contractsent', label: 'Contract Sent' }] }], owners: [{ id: '38848375', name: 'Naseef', email: 'new@lalu.co.uk' }], ownerId: '38848375', warnings: [] } };
       if (b.action === 'create_deal') return { data: { ok: true, dealId: '88' } };
+      if (b.action === 'create_lead') return { data: window.__leadExisting && !b.force ? { ok: false, existing: [{ id: '9', name: 'Old lead' }] } : { ok: true, leadId: '99', companyLinked: true } };
       if (b.action === 'create_company' || b.action === 'link_company') return { data: { ok: true, companyId: '900', contacts: [], networks: [], warnings: [] } };
       return { data: {} }; } } };
 } };
@@ -109,6 +110,10 @@ with sync_playwright() as p:
     # push to HubSpot: link, preview, write, validate
     pg.evaluate("window.__hsPoll = 30"); assert "Link deal" in pg.inner_text("#dr-hs .hs-bar"); pg.click('#dr-hs .hs-bar [data-hs-act="push"]'); pg.wait_for_selector("#hs-results [data-co]")
     pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]")
+    pg.click("#hs-newlead"); pg.wait_for_selector("#nl-create"); assert "lifecycle" in pg.inner_text("#hs-results").lower() and "Prospecting Pipeline" in pg.inner_text("#hs-results")
+    pg.evaluate("window.__leadExisting = true"); pg.click("#nl-create"); pg.wait_for_selector("#nl-force"); assert "already has an open lead" in pg.inner_text("#nl-msg"); pg.click("#nl-force"); pg.wait_for_selector("#nl-deals")
+    cl = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_lead')"); assert len(cl) == 2 and cl[1][1]["force"] is True and cl[1][1]["leadType"] == "NEW_BUSINESS" and cl[1][1]["contactId"] == "c1" and cl[1][1]["companyId"] == "77", cl
+    assert pg.locator('#hs-results a[href$="/record/0-136/99"]').count() == 1; pg.click("#nl-deals"); pg.wait_for_selector("#hs-newdeal")
     pg.click("#hs-newdeal"); pg.wait_for_selector("#nd-create"); dp = pg.inner_text("#hs-results"); assert "pricing to be sent with this deal" in dp.lower() and "£8,640" in dp and "ReportSure - All Report - Annual" in dp and "10%" in dp, dp; assert pg.input_value("#nd-name") == "Lena Contact - Test Surgery 1 (HubSpot)" and pg.input_value("#nd-owner") == "38848375" and pg.locator("[data-nd-contact]:checked").count() == 1   # editable defaults: lead contact - company, signed-in owner
     pg.fill("#nd-name", "Test deal from the tool"); pg.click("#nd-create"); pg.wait_for_selector("#hs-write")
     cd = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_deal')")[0][1]
