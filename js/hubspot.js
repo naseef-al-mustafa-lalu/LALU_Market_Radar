@@ -241,9 +241,9 @@ async function hsDealForm(company) {
         ${field("Amount (£, per year)", `<input id="nd-amount" type="number" min="0" step="0.01" class="${inp}" value="${amount}">`)}</div>
       ${contacts.length ? `<div class="mt-3"><div class="mb-1 text-xs font-semibold text-slate-600">Associate contacts</div>${contacts.map(c => `<label class="flex items-center gap-2 py-0.5"><input type="checkbox" data-nd-contact="${esc(c.id)}" ${!hs.picked || hs.picked.includes(c.id) ? "checked" : ""}><span>${esc([c.firstname, c.lastname].filter(Boolean).join(" ") || c.email)} <span class="text-xs text-slate-500">${esc(c.jobtitle || "")} ${esc(c.email || "")}</span></span></label>`).join("")}</div>` : '<p class="mt-3 text-xs text-slate-500">This company has no contacts to associate.</p>'}
       ${pre.warnings.map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
-      <p class="mt-2 text-xs text-slate-500">The Amount starts at the annual revenue above. The discount fields, size tier, value per patient, commercial model and line item are written on the next screen, where you confirm them.</p>
+      <p class="mt-2 text-xs text-slate-500">The Amount starts at the annual revenue above. The pricing above (discounts, size tier, value per patient, commercial model and line item) is written to the deal straight after it is created, and checked against HubSpot on the same page.</p>
       <div id="nd-msg" class="mt-2" role="status"></div>
-      <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal</button></div></div>`;
+      <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal and push pricing</button></div></div>`;
     $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value); $("nd-stage").innerHTML = opts(pp.stages.map(s => [s.id, s.label]), pp.stages[0].id); };
     $("nd-cancel").onclick = () => hsDeals(company.id);
     $("nd-create").onclick = async () => {
@@ -252,8 +252,8 @@ async function hsDealForm(company) {
         const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: company.id, contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact),
           deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
             hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
-        hs.hub = null; Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false }); hsPreview();
-      } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create deal"; }
+        hs.hub = null; Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false, auto: true }); hsPreview();
+      } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create deal and push pricing"; }
     };
   } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
 }
@@ -300,7 +300,7 @@ async function hsLeadForm(company) {
 /* step 2: preview exactly what will be written */
 const monthlyNote = w => w.frequency === "monthly" ? " per patient per month" : " per patient per year";
 function hsPreview() {
-  hsTitle("Push pricing");
+  hsTitle(hs.auto ? "Create deal" : "Push pricing");
   const { p, want, company, deal } = hs, pctShow = v => v == null ? "not set" : pct(v / HS_PCT);
   const sameNum = hsSame;
   const row = (label, now, next, same, note = "") => `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2">${label}${note ? `<div class="text-xs text-slate-500">${note}</div>` : ""}</td><td class="py-1.5 px-2 text-right font-mono text-slate-600">${now}</td><td class="py-1.5 pl-2 text-right font-mono font-semibold ${same ? "text-slate-400" : "text-emerald-700"}">${same ? "no change" : next}</td></tr>`;
@@ -331,6 +331,7 @@ function hsPreview() {
   const nLine = line.unreadable || line.same ? 0 : 1;
   hsRender(`<div class="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><div class="min-w-0"><div class="truncate font-semibold">${hsLink("0-2", company.id, company.name)}</div><div class="text-xs text-slate-500">ODS ${esc(company.partner_organisation_code || "not set")}</div></div>
       <div class="min-w-0 text-right"><div class="truncate font-semibold">${hsLink("0-3", deal.id, deal.dealname)}</div><div class="text-xs text-slate-500">${esc(deal.dealstage || "")} · ${hs.linked ? "saved link" : "link saved after the write"}</div></div></div>
+    ${hs.auto ? '<div class="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-sm text-emerald-900">Deal created. Writing the pricing and checking it against HubSpot…</div>' : ""}
     <div class="mt-1 flex items-center justify-between text-xs"><span class="font-semibold text-slate-600">Selected in the profile: ${esc(want.label)}</span>${hs.linked ? '<button id="hs-relink" class="text-blue-600 hover:underline">Change link</button>' : '<button id="hs-back" class="text-blue-600 hover:underline">Choose another</button>'}</div>
     ${warn}
     ${sectionCard("Deal pricing fields", badge(nDeal), discRows)}
@@ -342,6 +343,7 @@ function hsPreview() {
   $("hs-cancel").onclick = hsClose;
   const re = $("hs-relink") || $("hs-back"); if (re) re.onclick = () => { hs.linked = false; hsRender(hsFind()); hsBindFind(); };
   $("hs-write").onclick = () => hsWrite(checks);
+  if (hs.auto) { hs.auto = false; hsWrite(checks); }   // a deal made here already shows its pricing in the form: write it without a second confirmation
 }
 
 /* step 3: write, then wait for HubSpot's calculated fields and compare them with the tool */
