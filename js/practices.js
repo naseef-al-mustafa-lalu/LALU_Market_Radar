@@ -122,7 +122,7 @@ document.addEventListener("click", e => {
   else if (pr) { product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
 });
 document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
-function priceCardBody({ patients, tierRow, route, who }, id) {
+function priceCardBody({ patients, tierRow, route, who, practice }, id) {
   const monthly = billing === "monthly", sar = product === "sar", list = baseRate(), prodName = sar ? "SAR only" : "All reports";
   if (!tierRow || !patients) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
   const size = monthly ? 0 : Number(tierRow.size_discount), speed = monthly ? 0 : Number(tierRow.speed_discount), term = monthly ? 0 : termDiscount(termYrs), floor = setting("price_floor_per_patient");
@@ -163,6 +163,7 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
       ${!monthly && Number(tierRow.speed_discount) > 0 ? `<div class="flex items-center gap-2 text-xs text-slate-600"><span id="spd-l-${id}">${pct(Number(tierRow.speed_discount))} speed discount <span class="text-slate-400">(not guaranteed)</span></span><button type="button" role="switch" aria-checked="${speedOn}" aria-labelledby="spd-l-${id}" class="speed-toggle relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${speedOn ? "bg-emerald-600" : "bg-slate-300"}"><span class="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${speedOn ? "translate-x-4" : "translate-x-0.5"}"></span></button></div>` : ""}</div>
     ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
       `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
+    ${practice ? hsBarHtml(practice) : ""}
     ${steps}${yearTable}
     </div>`;
 }
@@ -229,7 +230,7 @@ async function openDrawer(p) {
       kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)) + kv("Categories", esc(p.oscar_categories))) +
     sec("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + " practices)", "group", p.cqc_provider_id) : "") +
       kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") + kv("ICB", p.icb_name && p.icb_name !== "Unallocated ICB" ? link(p.icb_name, "icb", p.icb_name.toLowerCase()) : "")) +
-    sec("Pricing", p.total_patients > 0 ? priceCard({ patients: p.total_patients, tierRow: cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), route: "practice", arr: p.est_arr }) +
+    sec("Pricing", p.total_patients > 0 ? priceCard({ patients: p.total_patients, tierRow: cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), route: "practice", arr: p.est_arr, practice: p }) +
       `<div class="text-xs text-slate-500 mt-1">List size ${p.data_month ? "from " + esc(p.data_month) : ""}.</div>` + routeComparison(p) : `<p class="text-sm text-slate-600">No list size, so no price. ${esc(p.merged_into ? "Its patients are counted under the practice it merged into." : isClosed(p) ? "This practice has closed." : noSizeReason(p))}</p>`) +
     hsSection(p, st) +
     sec("Quality and system", kv("CQC rating", p.cqc_rating ? (CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : esc(p.cqc_rating)) : p.cqc_location_id ? '<span class="text-slate-500">Not rated yet</span>' : '<span class="text-slate-500" title="No CQC location could be matched to this practice by postcode and ODS code, so there is no rating, registration status or inspection date.">Not matched to a CQC location</span>') + kv("Registration", esc(p.cqc_status)) + kv("Last inspection", esc(p.cqc_last_inspection)) +
@@ -246,6 +247,7 @@ async function openDrawer(p) {
     db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10),
     db.from("hubspot_links").select("deal_id,deal_name").eq("ods_code", p.ods_code).limit(1)]);
   if (drawerCode !== p.ods_code) return;   // user moved on
+  hsSetLink(p, hl && hl[0]);
   const dealBox = $("dr-hsdeal"); if (dealBox && hl && hl[0]) dealBox.outerHTML = kv("Linked deal", hsLink("0-3", hl[0].deal_id, hl[0].deal_name || "Open deal"));
   $("dr-contacts").outerHTML = `<section><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Contacts</h4>` + ((cs || []).map(c => `<div class="py-1.5 border-t border-slate-100 first:border-0"><b>${esc(c.full_name)}</b>${c.is_primary ? ' <span class="text-amber-500" title="Primary contact">★</span>' : ""}
       <span class="text-slate-500 text-sm"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span>

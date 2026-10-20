@@ -20,19 +20,57 @@ function hsDesired(p) {
   return { size, term, speed, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size, term, speed), list: baseRate(),
     total: size + term + speed, label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }
-// One HubSpot area on the practice profile, straight under Pricing: status, links, and both actions (push pricing, create the company).
+// The HubSpot section of the profile now holds facts only (status, links, lifecycle); the one action lives beside the price controls (hsBarHtml).
 function hsSection(p, st) {
-  const priced = p.total_patients > 0 && p.price_tier, linked = !!p.hubspot_company_id, active = p.status === "Active" && p.total_patients > 0;
-  const btn = (attr, label, primary) => `<button type="button" ${attr} class="rounded-md px-3 py-1.5 text-xs font-semibold ${primary ? "bg-slate-800 text-white hover:bg-slate-700" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}">${label}</button>`;
-  const actions = !active ? "" : `<div class="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-      ${linked ? "" : `<div class="mb-2 text-xs text-slate-600">No HubSpot company has this GP ODS Code yet. Create it, or search in case it exists under another name.</div>`}
-      <div class="flex flex-wrap items-center gap-2">${linked ? "" : btn(`data-hs-create="${esc(p.ods_code)}"`, "Create in HubSpot…", true)}${priced ? btn(`data-hs-open="${esc(p.ods_code)}"`, "Push pricing to deal…", linked) : ""}
-      ${priced ? '<span class="text-xs text-slate-500">Sends the options selected in the price card above.</span>' : ""}</div></div>`;
+  const linked = !!p.hubspot_company_id, active = p.status === "Active" && p.total_patients > 0;
   return sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st]) + (!linked && active ? " " + chip("Not in HubSpot", "bg-amber-100 text-amber-800") : "")) +
     kv("Company record", linked ? hsLink("0-2", p.hubspot_company_id, "Open in HubSpot") : "") + '<div id="dr-hsdeal"></div>' + kv("Lifecycle stage", esc(p.hubspot_stage)) +
-    kv("Company created", esc(fmtDate(p.hubspot_company_imported_at))) + kv("Contacts in HubSpot", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + kv("Last synced", esc(fmtDate(p.hubspot_synced_at))) + actions);
+    kv("Company created", esc(fmtDate(p.hubspot_company_imported_at))) + kv("Contacts in HubSpot", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + kv("Last synced", esc(fmtDate(p.hubspot_synced_at))));
 }
-document.addEventListener("click", e => { const b = e.target.closest("[data-hs-open]"); if (b) hsOpen(practices.find(x => x.ods_code === b.dataset.hsOpen)); });
+
+/* ---------- the adaptive HubSpot bar on the price card: Add to HubSpot / Link deal / Push pricing (n changes) / In sync ---------- */
+const hsInfo = {};   // ods -> { link, pair: {company, deal}, loading, error }
+const hsSame = (a, b) => hsNum(a) != null && Math.abs(hsNum(a) - b) < 1e-6;
+// Everything that differs between HubSpot and the tool for the current profile selection. `fixes` need approval; `writes` are always sent.
+function hsChanges(p, want, company, deal) {
+  const fixes = [
+    { id: "ls", label: "Company list size", now: company.patient_list_size ? Number(company.patient_list_size).toLocaleString() : "not set", next: p.total_patients.toLocaleString(), same: hsSame(company.patient_list_size, p.total_patients) },
+    { id: "tier", label: "Deal size tier", now: deal.size_tier || "not set", next: want.tier, same: deal.size_tier === want.tier },
+    { id: "cm", label: "Deal commercial model", now: HS_MODELS[deal.commercial_model] || deal.commercial_model || "not set", next: want.modelLabel, same: deal.commercial_model === want.model },
+    { id: "vpp", label: "Deal value per patient", now: deal.value_per_patient || "not set", next: want.vpp, same: deal.value_per_patient === want.vpp }];
+  const writes = [hsSame(deal.size_discount, hsPct(want.size)), hsSame(deal.speed_discount, hsPct(want.speed)), hsSame(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears)];
+  return { fixes, writes, count: fixes.filter(f => !f.same).length + writes.filter(s => !s).length };
+}
+function hsBarHtml(p) {
+  if (!p || p.status !== "Active" || !(p.total_patients > 0) || !p.price_tier) return "";
+  const i = hsInfo[p.ods_code] || { loading: true }, linked = !!p.hubspot_company_id;   // not looked up yet counts as loading
+  const act = (kind, label) => `<button type="button" data-hs-act="${kind}" data-ods="${esc(p.ods_code)}" class="shrink-0 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">${label}</button>`;
+  let dot = "bg-slate-300", text = "", right = "";
+  if (!linked) { dot = "bg-amber-400"; text = "Not in HubSpot yet"; right = act("create", "Add to HubSpot"); }
+  else if (i.loading) text = "Checking the linked deal…";
+  else if (!i.link) { dot = "bg-amber-400"; text = "Company found, no deal linked yet"; right = act("push", "Link deal"); }
+  else if (i.error) { dot = "bg-rose-500"; text = "Could not read the linked deal"; right = act("push", "Retry"); }
+  else if (i.pair) {
+    const { count } = hsChanges(p, hsDesired(p), i.pair.company, i.pair.deal), name = esc(i.pair.deal.dealname || "deal");
+    if (count) { dot = "bg-amber-400"; text = `${name}: ${count} change${count > 1 ? "s" : ""} to push`; right = act("push", `Push pricing <span class="ml-1 rounded-full bg-white/25 px-1.5">${count}</span>`); }
+    else { dot = "bg-emerald-500"; text = `${name}: in sync`; right = hsLink("0-3", i.pair.deal.id, "Open deal"); }
+  }
+  return `<div class="hs-bar mt-3 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2" data-ods="${esc(p.ods_code)}">
+    <div class="flex min-w-0 items-center gap-2"><span class="h-2 w-2 shrink-0 rounded-full ${dot}"></span><div class="min-w-0"><div class="text-xs font-semibold text-slate-700">HubSpot</div><div class="truncate text-xs text-slate-500">${text}</div></div></div>${right}</div>`;
+}
+function hsRefreshBars() {
+  document.querySelectorAll(".hs-bar").forEach(el => { const p = practices.find(x => x.ods_code === el.dataset.ods); if (p) el.outerHTML = hsBarHtml(p); });
+}
+async function hsSetLink(p, link) {
+  const i = hsInfo[p.ods_code] = { link: link || null, pair: null, loading: !!link, error: null }; hsRefreshBars();
+  if (!link) return;
+  try { i.pair = await hsCall({ action: "read", companyId: link.company_id, dealId: link.deal_id }); } catch (e) { i.error = e.message; }
+  i.loading = false; hsRefreshBars();
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-hs-act]"); if (!b) return;
+  const p = practices.find(x => x.ods_code === b.dataset.ods); if (p) (b.dataset.hsAct === "create" ? hsCreateOpen : hsOpen)(p);
+});
 $("hs-close").onclick = hsClose;
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("hs-modal").classList.contains("hidden")) hsClose(); });
 
@@ -89,17 +127,13 @@ async function hsDeals(companyId, company) {
 /* step 2: preview exactly what will be written */
 function hsPreview() {
   const { p, want, company, deal } = hs, pctShow = v => v == null ? "not set" : pct(v / HS_PCT);
-  const sameNum = (a, b) => hsNum(a) != null && Math.abs(hsNum(a) - b) < 1e-6;
+  const sameNum = hsSame;
   const row = (label, now, next, same, note = "") => `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2">${label}${note ? `<div class="text-xs text-slate-500">${note}</div>` : ""}</td><td class="py-1.5 px-2 text-right font-mono text-slate-600">${now}</td><td class="py-1.5 pl-2 text-right font-mono font-semibold ${same ? "text-slate-400" : "text-emerald-700"}">${same ? "no change" : next}</td></tr>`;
-  const checks = [
-    { id: "ls", label: "Company list size", now: company.patient_list_size ? Number(company.patient_list_size).toLocaleString() : "not set", next: p.total_patients.toLocaleString(), same: sameNum(company.patient_list_size, p.total_patients), what: "company" },
-    { id: "tier", label: "Deal size tier", now: deal.size_tier || "not set", next: want.tier, same: deal.size_tier === want.tier, what: "deal" },
-    { id: "cm", label: "Deal commercial model", now: HS_MODELS[deal.commercial_model] || deal.commercial_model || "not set", next: want.modelLabel, same: deal.commercial_model === want.model, what: "deal" },
-    { id: "vpp", label: "Deal value per patient", now: deal.value_per_patient || "not set", next: want.vpp, same: deal.value_per_patient === want.vpp, what: "deal" }];
-  const diffs = checks.filter(c => !c.same);
-  const warn = diffs.length ? `<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3"><div class="font-semibold text-amber-900">HubSpot does not match the tool</div>
-      <div class="text-xs text-amber-800">Check this is the right company and deal. Tick the fields you want updated to match the tool.</div>${diffs.map(c => `<label class="mt-2 flex items-start gap-2"><input type="checkbox" class="mt-0.5" data-fix="${c.id}" checked>
-        <span><b>${c.label}</b>: HubSpot has <span class="font-mono">${esc(c.now)}</span>, the tool has <span class="font-mono">${esc(c.next)}</span></span></label>`).join("")}</div>`
+  const checks = hsChanges(p, want, company, deal).fixes, diffs = checks.filter(c => !c.same);
+  const warn = diffs.length ? `<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3"><label class="flex items-start gap-2"><input id="hs-fix-all" type="checkbox" class="mt-0.5" checked>
+        <span class="font-semibold text-amber-900">Update HubSpot to match the tool <span class="font-normal text-xs">(${diffs.length} field${diffs.length > 1 ? "s" : ""})</span></span></label>
+      <ul class="mt-2 space-y-1 text-sm">${diffs.map(c => `<li class="flex justify-between gap-3"><span class="text-amber-900">${c.label}</span><span class="font-mono">${esc(c.now)} <span class="text-slate-400">→</span> <b>${esc(c.next)}</b></span></li>`).join("")}</ul>
+      <div class="mt-1 text-xs text-amber-800">Check this is the right company and deal before writing. Untick to leave these fields alone.</div></div>`
     : '<div class="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">List size, size tier, commercial model and value per patient all match the tool.</div>';
   hsRender(`<div class="rounded-lg bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><div class="font-semibold">${hsLink("0-2", company.id, company.name)}</div><div class="text-xs text-slate-500">ODS ${esc(company.partner_organisation_code || "not set")}</div></div>
       <div class="text-right"><div class="font-semibold">${hsLink("0-3", deal.id, deal.dealname)}</div><div class="text-xs text-slate-500">${esc(deal.dealstage || "")}</div></div></div>
@@ -122,7 +156,7 @@ function hsPreview() {
 
 /* step 3: write, then wait for HubSpot's calculated fields and compare them with the tool */
 async function hsWrite(checks) {
-  const { p, want, company, deal } = hs, ticked = id => !!document.querySelector(`#hs-body [data-fix="${id}"]:checked`), msg = $("hs-msg");
+  const { p, want, company, deal } = hs, msg = $("hs-msg"), fixIds = new Set(checks.filter(c => !c.same).map(c => c.id)), ticked = id => !!$("hs-fix-all")?.checked && fixIds.has(id);
   const dealProps = { size_discount: hsPct(want.size), speed_discount: hsPct(want.speed), term_length_discount: hsPct(want.term), term_length_years: String(want.termYears) };
   const companyProps = {};
   if (ticked("tier")) dealProps.size_tier = want.tier;
@@ -134,6 +168,7 @@ async function hsWrite(checks) {
     await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps });
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
     await hsValidate(6);
+    hsSetLink(p, { company_id: company.id, deal_id: deal.id });   // the bar on the price card now reflects the saved link and the new values
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; $("hs-write").disabled = false; $("hs-write").textContent = "Write to HubSpot"; }
 }
 
@@ -176,7 +211,6 @@ async function hsNetworkSection(n) {
 }
 
 /* ---------- practices that are not in HubSpot: flag, then create (or link an existing company) after a preview ---------- */
-document.addEventListener("click", e => { const b = e.target.closest("[data-hs-create]"); if (b) hsCreateOpen(practices.find(x => x.ods_code === b.dataset.hsCreate)); });
 
 async function hsCreateOpen(p) {
   if (!p) return;
