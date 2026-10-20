@@ -11,6 +11,8 @@ let sort = { key: "patients", dir: -1 }, revMetric = "arr", drawerCode = null;
 
 /* ---------- formatting and palette (one scale for tiers, colour only for exceptions) ---------- */
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Per-patient prices show three decimals, or four when the fourth matters (SAR only: £0.0475 must not read as £0.048).
+const rate3 = x => { x = Number(x); const f4 = x.toFixed(4); return f4.endsWith("0") ? x.toFixed(3) : f4; };
 const chip = (text, cls, title) => `<span class="chip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</span>`;
 const gbp = n => n == null ? "–" : n >= 1e6 ? "£" + (n / 1e6).toFixed(2) + "m" : n >= 1e4 ? "£" + Math.round(n / 1e3).toLocaleString() + "k" : "£" + Math.round(n).toLocaleString();   // summaries
 const gbpFull = n => n == null ? "–" : "£" + Math.round(n).toLocaleString();                                                                                    // table cells

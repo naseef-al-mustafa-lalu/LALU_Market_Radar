@@ -31,7 +31,7 @@ function openNetworkProfile(n) {
     return `<tr class="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" tabindex="0" role="button" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}${p.merged_into ? " " + chip("merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("closed", "bg-slate-200 text-slate-700") : ""}</div><div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)}</div></td>
       <td class="text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : "–"}</td>
       <td class="px-2">${p.price_tier ? chip("T" + p.price_tier, TIER_CLS["Tier " + p.price_tier] || "") : ""}</td>
-      <td class="text-right font-mono">${p.base_price != null ? "£" + Number(p.base_price).toFixed(3) : "–"}</td>
+      <td class="text-right font-mono">${p.base_price != null ? "£" + rate3(Number(p.base_price)) : "–"}</td>
       <td class="text-right font-mono">${gbpFull(p.est_arr)}</td>
       <td class="text-right font-mono text-slate-500">${gbpFull(p.est_arr_sar)}</td>
       <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net) : "–"}</td></tr>`; }).join("");

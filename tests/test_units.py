@@ -205,3 +205,13 @@ def test_job_employer_without_postcode_match_gets_name_candidates():
                  dict(ods_code="M2", practice_name="Grange Medical Centre", postcode="CV11 6AB", status="Active")]
     status, ods, cands, _ = jobs.candidates_for("Station Street Surgery", {"CV116HH"}, {}, None, jobs.build_pool(practices))
     assert status == "review" and ods is None and [c["ods_code"] for c in cands] == ["M1"]   # offered for review, never auto-linked
+
+
+def test_pricing_calculator_all_combinations():
+    """Runs the dashboard's real price code over every product x billing x term x speed combination at the tier boundaries."""
+    import shutil, subprocess, pathlib
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    out = subprocess.run([node, str(pathlib.Path(__file__).parent / "pricing_audit.js")], capture_output=True, text=True, timeout=60)
+    assert "mismatches: 0" in out.stdout and "sheet 1-year base mismatches: 0" in out.stdout, out.stdout + out.stderr
