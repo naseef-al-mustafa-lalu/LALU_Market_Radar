@@ -158,7 +158,7 @@ Setup: create a HubSpot private app with companies and deals read/write scopes a
 
 `.github/workflows/hubspot.yml` runs daily at 08:30 UTC (and on demand: Actions > HubSpot sync > Run workflow). It reads HubSpot (read-only) and matches companies to practices on the **GP ODS Code** field, then sets:
 - **Customer**: company lifecycle stage is Customer, or any associated deal is Closed Won.
-- **Engaged**: any associated contact whose lifecycle stage is not New, Prospecting, Past Customer or Other.
+- **Engaged**: the company's own lifecycle stage is past New / Prospecting (Engaged, Marketing Qualified Lead, Sales Qualified Lead, Opportunity, Evangelist, Client Services). Contact stages are not used.
 - the HubSpot company id, created date and lifecycle stage, and per contact "Imported" when a HubSpot contact with the same email is associated with the company.
 
 Needs the GitHub secret `HUBSPOT_TOKEN` (the same private-app token as the Supabase edge function; read scopes are enough). Without it the step is skipped.

@@ -2,7 +2,7 @@
 customer / engaged status, lifecycle stage and which of the practice's contacts already exist in HubSpot. Read-only on HubSpot.
 
 Customer: company lifecycle stage is Customer, or any associated deal is Closed Won.
-Engaged: any associated contact whose lifecycle stage is not New, Prospecting, Past Customer or Other.
+Engaged: the company's lifecycle stage is past New / Prospecting (Engaged, MQL, SQL, Opportunity, Evangelist, Client Services).
 """
 import os
 import re
@@ -19,7 +19,8 @@ BASE = "https://api.hubapi.com"
 LIFECYCLE = {"lead": "New", "2207373534": "Engaged", "marketingqualifiedlead": "Marketing Qualified Lead", "5640141025": "Prospecting",
              "salesqualifiedlead": "Sales Qualified Lead", "opportunity": "Opportunity", "customer": "Customer", "4726262995": "Past Customer",
              "evangelist": "Evangelist", "other": "Other", "4025181418": "Client Services"}
-NOT_ENGAGED = {"lead", "5640141025", "4726262995", "other", "", None}   # New, Prospecting, Past Customer, Other (or unset)
+# Engaged = the COMPANY is past New / Prospecting in HubSpot (and is not a Customer, which is its own status): Engaged, MQL, SQL, Opportunity, Evangelist, Client Services.
+ENGAGED_STAGES = {"2207373534", "marketingqualifiedlead", "salesqualifiedlead", "opportunity", "evangelist", "4025181418"}
 SEARCH_CAP = 10000                                                       # HubSpot search cannot page past 10,000 results
 
 
@@ -83,7 +84,7 @@ def read_objects(hub, obj, ids, props):
 def classify(companies, contact_ids, contacts, deal_ids, deals):
     """One practice's flags from all HubSpot companies that carry its ODS code. Returns dict of the dashboard fields."""
     customer = any((c.get("lifecyclestage") == "customer") for c in companies) or any(deals.get(d, {}).get("hs_is_closed_won") == "true" for d in deal_ids)
-    engaged = any(contacts.get(c, {}).get("lifecyclestage") not in NOT_ENGAGED for c in contact_ids)
+    engaged = any(c.get("lifecyclestage") in ENGAGED_STAGES for c in companies)
     primary = sorted(companies, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]
     stage = LIFECYCLE.get(primary.get("lifecyclestage") or "", primary.get("lifecyclestage") or None)
     return {"hubspot_company_id": str(primary["id"]), "hubspot_company_imported_at": primary.get("createdate"), "hubspot_stage": stage,

@@ -66,9 +66,11 @@ function cqcCell(p) {
   return CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating], p.cqc_last_inspection ? "Inspected " + p.cqc_last_inspection : "") : `<span class="text-xs text-slate-500" title="${p.cqc_last_inspection ? "Inspected " + esc(p.cqc_last_inspection) : ""}">${esc(p.cqc_rating)}</span>`;
 }
 function hsCell(p) {
-  const st = hsState(p);
+  const st = hsState(p), stage = p.hubspot_stage;
   const tip = p.hs_contacts === 0 ? "No contact yet" : p.hs_primary_imported ? "Key contact imported " + fmtDate(p.hs_primary_imported_at) : p.hs_imported > 0 ? p.hs_imported + " of " + p.hs_contacts + " contacts imported" : "Contact not imported";
-  return st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st], tip) : `<span class="text-xs ${st === "imported" ? "text-slate-600" : "text-slate-300"}" title="${esc(tip)}">${st === "imported" ? "In HubSpot" : "–"}</span>`;
+  const main = st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st], tip) : `<span class="text-xs ${st === "imported" ? "text-slate-600" : "text-slate-300"}" title="${esc(tip)}">${st === "imported" ? "In HubSpot" : "–"}</span>`;
+  // the HubSpot lifecycle stage sits under the status (hidden when it only repeats the chip)
+  return `<div class="leading-tight">${main}</div>${stage && stage !== "Customer" ? `<div class="mt-0.5 text-[11px] text-slate-500" title="HubSpot lifecycle stage">${esc(stage)}</div>` : ""}`;
 }
 function renderMore() {
   const slice = filtered.slice(shown, shown + PAGE); shown += slice.length;

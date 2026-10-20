@@ -79,6 +79,7 @@ with sync_playwright() as p:
     assert "clear" in pg.inner_text("#f-chips").lower()
     pg.click("#f-chips >> text=/clear/i"); assert "11 practices" in pg.inner_text("#count")
     pg.click("th[data-sort=patients]"); pg.click("th[data-sort=patients]")
+    assert "opportunity" in pg.inner_text("#rows tr:has-text('Test Surgery 1')")   # lifecycle stage shown in the HubSpot column
     # drawer
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
