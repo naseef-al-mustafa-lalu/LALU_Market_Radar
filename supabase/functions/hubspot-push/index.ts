@@ -14,7 +14,8 @@ const reply = (body: unknown, status = 200) =>
 
 const COMPANY_READ = ["name", "partner_organisation_code", "patient_list_size", "domain"];
 const COMPANY_FIND = [...COMPANY_READ, "zip", "address", "city", "website"];
-const COMPANY_CREATE = new Set(["name", "partner_organisation_code", "patient_list_size", "address", "city", "zip", "phone", "website", "country"]);
+const COMPANY_CREATE = new Set(["name", "partner_organisation_code", "patient_list_size", "address", "city", "county", "zip", "phone", "website", "country", "company_status"]);
+const COMPANY_STATUS = new Set(["Prospective Customer"]);   // the only status a new company may be created with
 const NETWORK_TYPES = new Set(["p145802630_pcns", "p145802630_icbs"]);
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const DEAL_READ = ["dealname", "dealstage", "amount", "size_tier", "size_discount", "speed_discount", "term_length_discount", "term_length_years",
@@ -124,6 +125,7 @@ Deno.serve(async (req) => {
         const props: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(b.company ?? {})) { if (!COMPANY_CREATE.has(k)) throw new Fail(`Not allowed to set company property ${k}`); if (v !== null && v !== "") props[k] = v; }
         if (!props.name || String(props.partner_organisation_code ?? "").toUpperCase() !== ods) throw new Fail("A name and the matching GP ODS Code are required");
+        if (props.company_status && !COMPANY_STATUS.has(String(props.company_status))) throw new Fail("Unsupported Company Status for a new company");
         props.partner_organisation_code = ods;
         companyId = String((await hs(`/crm/v3/objects/companies`, { method: "POST", body: JSON.stringify({ properties: props }) })).id);
       }

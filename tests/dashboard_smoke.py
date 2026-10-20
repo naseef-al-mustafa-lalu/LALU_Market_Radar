@@ -129,7 +129,7 @@ with sync_playwright() as p:
     pg.screenshot(path=SHOTS + "/hubspot_section.png")
     pg.click('#dr-body .hs-bar [data-hs-act="create"]'); pg.wait_for_selector("#hs-create"); cp = pg.inner_text("#hs-body"); assert "has no company with this GP ODS Code" in cp and "A10002" in cp and "New company to create" in cp, cp
     pg.click("#hs-create"); pg.wait_for_function("document.querySelector('#hs-msg').innerText.includes('Company created')")
-    cc = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company')")[0][1]; assert cc["ods"] == "A10002" and cc["company"]["partner_organisation_code"] == "A10002" and cc["company"]["patient_list_size"] == 11000, cc
+    cc = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company')")[0][1]; assert cc["ods"] == "A10002" and cc["company"]["partner_organisation_code"] == "A10002" and cc["company"]["patient_list_size"] == 11000 and cc["company"]["company_status"] == "Prospective Customer", cc
     pg.click("#hs-cancel"); pg.select_option("#f-hs", "")
     pg.keyboard.press("Escape")
     pg.set_viewport_size({"width": 1180, "height": 800}); noflow("#view-practices .overflow-x-auto", "practices@1180"); pg.screenshot(path=SHOTS + "/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})

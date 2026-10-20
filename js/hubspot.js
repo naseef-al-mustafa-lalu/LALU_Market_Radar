@@ -229,12 +229,12 @@ async function hsCreateOpen(p) {
   } catch (e) { hsRender(`<p class="text-rose-700">${esc(e.message)}</p>`); }
 }
 function hsCompanyProps(p) {
-  return { name: p.practice_name, partner_organisation_code: p.ods_code, patient_list_size: p.total_patients, address: p.address || undefined, city: p.town || undefined, zip: p.postcode || undefined,
-    phone: p.main_phone || undefined, website: p.website || undefined, country: p.country || "England" };
+  return { name: p.practice_name, partner_organisation_code: p.ods_code, patient_list_size: p.total_patients, address: p.address || undefined, city: p.town || undefined, county: p.county || undefined, zip: p.postcode || undefined,
+    phone: p.main_phone || undefined, website: p.website || undefined, country: p.country || "England", company_status: "Prospective Customer" };
 }
 function hsCreatePreview() {
   const { p, cdata } = hs, props = hsCompanyProps(p), shown = Object.entries(props).filter(([, v]) => v !== undefined && v !== "");
-  const label = { name: "Name", partner_organisation_code: "GP ODS Code", patient_list_size: "Patient list size", address: "Address", city: "Town", zip: "Postcode", phone: "Phone", website: "Website", country: "Country" };
+  const label = { name: "Name", partner_organisation_code: "GP ODS Code", patient_list_size: "Patient list size", address: "Street address", city: "City", county: "County", zip: "Postcode", company_status: "Company status", phone: "Phone", website: "Website", country: "Country" };
   const same = cdata.companies.filter(c => !c.partner_organisation_code);   // companies without an ODS code can be adopted; ones with another code are different practices
   const near = c => (c.zip || "").replace(/\s/g, "").toUpperCase() === (p.postcode || "").replace(/\s/g, "").toUpperCase() ? '<span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-800">same postcode</span>' : "";
   const link = o => { const l = cdata.links.find(x => x.org_id === o.id); return l ? `${HS_NET[l.object_type].label} record found` : "no HubSpot record (not associated)"; };
