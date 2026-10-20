@@ -9,6 +9,7 @@ def prac(i, **kw):
              cqc_last_inspection="2025-01-02", org_notes="Good client", data_month="2026-09")
     d.update(kw); return d
 PR = [prac(i) for i in range(12)]
+PR[1].update(hubspot_company_id="441")
 PR[8].update(practice_name="Test Old Surgery", total_patients=0, merged_into="A10001", merged_note="Merged 2025", merged_at="2026-01-01T00:00:00Z", merged_by="boss@lalu.co.uk")
 PR[9].update(practice_name="Test Annex A", total_patients=0)
 PR[10].update(practice_name="Test Annex B", total_patients=0)
@@ -100,6 +101,7 @@ with sync_playwright() as p:
     assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "speed discount" in body.lower() and "SAR only" in body and "Contract term" in body and "Other ways to sign this practice" in body, body
     assert "£1,216" not in body or True
     pg.wait_for_timeout(500); pg.evaluate("document.querySelector('#dr-body').scrollTop = 0"); pg.screenshot(path=SHOTS + "/profile.png")
+    assert pg.locator('#dr-body a[href$="/record/0-2/441"]').count() == 1   # link to the HubSpot company record
     # push to HubSpot: link, preview, write, validate
     pg.evaluate("window.__hsPoll = 30"); pg.click('#dr-body [data-hs-open="A10001"]'); pg.wait_for_selector("#hs-results [data-co]")
     pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]"); pg.click("#hs-results [data-deal]"); pg.wait_for_selector("#hs-write")

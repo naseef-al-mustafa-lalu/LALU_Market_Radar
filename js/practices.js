@@ -233,7 +233,7 @@ async function openDrawer(p) {
       `<div class="text-xs text-slate-500 mt-1">List size ${p.data_month ? "from " + esc(p.data_month) : ""}.</div>` + hsPushBar(p) + routeComparison(p) : `<p class="text-sm text-slate-600">No list size, so no price. ${esc(p.merged_into ? "Its patients are counted under the practice it merged into." : isClosed(p) ? "This practice has closed." : noSizeReason(p))}</p>`) +
     sec("Quality and system", kv("CQC rating", p.cqc_rating ? (CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : esc(p.cqc_rating)) : p.cqc_location_id ? '<span class="text-slate-500">Not rated yet</span>' : '<span class="text-slate-500" title="No CQC location could be matched to this practice by postcode and ODS code, so there is no rating, registration status or inspection date.">Not matched to a CQC location</span>') + kv("Registration", esc(p.cqc_status)) + kv("Last inspection", esc(p.cqc_last_inspection)) +
       kv("Manager absent since", esc(p.cqc_manager_absent_date)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : "")) +
-    sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st])) + kv("Lifecycle stage", esc(p.hubspot_stage)) + kv("Company imported", esc(fmtDate(p.hubspot_company_imported_at))) +
+    sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st])) + kv("Company record", p.hubspot_company_id ? hsLink("0-2", p.hubspot_company_id, "Open in HubSpot") : "") + `<div id="dr-hsdeal"></div>` + kv("Lifecycle stage", esc(p.hubspot_stage)) + kv("Company imported", esc(fmtDate(p.hubspot_company_imported_at))) +
       kv("Contacts imported", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + kv("Last contact import", esc(fmtDate(p.hs_last_imported_at))) + kv("Last synced", esc(fmtDate(p.hubspot_synced_at))) +
       (!p.hubspot_synced_at && !p.hs_imported ? '<div class="text-xs text-slate-500 italic py-0.5">Not synced yet: filled in by the HubSpot integration.</div>' : "")) +
     sec("Notes (Oscar)", p.org_notes ? `<div class="text-sm text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : "") +
@@ -243,13 +243,15 @@ async function openDrawer(p) {
     `<div id="dr-signals"></div>`;
   body.scrollTop = 0;
   body.onclick = ev => { const a = ev.target.closest("a[data-net]"); if (a) { ev.preventDefault(); const [kind, key, label] = a.dataset.net.split("|"); openNetwork(kind, key, label); } };
-  const [{ data: cs }, { data: sg }] = await Promise.all([
+  const [{ data: cs }, { data: sg }, { data: hl }] = await Promise.all([
     db.from("contacts").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
-    db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10)]);
+    db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10),
+    db.from("hubspot_links").select("deal_id,deal_name").eq("ods_code", p.ods_code).limit(1)]);
   if (drawerCode !== p.ods_code) return;   // user moved on
+  const dealBox = $("dr-hsdeal"); if (dealBox && hl && hl[0]) dealBox.outerHTML = kv("Linked deal", hsLink("0-3", hl[0].deal_id, hl[0].deal_name || "Open deal"));
   $("dr-contacts").outerHTML = `<section><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Contacts</h4>` + ((cs || []).map(c => `<div class="py-1.5 border-t border-slate-100 first:border-0"><b>${esc(c.full_name)}</b>${c.is_primary ? ' <span class="text-amber-500" title="Primary contact">★</span>' : ""}
       <span class="text-slate-500 text-sm"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span>
       <div class="text-xs text-slate-600">${c.email ? (c.email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : `<a class="text-blue-600 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : ""} ${esc(c.phone)}</div>
-      <div class="mt-0.5">${c.hubspot_status === "Imported" ? chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800") : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-500">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
+      <div class="mt-0.5">${c.hubspot_status === "Imported" ? (c.hubspot_contact_id ? hsLink("0-1", c.hubspot_contact_id, "In HubSpot · " + fmtDate(c.hubspot_imported_at)) : chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800")) : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-500">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
   $("dr-signals").outerHTML = sec("Signals", (sg || []).map(s => `<div class="py-1 border-t border-slate-100 first:border-0"><span class="font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</span> <b class="text-xs">${esc(s.headline)}</b> ${chip(SIG_STATUS[s.status || "new"], s.status === "done" ? "bg-emerald-100 text-emerald-800" : s.status === "in_progress" ? "bg-blue-100 text-blue-800" : s.status === "dismissed" ? "bg-slate-100 text-slate-500" : "bg-amber-100 text-amber-800")} ${sigLink(s)}<div class="text-xs text-slate-500">${esc(s.description)}</div>${s.action ? `<div class="text-xs text-blue-700 mt-0.5"><b>Next step:</b> ${esc(s.action)}</div>` : ""}</div>`).join("") || '<p class="text-sm italic text-slate-500">No signals for this practice yet.</p>');
 }
