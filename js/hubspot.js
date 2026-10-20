@@ -20,10 +20,17 @@ function hsDesired(p) {
   return { size, term, speed, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size, term, speed), list: baseRate(),
     total: size + term + speed, label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }
-function hsPushBar(p) {
-  if (!(p.total_patients > 0) || !p.price_tier) return "";
-  return `<div class="mt-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><div class="text-xs text-slate-600">Send these pricing options to the practice's HubSpot deal.</div>
-    <button type="button" data-hs-open="${esc(p.ods_code)}" class="shrink-0 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">Push to HubSpot…</button></div>`;
+// One HubSpot area on the practice profile, straight under Pricing: status, links, and both actions (push pricing, create the company).
+function hsSection(p, st) {
+  const priced = p.total_patients > 0 && p.price_tier, linked = !!p.hubspot_company_id, active = p.status === "Active" && p.total_patients > 0;
+  const btn = (attr, label, primary) => `<button type="button" ${attr} class="rounded-md px-3 py-1.5 text-xs font-semibold ${primary ? "bg-slate-800 text-white hover:bg-slate-700" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}">${label}</button>`;
+  const actions = !active ? "" : `<div class="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+      ${linked ? "" : `<div class="mb-2 text-xs text-slate-600">No HubSpot company has this GP ODS Code yet. Create it, or search in case it exists under another name.</div>`}
+      <div class="flex flex-wrap items-center gap-2">${linked ? "" : btn(`data-hs-create="${esc(p.ods_code)}"`, "Create in HubSpot…", true)}${priced ? btn(`data-hs-open="${esc(p.ods_code)}"`, "Push pricing to deal…", linked) : ""}
+      ${priced ? '<span class="text-xs text-slate-500">Sends the options selected in the price card above.</span>' : ""}</div></div>`;
+  return sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st]) + (!linked && active ? " " + chip("Not in HubSpot", "bg-amber-100 text-amber-800") : "")) +
+    kv("Company record", linked ? hsLink("0-2", p.hubspot_company_id, "Open in HubSpot") : "") + '<div id="dr-hsdeal"></div>' + kv("Lifecycle stage", esc(p.hubspot_stage)) +
+    kv("Company created", esc(fmtDate(p.hubspot_company_imported_at))) + kv("Contacts in HubSpot", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + kv("Last synced", esc(fmtDate(p.hubspot_synced_at))) + actions);
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-hs-open]"); if (b) hsOpen(practices.find(x => x.ods_code === b.dataset.hsOpen)); });
 $("hs-close").onclick = hsClose;
@@ -56,6 +63,8 @@ function hsBindFind(auto) {
           <div class="flex justify-between gap-3"><b>${esc(c.name)}</b><span class="text-xs ${c.match === "ODS code" ? "text-emerald-700" : "text-slate-500"}">matched on ${esc(c.match)}</span></div>
           <div class="text-xs text-slate-500">ODS ${esc(c.partner_organisation_code || "not set")} · list size ${c.patient_list_size ? Number(c.patient_list_size).toLocaleString() : "not set"}</div></button>`).join("")
         : '<p class="text-slate-500 italic">No companies found. Try a shorter name.</p>';
+      box.insertAdjacentHTML("beforeend", `<div class="mt-1 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500"><span>${companies.length ? "Not the right one?" : "Nothing matches."}</span><button id="hs-new" class="font-semibold text-blue-600 hover:underline">Create ${esc(hs.p.practice_name)} in HubSpot</button></div>`);
+      $("hs-new").onclick = () => hsCreateOpen(hs.p);
       box.querySelectorAll("[data-co]").forEach(b => b.onclick = () => hsDeals(b.dataset.co, companies.find(c => c.id === b.dataset.co)));
     } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
   };
@@ -167,9 +176,6 @@ async function hsNetworkSection(n) {
 }
 
 /* ---------- practices that are not in HubSpot: flag, then create (or link an existing company) after a preview ---------- */
-function hsMissingBar(p) {
-  return `<div class="flex items-center justify-between gap-2 py-1">${chip("Not in HubSpot", "bg-amber-100 text-amber-800")}<button type="button" data-hs-create="${esc(p.ods_code)}" class="rounded-md bg-slate-800 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-700">Create in HubSpot…</button></div>`;
-}
 document.addEventListener("click", e => { const b = e.target.closest("[data-hs-create]"); if (b) hsCreateOpen(practices.find(x => x.ods_code === b.dataset.hsCreate)); });
 
 async function hsCreateOpen(p) {
@@ -222,8 +228,10 @@ async function hsCreateRun(action, extra) {
     const r = await hsCall({ action, ods: p.ods_code, ...extra, company: hsCompanyProps(p), contacts: cdata.contacts, networks: cdata.links.map(l => ({ type: l.object_type, id: l.object_id })) });
     p.hubspot_company_id = r.companyId;
     msg.innerHTML = `<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">${action === "create_company" ? "Company created" : "Company linked"}: ${hsLink("0-2", r.companyId, "open in HubSpot")}
-      <div class="text-xs">${r.contacts.length} contact(s) associated · ${r.networks.length} PCN/ICB association(s)</div></div>${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}`;
+      <div class="text-xs">${r.contacts.length} contact(s) associated · ${r.networks.length} PCN/ICB association(s)</div></div>
+      <div class="mt-2 rounded-lg border border-slate-200 p-3 text-sm"><b>Next:</b> create the deal for this company in HubSpot, then come back to push the pricing. <button id="hs-next" class="ml-1 font-semibold text-blue-600 hover:underline">Push pricing now</button></div>${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}`;
     btn.classList.add("hidden"); $("hs-cancel").textContent = "Close";
+    const nx = $("hs-next"); if (nx) nx.onclick = () => { hs = null; hsOpen(p); };
     if (drawerCode === p.ods_code) openDrawer(p);
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; btn.disabled = false; btn.textContent = "Create in HubSpot"; }
 }

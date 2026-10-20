@@ -117,6 +117,8 @@ with sync_playwright() as p:
     # practices that are not in HubSpot: filter, flag, create
     pg.select_option("#f-hs", "missing"); assert pg.locator("#rows tr:has-text('Test Surgery 1')").count() == 0 and pg.locator("#rows tr:has-text('Test Surgery 2')").count() == 1
     pg.click("#rows tr:has-text('Test Surgery 2')"); pg.wait_for_selector('#dr-body [data-hs-create="A10002"]'); assert "Not in HubSpot" in pg.inner_text("#dr-body")
+    assert pg.locator('#dr-body [data-hs-open="A10002"]').count() == 1   # pushing pricing stays available when the company is missing
+    pg.evaluate("document.querySelector('#dr-body [data-hs-create]').closest('section').scrollIntoView()"); pg.screenshot(path=SHOTS + "/hubspot_section.png")
     pg.click('#dr-body [data-hs-create="A10002"]'); pg.wait_for_selector("#hs-create"); cp = pg.inner_text("#hs-body"); assert "has no company with this GP ODS Code" in cp and "A10002" in cp and "New company to create" in cp, cp
     pg.click("#hs-create"); pg.wait_for_function("document.querySelector('#hs-msg').innerText.includes('Company created')")
     cc = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company')")[0][1]; assert cc["ods"] == "A10002" and cc["company"]["partner_organisation_code"] == "A10002" and cc["company"]["patient_list_size"] == 11000, cc
