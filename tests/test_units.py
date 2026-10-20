@@ -215,3 +215,47 @@ def test_pricing_calculator_all_combinations():
         pytest.skip("node not installed")
     out = subprocess.run([node, str(pathlib.Path(__file__).parent / "pricing_audit.js")], capture_output=True, text=True, timeout=60)
     assert "mismatches: 0" in out.stdout and "sheet 1-year base mismatches: 0" in out.stdout and "matrix mismatches: 0" in out.stdout, out.stdout + out.stderr
+
+
+def test_hubspot_sync_flags_and_contact_matching():
+    from src import hubspot_sync as hsy
+
+    class FakeRest:
+        def __init__(self):
+            self.up = {}
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "gp_practices":
+                return [dict(ods_code=c, practice_name=c, hubspot_company_id=None) for c in ("A10001", "A10002", "A10003")] + [dict(ods_code="A10004", practice_name="Old", hubspot_company_id="9")]
+            return [dict(contact_urn=1, ods_code="A10001", email="Ann@x.nhs", hubspot_status="Not imported", hubspot_contact_id=None),
+                    dict(contact_urn=2, ods_code="A10001", email="bob@x.nhs", hubspot_status="Imported", hubspot_contact_id="77")]
+        def upsert(self, table, rows, on_conflict, batch=500):
+            self.up[table] = rows
+
+    class FakeHub:
+        def call(self, method, path, **kw):
+            if "companies/search" in path:
+                return {"total": 3, "results": [
+                    {"id": "1", "properties": {"partner_organisation_code": "a10001", "lifecyclestage": "opportunity", "createdate": "2026-01-01T00:00:00Z"}},
+                    {"id": "2", "properties": {"partner_organisation_code": "A10002", "lifecyclestage": "lead", "createdate": "2026-01-02T00:00:00Z"}},
+                    {"id": "3", "properties": {"partner_organisation_code": "A10003", "lifecyclestage": "lead", "createdate": "2026-01-03T00:00:00Z"}}]}
+            if "associations/companies/contacts" in path:
+                return {"results": [{"from": {"id": "1"}, "to": [{"toObjectId": 11}]}, {"from": {"id": "2"}, "to": [{"toObjectId": 12}]}]}
+            if "associations/companies/deals" in path:
+                return {"results": [{"from": {"id": "3"}, "to": [{"toObjectId": 31}]}]}
+            if "objects/contacts/batch/read" in path:
+                return {"results": [{"id": "11", "properties": {"lifecyclestage": "salesqualifiedlead", "email": "ann@x.nhs", "createdate": "2026-02-01T00:00:00Z"}},
+                                    {"id": "12", "properties": {"lifecyclestage": "lead", "email": "z@x.nhs"}}]}
+            if "objects/deals/batch/read" in path:
+                return {"results": [{"id": "31", "properties": {"hs_is_closed_won": "true"}}]}
+            raise AssertionError(path)
+
+    rest = FakeRest()
+    stats = hsy.sync(rest, FakeHub())
+    g = {r["ods_code"]: r for r in rest.up["gp_practices"]}
+    assert g["A10001"]["hubspot_engaged"] and not g["A10001"]["hubspot_customer"] and g["A10001"]["hubspot_stage"] == "Opportunity"
+    assert not g["A10002"]["hubspot_engaged"] and not g["A10002"]["hubspot_customer"]          # only a New lead contact
+    assert g["A10003"]["hubspot_customer"]                                                      # closed-won deal, lifecycle never updated
+    assert g["A10004"]["hubspot_company_id"] is None                                            # link cleared when the company is gone
+    c = {r["contact_urn"]: r for r in rest.up["contacts"]}
+    assert c[1]["hubspot_status"] == "Imported" and c[1]["hubspot_contact_id"] == "11" and c[2]["hubspot_status"] == "Not imported"   # matched by email, case-insensitive
+    assert stats["practices_linked"] == 3 and stats["customers"] == 1 and stats["engaged"] == 1

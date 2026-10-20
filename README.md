@@ -153,3 +153,12 @@ On a practice profile, **Push to HubSpot…** (Pricing section) sends the select
 3. After the write the tool waits (up to 20 seconds) for HubSpot to recalculate **Total Discount %** and **Actual Value per Patient (Calculated)** and compares both with the tool.
 
 Setup: create a HubSpot private app with companies and deals read/write scopes and add its token as the Supabase edge function secret `HUBSPOT_TOKEN`. The function `hubspot-push` only accepts signed-in allowlisted users and can only write the fields listed in its source. HubSpot stores the discounts as fractions (0.05 for 5%), which its Actual Value per Patient formula requires; `HS_PCT` in `js/hubspot.js` is 1.
+
+## HubSpot sync (fills the HubSpot section of each profile)
+
+`.github/workflows/hubspot.yml` runs daily at 08:30 UTC (and on demand: Actions > HubSpot sync > Run workflow). It reads HubSpot (read-only) and matches companies to practices on the **GP ODS Code** field, then sets:
+- **Customer**: company lifecycle stage is Customer, or any associated deal is Closed Won.
+- **Engaged**: any associated contact whose lifecycle stage is not New, Prospecting, Past Customer or Other.
+- the HubSpot company id, created date and lifecycle stage, and per contact "Imported" when a HubSpot contact with the same email is associated with the company.
+
+Needs the GitHub secret `HUBSPOT_TOKEN` (the same private-app token as the Supabase edge function; read scopes are enough). Without it the step is skipped.
