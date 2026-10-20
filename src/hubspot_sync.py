@@ -178,7 +178,7 @@ def load_inactive_pcns(getj, page=1000):
         offset = len(out)
 
 
-def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None):
+def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None, conflicts=None):
     """Keep HubSpot's PCN custom object in step with NHS ODS: create missing PCNs (capped), repair records with a bad address, mark closed ones
     inactive, and add missing company -> PCN associations. Add-only: nothing is deleted or de-associated. Returns (stats, lines for Slack)."""
     getj = getj or sources.get_json
@@ -188,7 +188,9 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
     by_code = {pr["ods_code"].strip().upper(): pr for pr in hs_pcns if pr.get("ods_code")}
     inactive = load_inactive_pcns(getj)
     # 1. create PCNs the tool knows (they have active practices) that HubSpot lacks
-    missing = sorted(c for c in ours if c in epcn and c not in by_code and c not in inactive)
+    unnamed = {norm_name(pr.get("name")) for pr in hs_pcns if not (pr.get("ods_code") or "").strip()}   # HubSpot PCN records with no code: never create a twin of one
+    missing = sorted(c for c in ours if c in epcn and c not in by_code and c not in inactive and norm_name(epcn[c]["name"]) not in unnamed)
+    stats_skipped = sum(1 for c in ours if c in epcn and c not in by_code and c not in inactive and norm_name(epcn[c]["name"]) in unnamed)
     for c in missing[:MAX_PCN_CREATES]:
         props = {**ods_pcn_props(getj(f"{sources.ODS_API}/organisations/{c}")), **{k: v for k, v in epcn[c].items() if v}, "ods_code": c, "status": "active"}
         r = hub.call("POST", f"/crm/v3/objects/{PCN_OBJECT}", json={"properties": props})
@@ -197,6 +199,7 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
         lines.append(f"Created PCN {props['name']} ({c})")
         ev("pcn_created", c, props["name"], r["id"], f"Created PCN record {props['name']} ({c}) from NHS ODS", {"properties": props})
     stats["pcn_create_capped"] = max(0, len(missing) - MAX_PCN_CREATES)
+    stats["pcn_create_skipped_name_match"] = stats_skipped   # a code-less HubSpot PCN with the same name exists: see the HubSpot audit
     # 2. repair records an early version wrote with a date in address line 1
     for c, pr in list(by_code.items())[:]:
         if BAD_ADDRESS.match(str(pr.get("address_line_1") or "")) and stats["pcn_records_repaired"] < MAX_PCN_REPAIRS:
@@ -229,6 +232,13 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None)
         d = hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/read", json={"inputs": [{"id": i} for i in ch]})
         for r in d.get("results", []):
             have[str(r["from"]["id"])] = {str(t["toObjectId"]) for t in r.get("to", [])}
+    if conflicts is not None:   # companies already associated with a PCN record that is not their own (add-only: the wrong one stays until someone removes it)
+        names = {str(pr["id"]): pr.get("name") or pr.get("ods_code") or str(pr["id"]) for pr in hs_pcns}
+        ods_of = {cid: o for o, cid in company_of.items()}
+        for cid, pid in want.items():
+            extra = sorted(names.get(i, i) for i in have.get(cid, set()) if i != pid)
+            if extra:
+                conflicts.append((cid, practices.get(ods_of.get(cid), {}).get("practice_name"), ods_of.get(cid), extra))
     todo = [{"from": {"id": cid}, "to": {"id": pid}} for cid, pid in want.items() if pid not in have.get(cid, set())][:MAX_ASSOCIATIONS]
     for ch in chunks(todo, 100):
         hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/associate/default", json={"inputs": ch})
@@ -298,7 +308,7 @@ def audit_rows(raw, practices, now):
 
     def add(issue, c, ods, pr, detail):
         rows.append({"id": f"{issue}-{c['id']}", "issue": issue, "company_id": c["id"], "company_name": c.get("name"), "ods_code": ods, "nhs_name": (pr or {}).get("practice_name"),
-                     "nhs_status": (pr or {}).get("status"), "detail": detail, "found_at": now})
+                     "nhs_status": (pr or {}).get("status"), "detail": detail, "found_at": now, "object_type": "company"})
     for ods, cs in by_code.items():
         if not ods:
             continue
@@ -316,10 +326,56 @@ def audit_rows(raw, practices, now):
     return rows
 
 
-def sync_audit(rest, raw, practices, now):
+def norm_name(name):
+    return " ".join(sorted(name_tokens(name)))
+
+
+def network_audit_rows(hs_pcns, hs_icbs, epcn, now, conflicts=()):
+    """Mismatches on HubSpot's PCN and ICB records against the NHS ODS list: records without a code, duplicates, codes NHS does not list, differing names,
+    and practice companies associated to a PCN record other than their own PCN."""
+    rows = []
+
+    def add(issue, obj, rec, detail, nhs_name=None, ods=None):
+        rows.append({"id": f"{issue}-{rec['id']}", "issue": issue, "object_type": obj, "company_id": str(rec["id"]), "company_name": rec.get("name"), "ods_code": ods or (rec.get("ods_code") or "").strip().upper() or None,
+                     "nhs_name": nhs_name, "nhs_status": None, "detail": detail, "found_at": now})
+    by_nhs_name = {}
+    for code, e in epcn.items():
+        by_nhs_name.setdefault(norm_name(e["name"]), []).append(code)
+    codes = {}
+    for pr in hs_pcns:
+        code = (pr.get("ods_code") or "").strip().upper()
+        if not code:
+            guess = by_nhs_name.get(norm_name(pr.get("name")), [])
+            add("pcn_no_code", "pcn", pr, f"No ODS code. Probably {guess[0]} ({epcn[guess[0]]['name']})" if len(guess) == 1 else "No ODS code, and no single NHS PCN has this name", epcn[guess[0]]["name"] if len(guess) == 1 else None)
+            continue
+        codes.setdefault(code, []).append(pr)
+    for code, prs in codes.items():
+        for pr in prs:
+            if len(prs) > 1:
+                add("pcn_duplicate", "pcn", pr, f"{len(prs)} PCN records carry {code}")
+            if code not in epcn:
+                add("pcn_unknown_code", "pcn", pr, f"{code} is not in the NHS PCN list")
+            elif not names_match(pr.get("name"), epcn[code]["name"]):
+                add("pcn_name_mismatch", "pcn", pr, "HubSpot and NHS names differ", epcn[code]["name"])
+    seen_icb = {}
+    for pr in hs_icbs:
+        code = (pr.get("ods_code") or "").strip().upper()
+        if not code:
+            add("icb_issue", "icb", pr, "ICB record has no ODS code")
+        seen_icb.setdefault(code or norm_icb(pr.get("name")), []).append(pr)
+    for key, prs in seen_icb.items():
+        if len(prs) > 1:
+            for pr in prs:
+                add("icb_issue", "icb", pr, f"{len(prs)} ICB records share the same {'code' if key == (pr.get('ods_code') or '').strip().upper() else 'name'}")
+    for cid, name, ods, extra in conflicts:
+        rows.append({"id": f"pcn_association-{cid}", "issue": "pcn_association", "object_type": "company", "company_id": cid, "company_name": name, "ods_code": ods, "nhs_name": None, "nhs_status": None,
+                     "detail": "Also associated with: " + ", ".join(extra), "found_at": now})
+    return rows
+
+
+def write_audit(rest, rows):
     """Replace the stored mismatch list with today's; never stops the sync."""
     try:
-        rows = audit_rows(raw, practices, now)
         if rows:
             rest.upsert("hubspot_audit", rows, "id")
         have = {r["id"] for r in rest.select_all("hubspot_audit", "id", order="id")}
@@ -333,6 +389,10 @@ def sync_audit(rest, raw, practices, now):
     except Exception as e:  # noqa: BLE001
         print("Audit skipped:", e)
         return {"audit_error": str(e)[:200]}
+
+
+def sync_audit(rest, raw, practices, now):
+    return write_audit(rest, audit_rows(raw, practices, now))
 
 
 def record(rest, rows, actor):
@@ -373,7 +433,8 @@ def sync(rest, hub, now=None, actor="daily sync"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
-    audit = sync_audit(rest, raw, practices, now)
+    audit_all = audit_rows(raw, practices, now)
+    conflicts = []
 
     ours = rest.select_all("contacts", "contact_urn,ods_code,email,hubspot_status,hubspot_contact_id", order="contact_urn")
     crow = []
@@ -387,11 +448,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
     rest.upsert("contacts", crow, "contact_urn")
     pcn_stats = {}
     try:   # mirror NHS ODS into HubSpot's PCN object; a failure here must not undo the practice sync above
-        icb_codes = {norm_icb(o.get("properties", {}).get("name")): o["properties"]["ods_code"] for o in fetch_custom(hub, ICB_OBJECT) if o.get("properties", {}).get("ods_code")}
+        icb_objs = fetch_custom(hub, ICB_OBJECT)
+        icb_codes = {norm_icb(o.get("properties", {}).get("name")): o["properties"]["ods_code"] for o in icb_objs if o.get("properties", {}).get("ods_code")}
         epcn = parse_epcn(sources.fetch(sources.ODS_EXPORT + "epcn"), icb_codes)
         hs_pcns = [{"id": o["id"], **o.get("properties", {})} for o in fetch_custom(hub, PCN_OBJECT)]
         company_of = {ods: str(sorted(cs, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]["id"]) for ods, cs in by_ods.items()}
-        pcn_stats, lines, events = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of)
+        pcn_stats, lines, events = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, conflicts=conflicts)
+        audit_all += network_audit_rows(hs_pcns, [{"id": o["id"], **o.get("properties", {})} for o in icb_objs], epcn, now, conflicts)
         record(rest, events, actor)
         if lines:
             try:
@@ -400,6 +463,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
                 print("Slack post skipped:", e)
     except Exception as e:  # noqa: BLE001
         pcn_stats = {"pcn_sync_error": str(e)[:300]}
+    audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
     return {**nets, **pcn_stats, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
             "contacts_updated": len(crow), "search_capped": total > len(raw), **audit}

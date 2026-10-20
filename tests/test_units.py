@@ -336,3 +336,17 @@ def test_hubspot_audit_names_and_issues():
            {"id": 5, "properties": {"name": "Nowhere", "partner_organisation_code": "Z90009"}}]
     got = {(r["issue"], r["company_id"]) for r in hsy.audit_rows(raw, practices, "now")}
     assert got == {("closed_practice", "2"), ("name_mismatch", "3"), ("duplicate_code", "3"), ("duplicate_code", "4"), ("unknown_code", "5")}, got
+
+
+def test_hubspot_network_audit():
+    from src import hubspot_sync as hsy
+    epcn = {"U00001": {"name": "West PCN"}, "U00002": {"name": "East Health Network"}}
+    pcns = [{"id": "1", "name": "West PCN", "ods_code": "U00001"}, {"id": "2", "name": "East Health Network"}, {"id": "3", "name": "Old Name", "ods_code": "U00009"},
+            {"id": "4", "name": "Totally Different", "ods_code": "U00002"}, {"id": "5", "name": "West PCN", "ods_code": "u00001"}]
+    icbs = [{"id": "10", "name": "NHS Essex ICB", "ods_code": "D7T5G"}, {"id": "11", "name": "NHS Essex ICB", "ods_code": "D7T5G"}, {"id": "12", "name": "NHS Kent ICB"}]
+    rows = hsy.network_audit_rows(pcns, icbs, epcn, "now", [("77", "Alpha Surgery", "A10001", ["East Health Network"])])
+    got = {(r["issue"], r["company_id"]) for r in rows}
+    assert got == {("pcn_no_code", "2"), ("pcn_unknown_code", "3"), ("pcn_name_mismatch", "4"), ("pcn_duplicate", "1"), ("pcn_duplicate", "5"), ("icb_issue", "10"), ("icb_issue", "11"), ("icb_issue", "12"),
+                   ("pcn_association", "77")}, got
+    nocode = next(r for r in rows if r["issue"] == "pcn_no_code")
+    assert "U00002" in nocode["detail"] and nocode["nhs_name"] == "East Health Network"   # the code-less record is matched to its NHS PCN by name
