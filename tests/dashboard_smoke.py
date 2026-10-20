@@ -110,8 +110,7 @@ with sync_playwright() as p:
     pg.wait_for_timeout(500); pg.evaluate("document.querySelector('#dr-body').scrollTop = 0"); pg.screenshot(path=SHOTS + "/profile.png")
     assert pg.locator('#dr-body a[href$="/record/0-2/441"]').count() == 1   # link to the HubSpot company record
     # push to HubSpot: link, preview, write, validate
-    pg.evaluate("window.__hsPoll = 30"); assert "Continue" in pg.inner_text("#dr-hs .hs-bar"); pg.click('#dr-hs .hs-bar [data-hs-act="push"]'); pg.wait_for_selector("#hs-results [data-co]")
-    pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]")
+    pg.evaluate("window.__hsPoll = 30"); assert "Set up in HubSpot" in pg.inner_text("#dr-hs .hs-bar"); pg.click('#dr-hs .hs-bar [data-hs-act="push"]'); pg.wait_for_selector("#hs-results [data-deal]")   # company known: straight to the company page
     hub = pg.inner_text("#hs-results"); assert "contacts" in hub.lower() and "Lena Contact" in hub and "No leads yet" in hub and "deals" in hub.lower() and "Test Surgery 1 - SAR" in hub, hub
     assert "Add from Atlas (1)" in hub; pg.screenshot(path=SHOTS + "/hubspot-hub.png"); pg.click("#hs-addcontacts"); pg.wait_for_selector("#hs-addgo"); assert "Ann Lee" in pg.inner_text("#hs-addpanel")
     pg.click("#hs-addgo"); pg.wait_for_function("document.querySelector('#hs-results').innerText.includes('1 contact added')")
@@ -141,11 +140,11 @@ with sync_playwright() as p:
       const deal = { id: '9', dealname: 'Sync Deal', size_tier: w.tier, commercial_model: w.model, value_per_patient: w.vpp, size_discount: hsPct(w.size), speed_discount: hsPct(w.speed), term_length_discount: hsPct(w.term), term_length_years: String(w.termYears) };
       hsInfo['A10003'] = { link: { company_id: '1', deal_id: '9' }, pair: { company: { patient_list_size: String(p.total_patients) }, deal } }; hsRefreshBars(); const a = document.querySelector('#dr-hs .hs-bar').innerText;
       deal.size_tier = 'Tier 5'; hsRefreshBars(); return [a, document.querySelector('#dr-hs .hs-bar').innerText]; }""")
-    assert "in sync" in state[0] and "Push pricing" not in state[0], state
+    assert "in sync" in state[0] and "Push pricing" not in state[0] and "Manage in HubSpot" in state[0] and "Open deal" in state[0], state
     assert "1 change to push" in state[1] and "Push pricing" in state[1], state
     # practices that are not in HubSpot: filter, flag, create
     pg.select_option("#f-hs", "missing"); assert pg.locator("#rows tr:has-text('Test Surgery 1')").count() == 0 and pg.locator("#rows tr:has-text('Test Surgery 2')").count() == 1
-    pg.click("#rows tr:has-text('Test Surgery 2')"); pg.wait_for_selector('#dr-hs .hs-bar [data-hs-act="create"]'); assert "Not in HubSpot" in pg.inner_text("#dr-body")
+    pg.click("#rows tr:has-text('Test Surgery 2')"); pg.wait_for_selector('#dr-hs .hs-bar [data-hs-act="create"]'); assert "No company record" in pg.inner_text("#dr-body")
     assert "Not in HubSpot yet" in pg.inner_text("#dr-hs .hs-bar") and "Add to HubSpot" in pg.inner_text("#dr-hs .hs-bar")   # the bar offers the next step for a practice that is missing
     pg.screenshot(path=SHOTS + "/hubspot_section.png")
     pg.click('#dr-hs .hs-bar [data-hs-act="create"]'); pg.wait_for_selector("#hs-create"); cp = pg.inner_text("#hs-body"); assert "has no company with this GP ODS Code" in cp and "A10002" in cp and "New company to create" in cp, cp
