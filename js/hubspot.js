@@ -125,14 +125,15 @@ async function hsWrite(checks) {
     for (let i = 0; i < 6; i++) {
       msg.innerHTML = `<p class="text-slate-500">Written. Waiting for HubSpot to recalculate… (${i + 1}/6)</p>`;
       last = (await hsCall({ action: "read", companyId: company.id, dealId: deal.id })).deal;
-      if (Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6 && Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4) break;
+      if (Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6 && (hsNum(last.actual_value_per_patient_calculated) == null ? i >= 2 : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4)) break;
       if (i < 5) await new Promise(r => setTimeout(r, window.__hsPoll ?? 4000));
     }
-    const okT = Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6, okV = Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4;
-    const line = (ok, label, got, exp) => `<div class="flex items-center justify-between rounded-lg border ${ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"} px-3 py-2"><span>${ok ? "✓" : "✗"} ${label}</span><span class="font-mono">HubSpot ${got} · tool ${exp}</span></div>`;
+    const okT = Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6, blankV = hsNum(last.actual_value_per_patient_calculated) == null;
+    const okV = blankV ? null : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4;   // null: HubSpot has not filled it in
+    const line = (ok, label, got, exp) => `<div class="flex items-center justify-between rounded-lg border ${ok === null ? "border-amber-300 bg-amber-50 text-amber-900" : ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"} px-3 py-2"><span>${ok === null ? "?" : ok ? "✓" : "✗"} ${label}</span><span class="font-mono">HubSpot ${got} · tool ${exp}</span></div>`;
     msg.innerHTML = `<div class="space-y-2">${line(okT, "Total Discount %", last.total_discount == null ? "not set" : pct(hsNum(last.total_discount) / HS_PCT), pct(want.total))}
       ${line(okV, "Actual Value per Patient (Calculated)", last.actual_value_per_patient_calculated ? "£" + rate3(last.actual_value_per_patient_calculated) : "not set", "£" + rate3(want.rate))}</div>
-      <p class="mt-2 text-xs text-slate-500">${okT && okV ? "HubSpot matches the tool. The link is saved for next time." : "HubSpot's calculated fields do not match the tool. Check the deal's workflow, or whether the price floor applies in the tool but not in HubSpot."}</p>`;
+      <p class="mt-2 text-xs text-slate-500">${okT && okV ? "HubSpot matches the tool. The link is saved for next time." : okT && okV === null ? "Total Discount % matches. HubSpot has not filled in Actual Value per Patient (Calculated) on this deal, so it could not be compared. The link is saved." : "HubSpot's calculated fields do not match the tool. Check the deal's workflow, or whether the price floor applies in the tool but not in HubSpot."}</p>`;
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; $("hs-write").disabled = false; $("hs-write").textContent = "Write to HubSpot"; }
 }
