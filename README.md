@@ -144,3 +144,12 @@ Data > Pricing > "Update rates from the pricing spreadsheet". Download the `Pric
 - **Confirm closed** (`set_practice_closed`): records `closure_confirmed_at`; raises one `PRACTICE_CLOSED` signal on the practice's **PCN** listing its nearest practices (the signal can be turned off in Data > Signal settings).
 - Closed and merged practices are hidden from the main list (Status filter shows them). CQC *Deregistered* on its own only raises a signal for practices with no list size (978 practices with patients show Deregistered, which is mostly re-registrations).
 - Network counts still include merged and closed practices as members (they have no patients, so revenue is unaffected).
+
+## Push pricing to HubSpot
+
+On a practice profile, **Push to HubSpot…** (Pricing section) sends the selected product, billing, term and speed options to the practice's HubSpot deal.
+1. First time: search is pre-filled with the practice name and ODS code. Pick the company, then its deal. The link is saved in `hubspot_links` after the first successful write.
+2. Preview: shows the deal's Size Discount %, Speed Discount %, Term Length Discount % and Term Length (Years) that will be written, and warns when the company list size, deal Size Tier or Value per Patient differ from the tool. Ticked fields are updated on write.
+3. After the write the tool waits (up to 20 seconds) for HubSpot to recalculate **Total Discount %** and **Actual Value per Patient (Calculated)** and compares both with the tool.
+
+Setup: create a HubSpot private app with companies and deals read/write scopes and add its token as the Supabase edge function secret `HUBSPOT_TOKEN`. The function `hubspot-push` only accepts signed-in allowlisted users and can only write the fields listed in its source. `HS_PCT` in `js/hubspot.js` is 100 (HubSpot stores 5% as 5); set it to 1 if a test write shows fractions.
