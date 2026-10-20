@@ -255,8 +255,18 @@ def test_hubspot_sync_flags_and_contact_matching():
                 return {"results": [{"id": "31", "properties": {"hs_is_closed_won": "true"}}]}
             raise AssertionError(path)
 
-    epcn_csv = b"U00001,WEST PCN,x,NHS ESSEX ICB - D7T5G,1 HIGH ST,,,TOWN,COUNTY,CM1 1QH,20200701,,,,D7T5G,,,01245 123456\nU99999,NEW PCN,x,NHS ESSEX ICB - D7T5G,2 LOW ST,,,TOWN,COUNTY,not a postcode,20250101,,,,D7T5G\nU88888,CLOSED PCN,x,NHS ESSEX ICB - D7T5G,,,,,,,20200101,20240331,,,D7T5G\n"
+    epcn_csv = b"U00001,WEST PCN,x,NHS ESSEX ICB - D7T5G,20260901,A,B\nU99999,NEW PCN,x,Essex,20260901,A,B\nU88888,CLOSED PCN,x,NHS ESSEX ICB - D7T5G\n"
     hsy.sources.fetch = lambda url, timeout=120: epcn_csv
+    def ods_get(url, params=None):
+        if url.endswith("/organisations") and params and params.get("Status") == "Inactive":
+            return {"Organisations": [{"OrgId": "U88888"}]}
+        if url.endswith("/organisations/U99999") or url.endswith("/organisations/U00001"):
+            return {"Organisation": {"Status": "Active", "Date": [{"Type": "Operational", "Start": "2025-01-01"}], "GeoLoc": {"Location": {"AddrLn1": "2 LOW ST", "Town": "CHELMSFORD", "PostCode": "CM1 1QH"}},
+                                     "Contacts": {"Contact": [{"type": "tel", "value": "01245 123456"}]}}}
+        if url.endswith("/organisations/U88888"):
+            return {"Organisation": {"Status": "Inactive", "Date": [{"Type": "Operational", "Start": "2020-01-01", "End": "2024-03-31"}]}}
+        raise AssertionError(url)
+    hsy.sources.get_json = ods_get
     hsy.slack.post = lambda text, blocks=None: posted.append(text)
     posted = []
     rest = FakeRest()
@@ -264,7 +274,8 @@ def test_hubspot_sync_flags_and_contact_matching():
     base_call = FakeHub.call
     def call(self, method, path, **kw):
         if "p145802630_pcns/search" in path:
-            return {"results": [{"id": "501", "properties": {"ods_code": "U00001", "name": "West PCN", "total_amount_in_won_deals": "1200", "count_of_active_emr_practices": "2"}}, {"id": "502", "properties": {"ods_code": "U88888", "name": "Closed PCN", "status": "active"}}]}
+            return {"results": [{"id": "501", "properties": {"ods_code": "U00001", "name": "West PCN", "address_line_1": "20260901", "total_amount_in_won_deals": "1200", "count_of_active_emr_practices": "2"}},
+                                {"id": "502", "properties": {"ods_code": "U88888", "name": "Closed PCN", "status": "active"}}]}
         if method == "POST" and path == "/crm/v3/objects/p145802630_pcns":
             created.append(kw["json"]["properties"]); return {"id": "700"}
         if method == "PATCH" and "p145802630_pcns" in path:
@@ -287,6 +298,8 @@ def test_hubspot_sync_flags_and_contact_matching():
     nl = {r["org_id"]: r for r in rest.up["hubspot_network_links"]}
     assert nl["o1"]["object_id"] == "501" and nl["o1"]["object_type"].endswith("pcns") and nl["o1"]["won_deals_amount"] == 1200 and nl["o2"]["object_id"] == "601" and "o3" not in nl   # PCN by ODS code, ICB by name, Scottish cluster unmatched
     assert stats["networks_linked"] == 2 and stats["networks_unmatched"] == 1
-    assert [c["ods_code"] for c in created] == ["U99999"] and "postcode" not in created[0] and created[0]["status"] == "active" and created[0]["icb_ods_code"] == "D7T5G" and created[0]["address_line_1"] == "2 Low St"   # new PCN created; the invalid postcode is left out
-    assert {(a["from"]["id"], a["to"]["id"]) for a in assoc} == {("2", "501"), ("3", "700")} and posted   # only missing associations; Slack told
-    assert patched and patched[0][1]["status"] == "inactive" and patched[0][1]["operational_end_date"] == "2024-03-31"
+    assert [c["ods_code"] for c in created] == ["U99999"] and created[0]["address_line_1"] == "2 Low St" and created[0]["postcode"] == "CM1 1QH" and created[0]["status"] == "active" and created[0]["operational_start_date"] == "2025-01-01"   # created from the named ODS API fields
+    fixed = next(p for path, p in patched if path.endswith("/501"))
+    assert fixed["address_line_1"] == "2 Low St" and fixed["postcode"] == "CM1 1QH"        # the early bad address (a date) is repaired
+    closed = next(p for path, p in patched if path.endswith("/502"))
+    assert closed["status"] == "inactive" and closed["operational_end_date"] == "2024-03-31"

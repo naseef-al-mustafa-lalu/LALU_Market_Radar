@@ -91,7 +91,7 @@ def classify(companies, contact_ids, contacts, deal_ids, deals):
 
 
 PCN_OBJECT, ICB_OBJECT = "p145802630_pcns", "p145802630_icbs"
-NETWORK_PROPS = ["name", "ods_code", "total_amount_in_open_deals", "total_amount_in_won_deals", "count_of_active_emr_practices", "count_of_associated_practices"]
+NETWORK_PROPS = ["name", "ods_code", "address_line_1", "status", "total_amount_in_open_deals", "total_amount_in_won_deals", "count_of_active_emr_practices", "count_of_associated_practices"]
 
 
 def norm_icb(name):
@@ -122,62 +122,94 @@ def _num(v):
 
 
 MAX_PCN_CREATES = 25          # safety limit per run; anything beyond is reported and picked up the next day
+MAX_PCN_REPAIRS = 25
 MAX_ASSOCIATIONS = 3000
 PCN_CODE = re.compile(r"^U\d{5}$")
 POSTCODE_RE = re.compile(r"^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$")
-YMD = re.compile(r"^\d{8}$")
-
-
-def _ymd(v):
-    v = str(v or "").strip()
-    return f"{v[:4]}-{v[4:6]}-{v[6:8]}" if YMD.match(v) else None
+BAD_ADDRESS = re.compile(r"^\d{8}$")   # an early version wrote a date into address line 1; those records are repaired from the ODS API
 
 
 def parse_epcn(data, icb_codes=None):
-    """NHS ODS 'epcn' export (headerless) -> {pcn code: HubSpot PCN properties}. Every column is validated, and anything that does not look
-    right (postcode, dates, phone) is left out rather than written."""
+    """NHS ODS 'epcn' export (headerless) -> {pcn code: {name, icb_name, icb_ods_code}}. Only the columns the tool already relies on (code, name,
+    parent ICB name) are read; address, dates and phone come from the ODS API, whose fields are named."""
     out = {}
     for row in sources._csv(data, header=None).values.tolist():
         code = str(row[0]).strip().upper()
         if not PCN_CODE.match(code):
             continue
-        col = lambda i: str(row[i]).strip() if len(row) > i else ""
-        postcode = col(9).upper()
-        start, end = _ymd(col(10)), _ymd(col(11))
-        m = re.search(r"-\s*([0-9A-Z]{3,6})\s*$", col(3).upper())   # parent ICB code: from the name suffix, else from HubSpot's own ICB records by name
-        icb_code = m.group(1) if m else (icb_codes or {}).get(norm_icb(sources.clean_icb(col(3)))) or ""
-        phone = re.sub(r"[^0-9+ ]", "", col(17))
-        props = {"name": title_case(col(1)), "ods_code": code, "address_line_1": title_case(col(4)), "address_line_2": title_case(col(5)), "address_line_3": title_case(col(6)),
-                 "town": title_case(col(7)), "county": title_case(col(8)), "postcode": postcode if POSTCODE_RE.match(postcode) else "", "country": "England",
-                 "icb_name": title_case(sources.clean_icb(col(3))), "icb_ods_code": icb_code,
-                 "operational_start_date": start or "", "operational_end_date": end or "", "phone": phone if len(phone) >= 8 else "",
-                 "status": "inactive" if end and end <= datetime.now(timezone.utc).date().isoformat() else "active"}
-        out[code] = {k: v for k, v in props.items() if v not in ("", None)}
+        icb = title_case(sources.clean_icb(row[3])) if len(row) > 3 else ""
+        out[code] = {"name": title_case(str(row[1]).strip()), "icb_name": icb, "icb_ods_code": (icb_codes or {}).get(norm_icb(icb), "")}
     return out
 
 
-def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of):
-    """Keep HubSpot's PCN custom object in step with NHS ODS: create missing PCNs (capped), mark closed ones inactive, and add missing
-    company -> PCN associations. Add-only: nothing is deleted or de-associated. Returns (stats, lines for Slack)."""
-    stats, lines = {"pcn_records_created": 0, "pcn_records_inactivated": 0, "pcn_associations_added": 0, "pcn_create_capped": 0}, []
+def ods_pcn_props(detail):
+    """HubSpot PCN properties from an ODS API organisation record (named fields, each validated)."""
+    o = (detail or {}).get("Organisation", {})
+    loc = (o.get("GeoLoc") or {}).get("Location") or {}
+    ops = [d for d in o.get("Date", []) if d.get("Type") == "Operational"]
+    start = min((d.get("Start", "") for d in ops), default="")
+    end = max((d.get("End", "") for d in ops), default="")
+    tel = next((c.get("value") for c in (o.get("Contacts") or {}).get("Contact", []) if c.get("type") == "tel"), "")
+    pc = str(loc.get("PostCode") or "").strip().upper()
+    props = {"address_line_1": title_case(loc.get("AddrLn1")), "address_line_2": title_case(loc.get("AddrLn2")), "address_line_3": title_case(loc.get("AddrLn3")),
+             "town": title_case(loc.get("Town")), "county": title_case(loc.get("County")), "postcode": pc if POSTCODE_RE.match(pc) else "", "country": "England",
+             "operational_start_date": start if re.match(r"^\d{4}-\d{2}-\d{2}$", start) else "", "operational_end_date": end if re.match(r"^\d{4}-\d{2}-\d{2}$", end) else "",
+             "phone": re.sub(r"[^0-9+ ]", "", str(tel or "")) if len(re.sub(r"\D", "", str(tel or ""))) >= 8 else "",
+             "status": "active" if o.get("Status") == "Active" else "inactive"}
+    return {k: v for k, v in props.items() if v not in ("", None)}
+
+
+def load_inactive_pcns(getj, page=1000):
+    out, offset = set(), 0
+    while True:
+        params = {"PrimaryRoleId": "RO272", "Status": "Inactive", "Limit": page}
+        if offset:
+            params["Offset"] = offset
+        orgs = getj(f"{sources.ODS_API}/organisations", params).get("Organisations", [])
+        before = len(out)
+        out |= {str(o.get("OrgId", "")).upper() for o in orgs if PCN_CODE.match(str(o.get("OrgId", "")).upper())}
+        if len(orgs) < page or len(out) == before:
+            return out
+        offset = len(out)
+
+
+def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None):
+    """Keep HubSpot's PCN custom object in step with NHS ODS: create missing PCNs (capped), repair records with a bad address, mark closed ones
+    inactive, and add missing company -> PCN associations. Add-only: nothing is deleted or de-associated. Returns (stats, lines for Slack)."""
+    getj = getj or sources.get_json
+    stats, lines = {"pcn_records_created": 0, "pcn_records_repaired": 0, "pcn_records_inactivated": 0, "pcn_associations_added": 0, "pcn_create_capped": 0}, []
     ours = {c for c in (p.get("pcn_code") for p in practices.values()) if c}
     by_code = {pr["ods_code"].strip().upper(): pr for pr in hs_pcns if pr.get("ods_code")}
+    inactive = load_inactive_pcns(getj)
     # 1. create PCNs the tool knows (they have active practices) that HubSpot lacks
-    missing = sorted(c for c in ours if c in epcn and c not in by_code and epcn[c].get("status") != "inactive")
+    missing = sorted(c for c in ours if c in epcn and c not in by_code and c not in inactive)
     for c in missing[:MAX_PCN_CREATES]:
-        r = hub.call("POST", f"/crm/v3/objects/{PCN_OBJECT}", json={"properties": epcn[c]})
-        by_code[c] = {"id": r["id"], **epcn[c]}
+        props = {**ods_pcn_props(getj(f"{sources.ODS_API}/organisations/{c}")), **{k: v for k, v in epcn[c].items() if v}, "ods_code": c, "status": "active"}
+        r = hub.call("POST", f"/crm/v3/objects/{PCN_OBJECT}", json={"properties": props})
+        by_code[c] = {"id": r["id"], **props}
         stats["pcn_records_created"] += 1
-        lines.append(f"Created PCN {epcn[c]['name']} ({c})")
+        lines.append(f"Created PCN {props['name']} ({c})")
     stats["pcn_create_capped"] = max(0, len(missing) - MAX_PCN_CREATES)
-    # 2. mark PCNs closed in ODS as inactive in HubSpot
+    # 2. repair records an early version wrote with a date in address line 1
+    for c, pr in list(by_code.items())[:]:
+        if BAD_ADDRESS.match(str(pr.get("address_line_1") or "")) and stats["pcn_records_repaired"] < MAX_PCN_REPAIRS:
+            fix = ods_pcn_props(getj(f"{sources.ODS_API}/organisations/{c}"))
+            blank = {k: "" for k in ("address_line_1", "address_line_2", "address_line_3", "town", "county", "postcode", "phone", "icb_ods_code") if k not in fix}
+            if epcn.get(c, {}).get("icb_ods_code"):
+                fix["icb_ods_code"], blank["icb_ods_code"] = epcn[c]["icb_ods_code"], None
+            blank = {k: v for k, v in blank.items() if v is not None}
+            fix.pop("status", None)
+            hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {**blank, **fix}})
+            stats["pcn_records_repaired"] += 1
+            lines.append(f"Corrected the address details of PCN {pr.get('name', c)} ({c})")
+    # 3. mark PCNs closed in ODS as inactive in HubSpot
     for c, pr in by_code.items():
-        e = epcn.get(c)
-        if e and e.get("status") == "inactive" and pr.get("status") != "inactive" and e.get("operational_end_date"):
-            hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {"status": "inactive", "operational_end_date": e["operational_end_date"]}})
+        if c in inactive and pr.get("status") != "inactive":
+            end = ods_pcn_props(getj(f"{sources.ODS_API}/organisations/{c}")).get("operational_end_date")
+            hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {"status": "inactive", **({"operational_end_date": end} if end else {})}})
             stats["pcn_records_inactivated"] += 1
-            lines.append(f"Marked PCN {pr.get('name', c)} ({c}) inactive (closed {e['operational_end_date']})")
-    # 3. associate each linked practice company to its PCN record
+            lines.append(f"Marked PCN {pr.get('name', c)} ({c}) inactive" + (f" (closed {end})" if end else ""))
+    # 4. associate each linked practice company to its PCN record
     want = {}   # company id -> PCN record id
     for ods, cid in company_of.items():
         pcn = (practices.get(ods) or {}).get("pcn_code")
