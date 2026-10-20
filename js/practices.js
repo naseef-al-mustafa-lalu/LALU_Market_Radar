@@ -165,7 +165,7 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
     ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
       `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
     ${steps}${yearTable}
-    ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${(list * (1 - Number(next.size_discount))).toFixed(3)} per patient per month).</p>` : ""}</div>`;
+    ${next ? `<p class="mt-3 text-xs text-slate-600 border-t border-emerald-100 pt-2">${(Number(next.threshold) - patients).toLocaleString()} more patients would reach <b>Tier ${next.tier}</b> (${pct(next.size_discount)} size discount, £${dealRate(Number(next.size_discount), term, useSpeed ? Number(next.speed_discount) : 0).toFixed(3)} per patient per month with your current term and speed choices).</p>` : ""}</div>`;
 }
 // "Other ways to sign": follows the product, billing, term and speed choices on the price card, so every number on the profile agrees.
 let routeCmpPractice = null;

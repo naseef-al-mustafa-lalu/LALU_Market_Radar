@@ -97,7 +97,7 @@ const ROUTES = [
 function renderRateCard() {
   const list = Number(cfgSettings.list_price_per_patient?.value || 0);
   const sarList = Number(cfgSettings.list_price_sar_per_patient?.value || 0), mList = Number(cfgSettings.monthly_list_price_per_patient?.value || 0), mSar = Number(cfgSettings.monthly_list_price_sar_per_patient?.value || 0);
-  const settings = Object.values(cfgSettings).filter(x => x.key !== "list_price_per_patient");
+  const settings = Object.values(cfgSettings).filter(x => !/^(monthly_)?list_price_(sar_)?per_patient$/.test(x.key));
   const table = r => {
     const rows = cfgTiers.filter(t => t.route === r).sort((a, b) => a.tier - b.tier);
     if (!rows.length) return '<p class="text-sm italic text-slate-500">No tiers configured for this route.</p>';
