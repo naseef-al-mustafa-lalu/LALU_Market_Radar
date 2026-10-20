@@ -39,13 +39,13 @@ window.supabase = { createClient: () => {
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async (name, o) => { const b = (o && o.body) || {}; (window.__rpc = window.__rpc || []).push(['fn:' + name, b]);
       if (name !== 'hubspot-push') return { data: {} };
       const H = window.__hsdb = window.__hsdb || { company: { id: '77', name: 'Test Surgery 1 (HubSpot)', partner_organisation_code: 'A10001', patient_list_size: '9000' },
-        deal: { id: '88', dealname: 'Test Surgery 1 - SAR', dealstage: 'contractsent', size_tier: 'Tier 4', commercial_model: 'eMR+ SAR Only', value_per_patient: '£0.10', size_discount: '0', speed_discount: '0', term_length_discount: '0', term_length_years: '1', total_discount: '0', actual_value_per_patient_calculated: '0.10' } };
+        deal: { id: '88', dealname: 'Test Surgery 1 - SAR', dealstage: 'contractsent', size_tier: 'Tier 4', commercial_model: 'eMR+ SAR Only', value_per_patient: '£0.10', size_discount: '0', speed_discount: '0', term_length_discount: '0', term_length_years: '1', total_discount: '0', actual_value_per_patient_calculated: '0.10' }, lineItems: [] };
       if (b.action === 'find') return { data: { companies: [Object.assign({ match: 'ODS code' }, H.company)] } };
       if (b.action === 'deals') return { data: { deals: [H.deal] } };
-      if (b.action === 'read') return { data: { company: H.company, deal: H.deal } };
+      if (b.action === 'read') return { data: { company: H.company, deal: H.deal, lineItems: H.lineItems } };
       if (b.action === 'write') { Object.assign(H.company, b.company || {}); const d = Object.assign(H.deal, b.deal || {});
         const t = Math.round((Number(d.size_discount) + Number(d.speed_discount) + Number(d.term_length_discount)) * 1000) / 1000; d.total_discount = String(t);
-        d.actual_value_per_patient_calculated = String(Math.round(Number(String(d.value_per_patient).replace('£', '')) * (1 - t) * 100000) / 100000); if (window.__hsBlank) d.actual_value_per_patient_calculated = ''; window.__hslink = b.ods; return { data: { ok: true } }; }
+        d.actual_value_per_patient_calculated = String(Math.round(Number(String(d.value_per_patient).replace('£', '')) * (1 - t) * 100000) / 100000); if (window.__hsBlank) d.actual_value_per_patient_calculated = ''; window.__hslink = b.ods; const L = b.lineItem; if (L) { const P = { '440423339237': 0.96, '440425147578': 0.10, '440434162881': 0.6, '440498134244': 0.06 }[L.productId]; H.lineItems = [{ id: 'L1', name: 'Lalu Care line', hs_product_id: L.productId, quantity: String(L.quantity), price: String(P), discount: String(Math.round((P - L.netUnit) * 10000) / 10000), hs_recurring_billing_period: 'P' + L.termMonths + 'M' }]; } return { data: { ok: true, lineItems: H.lineItems } }; }
       if (b.action === 'create_company' || b.action === 'link_company') return { data: { ok: true, companyId: '900', contacts: [], networks: [], warnings: [] } };
       return { data: {} }; } } };
 } };
@@ -106,13 +106,13 @@ with sync_playwright() as p:
     # push to HubSpot: link, preview, write, validate
     pg.evaluate("window.__hsPoll = 30"); assert "Link deal" in pg.inner_text("#dr-hs .hs-bar"); pg.click('#dr-hs .hs-bar [data-hs-act="push"]'); pg.wait_for_selector("#hs-results [data-co]")
     pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]"); pg.click("#hs-results [data-deal]"); pg.wait_for_selector("#hs-write")
-    pv = pg.inner_text("#hs-body"); assert "Update HubSpot to match the tool" in pv and "Tier 4" in pv and "£0.10" in pv and "9,000" in pv and "Size Discount %" in pv and "Total Discount %" in pv, pv
+    pv = pg.inner_text("#hs-body"); assert "Update HubSpot to match the tool" in pv and "Tier 4" in pv and "£0.10" in pv and "9,000" in pv and "Size Discount %" in pv and "Total Discount %" in pv and "line item on the deal" in pv.lower() and "ReportSure - All Report - Annual" in pv, pv
     assert pg.locator("#hs-fix-all").count() == 1 and pg.locator("#hs-body ul li").count() == 4 and "ReportSure - MS - SAR Only" in pv and "ReportSure - MS - All Reports" in pv, pv
     pg.screenshot(path=SHOTS + "/hubspot.png"); pg.evaluate("window.__hsBlank = true"); pg.click("#hs-write")
     pg.wait_for_selector("#hs-recheck"); assert "not filled in" in pg.inner_text("#hs-msg") or "has not filled in" in pg.inner_text("#hs-msg"), pg.inner_text("#hs-msg")   # blank calculated value: amber, with a Re-check button
     pg.evaluate("window.__hsBlank = false; window.__hsdb.deal.actual_value_per_patient_calculated = '0.072'"); pg.click("#hs-recheck"); pg.wait_for_function("document.querySelector('#hs-msg').innerText.includes('HubSpot matches the tool')")
     wr = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'write')")[0][1]
-    assert wr["ods"] == "A10001" and wr["company"] == {"patient_list_size": 10000} and wr["deal"]["size_tier"] == "Tier 3" and wr["deal"]["value_per_patient"] == "£0.08" and wr["deal"]["commercial_model"] == "Subscription" and wr["deal"]["size_discount"] == 0.05 and wr["deal"]["speed_discount"] == 0.05 and wr["deal"]["term_length_discount"] == 0 and wr["deal"]["term_length_years"] == "1", wr
+    assert wr["ods"] == "A10001" and wr["company"] == {"patient_list_size": 10000} and wr["deal"]["size_tier"] == "Tier 3" and wr["deal"]["value_per_patient"] == "£0.08" and wr["deal"]["commercial_model"] == "Subscription" and wr["deal"]["size_discount"] == 0.05 and wr["deal"]["speed_discount"] == 0.05 and wr["deal"]["term_length_discount"] == 0 and wr["deal"]["term_length_years"] == "1" and wr["lineItem"] == dict(productId="440423339237", quantity=10000, netUnit=0.864, termMonths=12, frequency="annually", terms="FIXED", payments=1), wr
     pg.click("#hs-cancel"); pg.wait_for_selector("#hs-modal", state="hidden")
     # the adaptive HubSpot bar: in sync vs changes to push
     pg.click("#rows tr:has-text('Test Surgery 3')"); pg.wait_for_selector("#dr-hs .hs-bar")

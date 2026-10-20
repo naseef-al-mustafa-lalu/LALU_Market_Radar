@@ -25,6 +25,12 @@ const DEAL_WRITE = new Set(["size_tier", "size_discount", "speed_discount", "ter
 const COMMERCIAL_MODEL = new Set(["Subscription", "eMR+ SAR Only"]);   // ReportSure - MS - All Reports / ReportSure - MS - SAR Only
 const VALUE_PER_PATIENT = new Set(["£0.05", "£0.06", "£0.07", "£0.08", "£0.10"]);
 
+// The four Lalu Care products (created in HubSpot on 20 Oct 2026). Unit price comes from the product; the tool sets quantity, unit discount and term.
+const LINE_PRODUCTS = new Set(["440423339237", "440425147578", "440434162881", "440498134244"]);   // All Report annual / monthly, SAR Only annual / monthly
+const LINE_READ = ["name", "hs_product_id", "quantity", "price", "discount", "hs_discount_percentage", "amount", "hs_recurring_billing_period", "recurringbillingfrequency",
+  "hs_recurring_billing_terms", "hs_recurring_billing_number_of_payments"];
+const LINE_TO_DEAL = 20;   // HubSpot-defined association type: line item -> deal
+
 class Fail extends Error { constructor(msg: string, public status = 400) { super(msg); } }
 
 async function hs(path: string, init: RequestInit = {}) {
@@ -49,14 +55,23 @@ async function dealsOf(companyId: string) {
   return (d?.results ?? []).map((x: any) => ({ id: x.id, ...x.properties }));
 }
 
+async function lineItemsOf(dealId: string) {
+  const a = await hs(`/crm/v4/objects/deals/${dealId}/associations/line_items?limit=100`);
+  const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId));
+  if (!ids.length) return [];
+  const d = await hs(`/crm/v3/objects/line_items/batch/read`, { method: "POST", body: JSON.stringify({ properties: LINE_READ, inputs: ids.map((id: string) => ({ id })) }) });
+  return (d?.results ?? []).map((x: any) => ({ id: x.id, ...x.properties }));
+}
+
 async function readPair(companyId: string, dealId: string) {
-  const [company, deal, deals] = await Promise.all([
+  const [company, deal, deals, lineItems] = await Promise.all([
     hs(`/crm/v3/objects/companies/${companyId}?properties=${COMPANY_READ.join(",")}`),
     hs(`/crm/v3/objects/deals/${dealId}?properties=${DEAL_READ.join(",")}`),
     dealsOf(companyId),
+    lineItemsOf(dealId).catch(() => null),   // null when the token lacks the line item scope; the dashboard then says so
   ]);
   if (!deals.some((d: any) => d.id === dealId)) throw new Fail("That deal is not associated with that company");
-  return { company: { id: company.id, ...company.properties }, deal: { id: deal.id, ...deal.properties } };
+  return { company: { id: company.id, ...company.properties }, deal: { id: deal.id, ...deal.properties }, lineItems };
 }
 
 Deno.serve(async (req) => {
@@ -99,15 +114,48 @@ Deno.serve(async (req) => {
       if ("size_tier" in dealProps && !/^Tier [1-5]$/.test(String(dealProps.size_tier))) throw new Fail("Invalid size tier");
       if ("patient_list_size" in companyProps && !(Number(companyProps.patient_list_size) >= 0)) throw new Fail("Invalid list size");
 
+      const li = b.lineItem ?? null;
+      if (li) {
+        if (!LINE_PRODUCTS.has(String(li.productId))) throw new Fail("Unsupported product for the line item");
+        if (!(Number.isInteger(li.quantity) && li.quantity > 0 && li.quantity <= 2000000)) throw new Fail("Invalid line item quantity");
+        if (!(Number(li.netUnit) > 0 && Number(li.netUnit) < 100)) throw new Fail("Invalid line item unit price");
+        if (![1, 12, 24, 36].includes(Number(li.termMonths))) throw new Fail("Term must be 1, 12, 24 or 36 months");
+        if (!["annually", "monthly"].includes(String(li.frequency)) || !["FIXED", "AUTOMATICALLY_RENEW"].includes(String(li.terms))) throw new Fail("Invalid billing settings");
+        if (li.payments != null && !(Number.isInteger(li.payments) && li.payments >= 1 && li.payments <= 3)) throw new Fail("Invalid number of payments");
+      }
       const before = await readPair(companyId, dealId);   // also proves the deal belongs to the company
+      if (li && before.lineItems == null) throw new Fail("The HubSpot token cannot read line items: add the crm.objects.line_items.read and write scopes (and e-commerce for products). Nothing was written.");
       if (Object.keys(companyProps).length) await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: companyProps }) });
       if (Object.keys(dealProps).length) await hs(`/crm/v3/objects/deals/${dealId}`, { method: "PATCH", body: JSON.stringify({ properties: dealProps }) });
 
+      let lineResult: any = null;
+      if (li) {
+        const ours = before.lineItems.filter((x: any) => LINE_PRODUCTS.has(String(x.hs_product_id)));
+        if (ours.length > 1) throw new Fail("This deal has more than one Lalu Care line item. Remove the extras in HubSpot first.");
+        const billing = { hs_recurring_billing_period: `P${Number(li.termMonths)}M`, recurringbillingfrequency: String(li.frequency), hs_recurring_billing_terms: String(li.terms),
+          ...(li.payments != null ? { hs_recurring_billing_number_of_payments: String(li.payments) } : {}) };
+        let lineId: string, action: string;
+        if (ours.length && String(ours[0].hs_product_id) === String(li.productId)) {
+          lineId = ours[0].id; action = "updated";
+          await hs(`/crm/v3/objects/line_items/${lineId}`, { method: "PATCH", body: JSON.stringify({ properties: { quantity: String(li.quantity), ...billing } }) });
+        } else {
+          if (ours.length) { await hs(`/crm/v3/objects/line_items/${ours[0].id}`, { method: "DELETE" }); }   // the tool's own line, for a different product
+          const c = await hs(`/crm/v3/objects/line_items`, { method: "POST", body: JSON.stringify({ properties: { hs_product_id: String(li.productId), quantity: String(li.quantity), ...billing },
+            associations: [{ to: { id: dealId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: LINE_TO_DEAL }] }] }) });
+          lineId = String(c.id); action = ours.length ? "replaced" : "created";
+        }
+        const cur = await hs(`/crm/v3/objects/line_items/${lineId}?properties=price,quantity`);
+        const unit = Number(cur.properties?.price);
+        if (!(unit > 0)) throw new Fail("The line item has no unit price; check the product's price in HubSpot");
+        const discount = Math.max(0, Math.round((unit - Number(li.netUnit)) * 10000) / 10000);   // flat per-unit discount: HubSpot's unit price less the calculator's net price
+        await hs(`/crm/v3/objects/line_items/${lineId}`, { method: "PATCH", body: JSON.stringify({ properties: { discount: String(discount), hs_discount_percentage: "" } }) });
+        lineResult = { id: lineId, action, unit, discount };
+      }
       await admin.from("hubspot_links").upsert({ ods_code: ods, company_id: companyId, company_name: before.company.name ?? null, deal_id: dealId, deal_name: before.deal.dealname ?? null,
         linked_by: who, linked_at: new Date().toISOString(), last_pushed_at: new Date().toISOString() }, { onConflict: "ods_code" });
       await log({ actor: who, kind: "push", ods_code: ods, target: before.deal.dealname ?? before.company.name ?? null, hubspot_type: "deal", hubspot_id: dealId,
-        summary: `Pushed pricing to ${before.deal.dealname ?? "deal"}: ${Object.keys(dealProps).length} deal field(s)${Object.keys(companyProps).length ? ", company list size" : ""}`,
-        detail: { companyId, dealId, before: { company: before.company, deal: before.deal }, written: { company: companyProps, deal: dealProps } } });
+        summary: `Pushed pricing to ${before.deal.dealname ?? "deal"}: ${Object.keys(dealProps).length} deal field(s)${Object.keys(companyProps).length ? ", company list size" : ""}${lineResult ? `, line item ${lineResult.action}` : ""}`,
+        detail: { companyId, dealId, before: { company: before.company, deal: before.deal, lineItems: before.lineItems }, written: { company: companyProps, deal: dealProps, lineItem: li, lineResult } } });
       return reply({ ok: true, ...(await readPair(companyId, dealId)) });
     }
     if (b.action === "create_company" || b.action === "link_company") {

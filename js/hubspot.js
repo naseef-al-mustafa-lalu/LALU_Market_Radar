@@ -13,12 +13,32 @@ const HS_MODELS = { "Subscription": "ReportSure - MS - All Reports", "eMR+ SAR O
 const hsNum = v => (v === "" || v == null ? null : Number(v));
 const hsClose = () => { $("hs-modal").classList.add("hidden"); hs = null; };
 
+// The four Lalu Care products in HubSpot (unit price is set on the product: per patient per year for annual, per patient per month for monthly).
+const HS_PRODUCTS = { "all|annual": ["440423339237", "ReportSure - All Report - Annual"], "all|monthly": ["440425147578", "ReportSure - All Report - Monthly"],
+  "sar|annual": ["440434162881", "ReportSure - SAR Only - Annual"], "sar|monthly": ["440498134244", "ReportSure - SAR Only - Monthly"] };
+const HS_PRODUCT_IDS = new Set(Object.values(HS_PRODUCTS).map(x => x[0]));
+function hsLineWanted(p, monthly, yrs, rate, list) {
+  const [productId, productName] = HS_PRODUCTS[`${product}|${monthly ? "monthly" : "annual"}`], k = monthly ? 1 : 12;
+  return { productId, productName, quantity: p.total_patients, listUnit: Math.round(list * k * 10000) / 10000, netUnit: Math.round(rate * k * 10000) / 10000, termMonths: monthly ? 1 : 12 * yrs,
+    frequency: monthly ? "monthly" : "annually", terms: monthly ? "AUTOMATICALLY_RENEW" : "FIXED", payments: monthly ? null : yrs };
+}
+const hsOurLine = pair => (pair?.lineItems || []).find(l => HS_PRODUCT_IDS.has(String(l.hs_product_id)));
+// How the deal's current tool line item compares with the wanted one (null when there is none or the token cannot read line items).
+function hsLineStatus(want, pair) {
+  if (pair?.lineItems == null) return { unreadable: true };
+  const cur = hsOurLine(pair), w = want.line;
+  if (!cur) return { action: "create", same: false, cur: null };
+  const sameProduct = String(cur.hs_product_id) === w.productId, unit = Number(cur.price) || w.listUnit;
+  const same = sameProduct && Number(cur.quantity) === w.quantity && Math.abs((Number(cur.discount) || 0) - Math.max(0, unit - w.netUnit)) < 0.0006 && cur.hs_recurring_billing_period === `P${w.termMonths}M`;
+  return { action: sameProduct ? "update" : "replace", same, cur, unit };
+}
+
 // What the profile currently has selected, as the values HubSpot should hold.
 function hsDesired(p) {
   const row = cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), monthly = billing === "monthly";
   const size = monthly ? 0 : Number(row.size_discount), term = monthly ? 0 : termDiscount(termYrs), speed = monthly || !speedOn ? 0 : Number(row.speed_discount);
   return { size, term, speed, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size, term, speed), list: baseRate(),
-    total: size + term + speed, label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
+    total: size + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }
 // The HubSpot section of the profile now holds facts only (status, links, lifecycle); the one action lives beside the price controls (hsBarHtml).
 function hsSection(p, st) {
@@ -32,14 +52,15 @@ function hsSection(p, st) {
 const hsInfo = {};   // ods -> { link, pair: {company, deal}, loading, error }
 const hsSame = (a, b) => hsNum(a) != null && Math.abs(hsNum(a) - b) < 1e-6;
 // Everything that differs between HubSpot and the tool for the current profile selection. `fixes` need approval; `writes` are always sent.
-function hsChanges(p, want, company, deal) {
+function hsChanges(p, want, company, deal, pair) {
   const fixes = [
     { id: "ls", label: "Company list size", now: company.patient_list_size ? Number(company.patient_list_size).toLocaleString() : "not set", next: p.total_patients.toLocaleString(), same: hsSame(company.patient_list_size, p.total_patients) },
     { id: "tier", label: "Deal size tier", now: deal.size_tier || "not set", next: want.tier, same: deal.size_tier === want.tier },
     { id: "cm", label: "Deal commercial model", now: HS_MODELS[deal.commercial_model] || deal.commercial_model || "not set", next: want.modelLabel, same: deal.commercial_model === want.model },
     { id: "vpp", label: "Deal value per patient", now: deal.value_per_patient || "not set", next: want.vpp, same: deal.value_per_patient === want.vpp }];
   const writes = [hsSame(deal.size_discount, hsPct(want.size)), hsSame(deal.speed_discount, hsPct(want.speed)), hsSame(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears)];
-  return { fixes, writes, count: fixes.filter(f => !f.same).length + writes.filter(s => !s).length };
+  const line = hsLineStatus(want, pair);
+  return { fixes, writes, line, count: fixes.filter(f => !f.same).length + writes.filter(s => !s).length + (line.unreadable || line.same ? 0 : 1) };
 }
 function hsBarHtml(p) {
   if (!p || p.status !== "Active" || !(p.total_patients > 0) || !p.price_tier) return "";
@@ -51,7 +72,7 @@ function hsBarHtml(p) {
   else if (!i.link) { dot = "bg-amber-400"; text = "Company found, no deal linked yet"; right = act("push", "Link deal"); }
   else if (i.error) { dot = "bg-rose-500"; text = "Could not read the linked deal"; right = act("push", "Retry"); }
   else if (i.pair) {
-    const { count } = hsChanges(p, hsDesired(p), i.pair.company, i.pair.deal), name = esc(i.pair.deal.dealname || "deal");
+    const { count } = hsChanges(p, hsDesired(p), i.pair.company, i.pair.deal, i.pair), name = esc(i.pair.deal.dealname || "deal");
     if (count) { dot = "bg-amber-400"; text = `${name}: ${count} change${count > 1 ? "s" : ""} to push`; right = act("push", `Push pricing <span class="ml-1 rounded-full bg-white/25 px-1.5">${count}</span>`); }
     else { dot = "bg-emerald-500"; text = `${name}: in sync`; right = hsLink("0-3", i.pair.deal.id, "Open deal"); }
   }
@@ -128,11 +149,12 @@ async function hsDeals(companyId, company) {
 }
 
 /* step 2: preview exactly what will be written */
+const monthlyNote = w => w.frequency === "monthly" ? " per patient per month" : " per patient per year";
 function hsPreview() {
   const { p, want, company, deal } = hs, pctShow = v => v == null ? "not set" : pct(v / HS_PCT);
   const sameNum = hsSame;
   const row = (label, now, next, same, note = "") => `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2">${label}${note ? `<div class="text-xs text-slate-500">${note}</div>` : ""}</td><td class="py-1.5 px-2 text-right font-mono text-slate-600">${now}</td><td class="py-1.5 pl-2 text-right font-mono font-semibold ${same ? "text-slate-400" : "text-emerald-700"}">${same ? "no change" : next}</td></tr>`;
-  const checks = hsChanges(p, want, company, deal).fixes, diffs = checks.filter(c => !c.same);
+  const ch = hsChanges(p, want, company, deal, hs), checks = ch.fixes, diffs = checks.filter(c => !c.same), line = ch.line, w = want.line;
   const warn = diffs.length ? `<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3"><label class="flex items-start gap-2"><input id="hs-fix-all" type="checkbox" class="mt-0.5" checked>
         <span class="font-semibold text-amber-900">Update HubSpot to match the tool <span class="font-normal text-xs">(${diffs.length} field${diffs.length > 1 ? "s" : ""})</span></span></label>
       <ul class="mt-2 space-y-1 text-sm">${diffs.map(c => `<li class="flex justify-between gap-3"><span class="text-amber-900">${c.label}</span><span class="font-mono">${esc(c.now)} <span class="text-slate-400">→</span> <b>${esc(c.next)}</b></span></li>`).join("")}</ul>
@@ -147,6 +169,13 @@ function hsPreview() {
       ${row("Speed Discount %", pctShow(hsNum(deal.speed_discount)), pct(want.speed), sameNum(deal.speed_discount, hsPct(want.speed)))}
       ${row("Term Length Discount %", pctShow(hsNum(deal.term_length_discount)), pct(want.term), sameNum(deal.term_length_discount, hsPct(want.term)))}
       ${row("Term Length (Years)", deal.term_length_years || "not set", String(want.termYears), String(deal.term_length_years) === String(want.termYears))}</tbody></table>
+    ${line.unreadable ? '<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Line items cannot be read with the current HubSpot token. Add the <b>crm.objects.line_items.read / write</b> scopes (and e-commerce) to include the line item in this push.</div>' : `
+    <table class="mt-3 w-full text-sm tabular-nums"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-1 text-left font-medium">Line item on the deal</th><th class="py-1 px-2 text-right font-medium">Now</th><th class="py-1 pl-2 text-right font-medium">New value</th></tr></thead><tbody>
+      ${row("Product", line.cur ? esc(line.cur.name || "") : "none", esc(w.productName), !!line.cur && String(line.cur.hs_product_id) === w.productId, line.action === "replace" ? "The existing Lalu Care line is replaced" : "")}
+      ${row("Quantity (patients)", line.cur ? Number(line.cur.quantity).toLocaleString() : "–", w.quantity.toLocaleString(), !!line.cur && Number(line.cur.quantity) === w.quantity)}
+      ${row("Unit price", line.cur ? "£" + rate3(line.unit) : "–", "£" + rate3(w.listUnit) + (monthlyNote(w)), false, "Set on the HubSpot product; not changed here")}
+      ${row("Unit discount", line.cur ? "£" + rate3(Number(line.cur.discount) || 0) : "–", "£" + rate3(Math.max(0, (line.cur ? line.unit : w.listUnit) - w.netUnit)), !!line.cur && Math.abs((Number(line.cur.discount) || 0) - Math.max(0, line.unit - w.netUnit)) < 0.0006)}
+      ${row("Term", line.cur ? esc(line.cur.hs_recurring_billing_period || "–") : "–", `${w.termMonths} month${w.termMonths > 1 ? "s" : ""} (${w.frequency === "monthly" ? "billed monthly, auto-renews" : "billed annually, " + w.payments + " payment" + (w.payments > 1 ? "s" : "")})`, !!line.cur && line.cur.hs_recurring_billing_period === `P${w.termMonths}M`)}</tbody></table>`}
     <table class="mt-3 w-full text-sm tabular-nums"><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-1 text-left font-medium">HubSpot recalculates, then checked</th><th class="py-1 px-2 text-right font-medium">Now</th><th class="py-1 pl-2 text-right font-medium">Tool</th></tr></thead><tbody>
       <tr class="border-t border-slate-100"><td class="py-1.5">Total Discount %</td><td class="py-1.5 px-2 text-right font-mono text-slate-600">${pctShow(hsNum(deal.total_discount))}</td><td class="py-1.5 pl-2 text-right font-mono font-semibold">${pct(want.total)}</td></tr>
       <tr class="border-t border-slate-100"><td class="py-1.5">Actual Value per Patient (Calculated)</td><td class="py-1.5 px-2 text-right font-mono text-slate-600">${deal.actual_value_per_patient_calculated ? "£" + rate3(deal.actual_value_per_patient_calculated) : "not set"}</td><td class="py-1.5 pl-2 text-right font-mono font-semibold">£${rate3(want.rate)}</td></tr></tbody></table>
@@ -168,7 +197,9 @@ async function hsWrite(checks) {
   if (ticked("ls")) companyProps.patient_list_size = p.total_patients;
   $("hs-write").disabled = true; $("hs-write").textContent = "Writing…"; msg.innerHTML = "";
   try {
-    await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps });
+    const w = want.line, wr = await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps,
+      lineItem: hs.lineItems == null ? undefined : { productId: w.productId, quantity: w.quantity, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
+    hs.lineItems = wr.lineItems ?? hs.lineItems;
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
     await hsValidate(6);
     hsSetLink(p, { company_id: company.id, deal_id: deal.id });   // the bar on the price card now reflects the saved link and the new values
@@ -192,12 +223,15 @@ async function hsValidate(tries) {
     const okT = Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6, blankV = hsNum(last.actual_value_per_patient_calculated) == null;
     const okV = blankV ? null : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4;   // null: HubSpot has not filled it in
     const line = (ok, label, got, exp) => `<div class="flex items-center justify-between rounded-lg border ${ok === null ? "border-amber-300 bg-amber-50 text-amber-900" : ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"} px-3 py-2"><span>${ok === null ? "?" : ok ? "✓" : "✗"} ${label}</span><span class="font-mono">HubSpot ${got} · tool ${exp}</span></div>`;
-    const done = okT && okV;
-    hsCall({ action: "log_check", ods: hs.p.ods_code, dealId: deal.id, dealName: deal.dealname, ok: okT && okV !== false,
+    const lineNow = hsOurLine(await hsCall({ action: "read", companyId: company.id, dealId: deal.id })), lw = want.line;
+    const lineNet = lineNow ? (Number(lineNow.price) - (Number(lineNow.discount) || 0)) : null, okL = lineNow == null ? null : Math.abs(lineNet - lw.netUnit) < 0.0006 && Number(lineNow.quantity) === lw.quantity;
+    const done = okT && okV && okL !== false;
+    hsCall({ action: "log_check", ods: hs.p.ods_code, dealId: deal.id, dealName: deal.dealname, ok: okT && okV !== false && okL !== false,
       note: okT ? "Actual Value per Patient (Calculated) does not match the tool" : "Total Discount % does not match the tool",
       hubspot: { total_discount: last.total_discount, actual_value: last.actual_value_per_patient_calculated }, tool: { total_discount: want.total, actual_value: want.rate } }).catch(() => {});
     msg.innerHTML = `<div class="space-y-2">${line(okT, "Total Discount %", last.total_discount == null ? "not set" : pct(hsNum(last.total_discount) / HS_PCT), pct(want.total))}
-      ${line(okV, "Actual Value per Patient (Calculated)", blankV ? "not set" : "£" + rate3(last.actual_value_per_patient_calculated), "£" + rate3(want.rate))}</div>
+      ${line(okV, "Actual Value per Patient (Calculated)", blankV ? "not set" : "£" + rate3(last.actual_value_per_patient_calculated), "£" + rate3(want.rate))}
+      ${lineNow || hs.lineItems != null ? line(okL, "Line item net unit price", lineNow ? "£" + rate3(lineNet) + (lw.frequency === "monthly" ? " /mo" : " /yr") : "none", "£" + rate3(lw.netUnit) + (lw.frequency === "monthly" ? " /mo" : " /yr")) : ""}</div>
       <p class="mt-2 text-xs text-slate-500">${done ? "HubSpot matches the tool. The link is saved for next time." : okT && okV === null ? "Total Discount % matches. HubSpot has not filled in Actual Value per Patient (Calculated) yet, so it could not be compared. The link is saved." : "HubSpot's calculated fields do not match the tool yet. Re-check in a moment, or check the deal's workflow and whether the price floor applies in the tool but not in HubSpot."}</p>
       ${done ? "" : '<div class="mt-2 text-right"><button id="hs-recheck" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Re-check HubSpot</button></div>'}`;
     const rc = $("hs-recheck"); if (rc) rc.onclick = () => { rc.disabled = true; hsValidate(3); };
