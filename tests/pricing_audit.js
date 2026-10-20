@@ -47,3 +47,10 @@ console.log("combinations checked:", n, "mismatches:", bad);
 const sheetBase = { practice: [.072,.074,.076,.08,.08], pcn: [.064,.066,.068,.07,.072], icb: [.052,.054,.056,.058,.06] };
 let sb = 0; for (const [route, arr] of Object.entries(sheetBase)) arr.forEach((v, i) => { api.set({ speedOn: false, termYrs: 1, billing: "annual", product: "all" }); const r = cfgTiers.find(t => t.route === route && t.tier === i + 1); const g = api.dealRate(r.size_discount, 0, 0); if (Math.abs(g - v) > 5e-4) { sb++; console.log("SHEET BASE MISMATCH", route, i + 1, g, v); } });
 console.log("sheet 1-year base mismatches:", sb);
+// Multi-Year-Matrix (spreadsheet) y1 net rates with speed on: size + term + speed summed off the list price, floor 0.052
+const matrix = { practice: { 2: [.066,.068,.070,.074,.074], 3: [.064,.066,.068,.072,.072] }, pcn: { 2: [.058,.060,.062,.064,.066], 3: [.056,.058,.060,.062,.064] }, icb: { 2: [.052,.052,.054,.056,.058], 3: [.052,.052,.052,.054,.056] } };
+let mb = 0; for (const [route, byTerm] of Object.entries(matrix)) for (const [yrs, arr] of Object.entries(byTerm)) arr.forEach((v, i) => {
+  api.set({ speedOn: true, termYrs: Number(yrs), billing: "annual", product: "all" }); const r = cfgTiers.find(t => t.route === route && t.tier === i + 1);
+  const g = api.dealRate(r.size_discount, Number(yrs) === 3 ? .05 : .025, r.speed_discount);
+  if (Math.abs(g - v) > 5e-4) { mb++; console.log("MATRIX MISMATCH", route, yrs, i + 1, g, v); } });
+console.log("sheet multi-year matrix mismatches:", mb);

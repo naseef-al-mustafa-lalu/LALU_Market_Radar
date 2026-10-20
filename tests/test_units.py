@@ -214,4 +214,4 @@ def test_pricing_calculator_all_combinations():
     if not node:
         pytest.skip("node not installed")
     out = subprocess.run([node, str(pathlib.Path(__file__).parent / "pricing_audit.js")], capture_output=True, text=True, timeout=60)
-    assert "mismatches: 0" in out.stdout and "sheet 1-year base mismatches: 0" in out.stdout, out.stdout + out.stderr
+    assert "mismatches: 0" in out.stdout and "sheet 1-year base mismatches: 0" in out.stdout and "matrix mismatches: 0" in out.stdout, out.stdout + out.stderr
