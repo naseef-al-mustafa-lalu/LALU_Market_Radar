@@ -69,7 +69,7 @@ function hsBarHtml(p) {
   let dot = "bg-slate-300", text = "", right = "";
   if (!linked) { dot = "bg-amber-400"; text = "Not in HubSpot yet"; right = act("create", "Add to HubSpot"); }
   else if (i.loading) text = "Checking the linked deal…";
-  else if (!i.link) { dot = "bg-amber-400"; text = "Company found, no deal linked yet"; right = act("push", "Link deal"); }
+  else if (!i.link) { dot = "bg-amber-400"; text = "In HubSpot: add contacts, a lead or a deal"; right = act("push", "Continue"); }
   else if (i.error) { dot = "bg-rose-500"; text = "Could not read the linked deal"; right = act("push", "Retry"); }
   else if (i.pair) {
     const { count } = hsChanges(p, hsDesired(p), i.pair.company, i.pair.deal, i.pair), name = esc(i.pair.deal.dealname || "deal");
@@ -101,7 +101,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("hs-mod
 async function hsOpen(p) {
   if (!p) return;
   hs = { p, want: hsDesired(p), busy: false };
-  $("hs-modal").classList.remove("hidden"); $("hs-title").textContent = "Push pricing to HubSpot: " + p.practice_name;
+  $("hs-modal").classList.remove("hidden"); $("hs-title").textContent = "HubSpot: " + p.practice_name;
   hsRender('<p class="text-slate-500">Checking for a saved link…</p>');
   try {
     const { data } = await db.from("hubspot_links").select("*").eq("ods_code", p.ods_code).limit(1);
@@ -127,24 +127,45 @@ function hsBindFind(auto) {
         : '<p class="text-slate-500 italic">No companies found. Try a shorter name.</p>';
       box.insertAdjacentHTML("beforeend", `<div class="mt-1 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500"><span>${companies.length ? "Not the right one?" : "Nothing matches."}</span><button id="hs-new" class="font-semibold text-blue-600 hover:underline">Create ${esc(hs.p.practice_name)} in HubSpot</button></div>`);
       $("hs-new").onclick = () => hsCreateOpen(hs.p);
-      box.querySelectorAll("[data-co]").forEach(b => b.onclick = () => hsDeals(b.dataset.co, companies.find(c => c.id === b.dataset.co)));
+      box.querySelectorAll("[data-co]").forEach(b => b.onclick = () => hsDeals(b.dataset.co));
     } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
   };
   $("hs-search").onclick = run; $("hs-q").onkeydown = e => { if (e.key === "Enter") run(); };
   if (auto) run();
 }
-async function hsDeals(companyId, company) {
-  const box = $("hs-results"); box.innerHTML = '<p class="text-slate-500">Loading deals…</p>';
+/* the company page: Company > Contacts > Leads > Deals, one place to see what exists and do the next step */
+const hsStep = (n, label, done, note) => `<div class="flex min-w-0 flex-1 items-center gap-2"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${done ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"}">${done ? "✓" : n}</span><div class="min-w-0"><div class="text-xs font-semibold text-slate-700">${label}</div><div class="truncate text-[11px] text-slate-500">${note}</div></div></div>`;
+async function hsDeals(companyId) {
+  hsRender('<div id="hs-results"></div>'); const box = $("hs-results"), p = hs.p;
+  $("hs-title").textContent = "HubSpot: " + p.practice_name;
+  box.innerHTML = '<p class="text-slate-500">Reading the company, contacts, leads and deals…</p>';
   try {
-    const { deals } = await hsCall({ action: "deals", companyId });
-    box.innerHTML = `<div class="mb-2 text-xs font-semibold text-slate-600">Deals for ${esc(company.name)}</div>` + (deals.length ? deals.map(d => `<button type="button" data-deal="${esc(d.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50">
-        <div class="flex justify-between gap-3"><b>${esc(d.dealname)}</b><span class="text-xs text-slate-500">${esc(d.dealstage || "")}</span></div>
-        <div class="text-xs text-slate-500">${d.amount ? "£" + Number(d.amount).toLocaleString() : "no amount"} · ${esc(d.size_tier || "no size tier")} · ${esc(d.value_per_patient || "no value per patient")}</div></button>`).join("")
-      : '<p class="text-slate-500 italic">This company has no deals yet.</p>') +
-      `<div class="mt-2 border-t border-slate-100 pt-2"><button id="hs-newdeal" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">+ Create a new deal for ${esc(company.name)}</button>
-        <button id="hs-newlead" class="ml-2 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">+ Create a lead first</button></div>`;
+    const h = await hsCall({ action: "hub", companyId }), co = h.company, have = new Set(h.contacts.map(c => (c.email || "").toLowerCase()));
+    const { data: cs } = await db.from("contacts").select("full_name,job_title,email,phone,email_opt_out").eq("ods_code", p.ods_code).limit(20);
+    const extra = (cs || []).filter(c => c.email && !c.email_opt_out && !have.has(c.email.toLowerCase())).map(c => ({ name: c.full_name, jobtitle: c.job_title, email: c.email, phone: c.phone }));
+    if (!(cs || []).length && p.manager_email && !p.manager_email_opt_out && !have.has(p.manager_email.toLowerCase())) extra.push({ name: p.manager_name, jobtitle: p.manager_title, email: p.manager_email, phone: p.manager_phone });
+    const leads = h.leads, nLeads = leads ? leads.length : 0, next = !h.contacts.length ? 2 : !nLeads && !h.deals.length ? 3 : 4;
+    const btn = (id, label, primary) => `<button id="${id}" class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold ${primary ? "bg-slate-800 text-white hover:bg-slate-700" : "border border-slate-300 hover:bg-slate-50"}">${label}</button>`;
+    const card = (n, title, count, action, body) => `<section class="rounded-xl border ${next === n ? "border-slate-400" : "border-slate-200"} p-3"><div class="mb-2 flex items-center justify-between gap-3"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">${n}. ${title} <span class="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] normal-case text-slate-600">${count}</span></h4>${action}</div>${body}</section>`;
+    const row = (l, r) => `<div class="flex items-center justify-between gap-3 border-t border-slate-100 py-1.5 first:border-0"><div class="min-w-0">${l}</div><div class="shrink-0 text-right text-xs text-slate-500">${r}</div></div>`;
+    const empty = t => `<p class="text-sm italic text-slate-500">${t}</p>`;
+    box.innerHTML = `<div class="mb-3 flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><div class="min-w-0"><div class="truncate font-semibold">${esc(co.name)}</div><div class="text-xs text-slate-500">ODS ${esc(co.partner_organisation_code || "not set")} · list size ${co.patient_list_size ? Number(co.patient_list_size).toLocaleString() : "not set"}</div></div>${hsLink("0-2", co.id, "Open company")}</div>
+      <div class="mb-3 flex gap-3" aria-label="Progress">${hsStep(1, "Company", true, "in HubSpot")}${hsStep(2, "Contacts", h.contacts.length > 0, h.contacts.length + " linked")}${hsStep(3, "Lead", nLeads > 0, leads ? nLeads + " found" : "unknown")}${hsStep(4, "Deal", h.deals.length > 0, h.deals.length + " found")}</div>
+      <div class="space-y-3">
+      ${card(2, "Contacts", h.contacts.length, extra.length ? btn("hs-addcontacts", `Add ${extra.length} from Atlas`, next === 2) : "",
+        (h.contacts.map(c => row(`<b>${esc([c.firstname, c.lastname].filter(Boolean).join(" ") || c.email)}</b> <span class="text-xs text-slate-500">${esc(c.jobtitle || "")}</span>`, hsLink("0-1", c.id, c.email || "open"))).join("") || empty("No contacts on this company yet.")) +
+        (extra.length ? `<div class="mt-2 text-xs text-slate-500">Not in HubSpot yet: ${extra.map(c => esc(c.name || c.email)).join(", ")}</div>` : ""))}
+      ${card(3, "Leads", leads ? nLeads : "?", btn("hs-newlead", "+ Create lead", next === 3),
+        leads ? (leads.map(l => row(`<b>${esc(l.name)}</b>`, `${l.open ? "" : "closed · "}${esc(l.stage)} ${hsLink("0-136", l.id, "open")}`)).join("") || empty("No leads yet. A lead tracks the practice before there is a deal.")) : '<p class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">Leads could not be read: add the crm.objects.leads.read scope to the HubSpot token.</p>')}
+      ${card(4, "Deals", h.deals.length, btn("hs-newdeal", "+ Create deal", next === 4),
+        h.deals.length ? '<div class="mb-1 text-xs text-slate-500">Choose a deal to push this practice\'s pricing to it.</div>' + h.deals.map(d => `<button type="button" data-deal="${esc(d.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50">
+          <div class="flex justify-between gap-3"><b>${esc(d.dealname)}</b><span class="text-xs text-slate-500">${esc(d.dealstage || "")}</span></div>
+          <div class="text-xs text-slate-500">${d.amount ? "£" + Number(d.amount).toLocaleString() : "no amount"} · ${esc(d.size_tier || "no size tier")} · ${esc(d.value_per_patient || "no value per patient")}</div></button>`).join("") : empty("No deals yet."))}</div>`;
+    const company = { id: co.id, name: co.name };
     $("hs-newdeal").onclick = () => hsDealForm(company);
     $("hs-newlead").onclick = () => hsLeadForm(company);
+    const ac = $("hs-addcontacts");
+    if (ac) ac.onclick = async () => { ac.disabled = true; ac.textContent = "Adding…"; try { await hsCall({ action: "add_contacts", ods: p.ods_code, companyId, contacts: extra }); hsDeals(companyId); } catch (e) { ac.disabled = false; ac.textContent = "Retry"; box.insertAdjacentHTML("afterbegin", `<p class="mb-2 text-rose-700">${esc(e.message)}</p>`); } };
     box.querySelectorAll("[data-deal]").forEach(b => b.onclick = async () => {
       box.innerHTML = '<p class="text-slate-500">Reading the records…</p>';
       try { Object.assign(hs, await hsCall({ action: "read", companyId, dealId: b.dataset.deal }), { linked: false }); hsPreview(); } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
@@ -185,7 +206,7 @@ async function hsDealForm(company) {
       <div id="nd-msg" class="mt-2" role="status"></div>
       <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal</button></div></div>`;
     $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value); $("nd-stage").innerHTML = opts(pp.stages.map(s => [s.id, s.label]), pp.stages[0].id); };
-    $("nd-cancel").onclick = () => hsDeals(company.id, company);
+    $("nd-cancel").onclick = () => hsDeals(company.id);
     $("nd-create").onclick = async () => {
       const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
@@ -208,16 +229,16 @@ async function hsLeadForm(company) {
     const cname = c => [c.firstname, c.lastname].filter(Boolean).join(" ") || c.email;
     box.innerHTML = `<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New lead on ${esc(company.name)}</h4>
       <div class="grid gap-2 sm:grid-cols-2">
-        <div class="sm:col-span-2">${field("Lead name", `<input id="nl-name" class="${inp}" value="${esc(company.name + " | Market Radar")}">`)}</div>
+        <div class="sm:col-span-2">${field("Lead name", `<input id="nl-name" class="${inp}" value="${esc(company.name + " | Atlas")}">`)}</div>
         ${field("Primary contact", pre.contacts.length ? `<select id="nl-contact" class="${inp}">${opts(pre.contacts.map(c => [c.id, cname(c) + (c.jobtitle ? " · " + c.jobtitle : "")]), pre.contacts[0].id)}</select>` : '<div class="rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-800">A lead needs a contact. Add one in HubSpot first.</div>')}
         ${field("Lead owner", pre.owners ? `<select id="nl-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
         ${field("Lead type", `<select id="nl-type" class="${inp}">${opts([["NEW_BUSINESS", "New business"], ["RE_ATTEMPTING", "Re-attempting"]], "NEW_BUSINESS")}</select>`)}
-        ${field("Prospecting campaign", `<select id="nl-camp" class="${inp}">${opts([["", "None"], ["Field Based Lead", "Field Based Lead"], ["PCN Prospecting", "PCN Prospecting"], ["ICB Prospecting", "ICB Prospecting"], ["ICB April 26", "ICB April 26"]], "")}</select>`)}</div>
+        ${field("Prospecting campaign", `<select id="nl-camp" class="${inp}">${opts([["Atlas", "Atlas"], ["", "None"], ["Field Based Lead", "Field Based Lead"], ["PCN Prospecting", "PCN Prospecting"], ["ICB Prospecting", "ICB Prospecting"], ["ICB April 26", "ICB April 26"]], "Atlas")}</select>`)}</div>
       <p class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">Goes into the Prospecting Pipeline at New. HubSpot's lifecycle workflow will then set the contact's lifecycle stage to Prospecting (only when it is New or Engaged). Created by the tool, the lead gets no automatic owner rotation and no sequence.</p>
       ${pre.warnings.map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
       <div id="nl-msg" class="mt-2" role="status"></div>
       <div class="mt-3 flex justify-end gap-2"><button id="nl-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nl-create" ${pre.contacts.length ? "" : "disabled"} class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Create lead</button></div></div>`;
-    $("nl-cancel").onclick = () => hsDeals(company.id, company);
+    $("nl-cancel").onclick = () => hsDeals(company.id);
     const go = async force => {
       const b = $("nl-create"), msg = $("nl-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
@@ -227,7 +248,7 @@ async function hsLeadForm(company) {
           $("nl-force").onclick = () => go(true); b.disabled = false; b.textContent = "Create lead"; return;
         }
         box.innerHTML = `<div class="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900"><b>Lead created.</b> ${hsLink("0-136", r.leadId, "Open the lead in HubSpot")}${r.companyLinked ? "" : " It could not be linked to the company; link it in HubSpot."}<div class="mt-2"><button id="nl-deals" class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold">Back to deals</button></div></div>`;
-        $("nl-deals").onclick = () => hsDeals(company.id, company);
+        $("nl-deals").onclick = () => hsDeals(company.id);
       } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create lead"; }
     };
     $("nl-create").onclick = () => go(false);
@@ -397,15 +418,15 @@ async function hsCreateRun(action, extra) {
     p.hubspot_company_id = r.companyId;
     msg.innerHTML = `<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">${action === "create_company" ? "Company created" : "Company linked"}: ${hsLink("0-2", r.companyId, "open in HubSpot")}
       <div class="text-xs">${r.contacts.length} contact(s) associated · ${r.networks.length} PCN/ICB association(s)</div></div>
-      <div class="mt-2 rounded-lg border border-slate-200 p-3 text-sm"><b>Next:</b> create the deal for this company in HubSpot, then come back to push the pricing. <button id="hs-next" class="ml-1 font-semibold text-blue-600 hover:underline">Push pricing now</button></div>${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}`;
+      <div class="mt-2 rounded-lg border border-slate-200 p-3 text-sm"><b>Next:</b> check the contacts, then create a lead or a deal. <button id="hs-next" class="ml-1 font-semibold text-blue-600 hover:underline">Continue</button></div>${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}`;
     btn.classList.add("hidden"); $("hs-cancel").textContent = "Close";
-    const nx = $("hs-next"); if (nx) nx.onclick = () => { hs = null; hsOpen(p); };
+    const nx = $("hs-next"); if (nx) nx.onclick = () => { hs = { p, want: hsDesired(p), busy: false }; hsDeals(r.companyId); };
     if (drawerCode === p.ods_code) openDrawer(p);
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; btn.disabled = false; btn.textContent = "Create in HubSpot"; }
 }
 
 /* ---------- Data > Overview: HubSpot integration panel (health, what needs attention, activity log, run sync now) ---------- */
-const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_check: ["Check", "bg-slate-100 text-slate-700"], create_company: ["Company created", "bg-emerald-100 text-emerald-800"], create_lead: ["Lead created", "bg-emerald-100 text-emerald-800"],
+const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_check: ["Check", "bg-slate-100 text-slate-700"], create_company: ["Company created", "bg-emerald-100 text-emerald-800"], create_lead: ["Lead created", "bg-emerald-100 text-emerald-800"], add_contacts: ["Contacts added", "bg-emerald-100 text-emerald-800"],
   link_company: ["Company linked", "bg-emerald-100 text-emerald-800"], pcn_created: ["PCN created", "bg-violet-100 text-violet-800"], pcn_repaired: ["PCN corrected", "bg-violet-100 text-violet-800"],
   pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"] };
 let hsLog = [], hsLogFilter = "all", hsLogQuery = "", hsPanelTimer = null;

@@ -36,7 +36,7 @@ const ASSOC_DEAL_TO_COMPANY = 5, ASSOC_DEAL_TO_CONTACT = 3;   // HubSpot-defined
 const LEAD_PIPELINE = "1654501563", LEAD_STAGE_NEW = "2248591599";   // Prospecting Pipeline, stage New
 const LEAD_TO_PRIMARY_CONTACT = 578;   // HubSpot-defined association type: lead -> primary contact
 const LEAD_TYPES = new Set(["NEW_BUSINESS", "RE_ATTEMPTING"]);
-const LEAD_CAMPAIGNS = new Set(["PCN Prospecting", "ICB April 26", "Field Based Lead", "ICB Prospecting"]);
+const LEAD_CAMPAIGNS = new Set(["PCN Prospecting", "ICB April 26", "Field Based Lead", "ICB Prospecting", "Atlas"]);
 const LINE_TO_DEAL = 20;   // HubSpot-defined association type: line item -> deal
 
 class Fail extends Error { constructor(msg: string, public status = 400) { super(msg); } }
@@ -69,6 +69,48 @@ async function lineItemsOf(dealId: string) {
   if (!ids.length) return [];
   const d = await hs(`/crm/v3/objects/line_items/batch/read`, { method: "POST", body: JSON.stringify({ properties: LINE_READ, inputs: ids.map((id: string) => ({ id })) }) });
   return (d?.results ?? []).map((x: any) => ({ id: x.id, ...x.properties }));
+}
+
+async function contactsOf(companyId: string) {
+  const a = await hs(`/crm/v4/objects/companies/${companyId}/associations/contacts?limit=20`);
+  const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId));
+  if (!ids.length) return [];
+  const d = await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["firstname", "lastname", "jobtitle", "email", "lifecyclestage"], inputs: ids.map((id: string) => ({ id })) }) });
+  return (d?.results ?? []).map((x: any) => ({ id: x.id, ...x.properties }));
+}
+
+async function leadsOf(companyId: string) {
+  const a = await hs(`/crm/v4/objects/companies/${companyId}/associations/leads?limit=50`);
+  const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId));
+  if (!ids.length) return [];
+  const [d, pipes] = await Promise.all([
+    hs(`/crm/v3/objects/leads/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["hs_lead_name", "hs_pipeline", "hs_pipeline_stage", "hs_lead_is_open_v2", "hs_createdate"], inputs: ids.map((id: string) => ({ id })) }) }),
+    hs(`/crm/v3/pipelines/leads`).catch(() => null),
+  ]);
+  const stage = new Map<string, string>();
+  for (const pl of pipes?.results ?? []) for (const st of pl.stages ?? []) stage.set(String(st.id), `${st.label} (${pl.label})`);
+  return (d?.results ?? []).map((x: any) => ({ id: x.id, name: x.properties?.hs_lead_name ?? "Lead", stage: stage.get(String(x.properties?.hs_pipeline_stage)) ?? "", open: String(x.properties?.hs_lead_is_open_v2) !== "false" }));
+}
+
+// Find-or-create each contact by email and associate it with the company; mirrors the result onto the tool's own contacts table.
+async function importContacts(admin: any, companyId: string, ods: string, list: any[], warnings: string[]) {
+  const out: any[] = [];
+  for (const c of list.slice(0, 10)) {
+    const email = String(c.email ?? "").trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) { warnings.push(`Skipped a contact without a valid email (${c.name ?? "unnamed"})`); continue; }
+    try {
+      const found = (await hs(`/crm/v3/objects/contacts/search`, { method: "POST", body: JSON.stringify({ properties: ["email", "createdate"], limit: 1,
+        filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }] }) }))?.results ?? [];
+      const [first, ...rest] = String(c.name ?? "").trim().split(/\s+/);
+      const cid = found[0]?.id ?? String((await hs(`/crm/v3/objects/contacts`, { method: "POST", body: JSON.stringify({ properties: { email, firstname: first || undefined, lastname: rest.join(" ") || undefined,
+        phone: c.phone || undefined, jobtitle: c.jobtitle || undefined } }) })).id);
+      await hs(`/crm/v4/objects/contacts/${cid}/associations/default/companies/${companyId}`, { method: "PUT" });
+      out.push({ email, id: cid, existed: !!found[0] });
+    } catch (e) { warnings.push(`Contact ${email}: ${(e as Error).message}`); }
+  }
+  const now = new Date().toISOString();
+  for (const c of out) await admin.from("contacts").update({ hubspot_status: "Imported", hubspot_contact_id: c.id, hubspot_imported_at: now }).eq("ods_code", ods).ilike("email", c.email);
+  return out;
 }
 
 async function readPair(companyId: string, dealId: string) {
@@ -188,19 +230,7 @@ Deno.serve(async (req) => {
         companyId = String((await hs(`/crm/v3/objects/companies`, { method: "POST", body: JSON.stringify({ properties: props }) })).id);
       }
       const done: any = { companyId, contacts: [] as any[], networks: [] as string[] };
-      for (const c of (Array.isArray(b.contacts) ? b.contacts : []).slice(0, 10)) {
-        const email = String(c.email ?? "").trim().toLowerCase();
-        if (!EMAIL_RE.test(email)) { warnings.push(`Skipped a contact without a valid email (${c.name ?? "unnamed"})`); continue; }
-        try {
-          const found = (await hs(`/crm/v3/objects/contacts/search`, { method: "POST", body: JSON.stringify({ properties: ["email", "createdate"], limit: 1,
-            filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }] }) }))?.results ?? [];
-          const [first, ...rest] = String(c.name ?? "").trim().split(/\s+/);
-          const cid = found[0]?.id ?? String((await hs(`/crm/v3/objects/contacts`, { method: "POST", body: JSON.stringify({ properties: { email, firstname: first || undefined, lastname: rest.join(" ") || undefined,
-            phone: c.phone || undefined, jobtitle: c.jobtitle || undefined } }) })).id);
-          await hs(`/crm/v4/objects/contacts/${cid}/associations/default/companies/${companyId}`, { method: "PUT" });
-          done.contacts.push({ email, id: cid, existed: !!found[0] });
-        } catch (e) { warnings.push(`Contact ${email}: ${(e as Error).message}`); }
-      }
+      done.contacts = await importContacts(admin, companyId, ods, Array.isArray(b.contacts) ? b.contacts : [], warnings);
       for (const n of (Array.isArray(b.networks) ? b.networks : []).slice(0, 4)) {
         if (!NETWORK_TYPES.has(String(n.type))) continue;
         try { await hs(`/crm/v4/objects/companies/${companyId}/associations/default/${n.type}/${idOf(n.id)}`, { method: "PUT" }); done.networks.push(`${n.type}:${n.id}`); }
@@ -208,11 +238,25 @@ Deno.serve(async (req) => {
       }
       const now = new Date().toISOString();
       await admin.from("gp_practices").update({ hubspot_company_id: companyId, hubspot_company_imported_at: now, hubspot_synced_at: now }).eq("ods_code", ods);
-      for (const c of done.contacts) await admin.from("contacts").update({ hubspot_status: "Imported", hubspot_contact_id: c.id, hubspot_imported_at: now }).eq("ods_code", ods).ilike("email", c.email);
       await log({ actor: who, kind: b.action, ods_code: ods, target: String((b.company ?? {}).name ?? ""), hubspot_type: "company", hubspot_id: companyId,
         summary: b.action === "create_company" ? `Created company ${(b.company ?? {}).name ?? ods} with ${done.contacts.length} contact(s) and ${done.networks.length} PCN/ICB association(s)` : `Linked existing company ${companyId} to ${ods}`,
         detail: { done, warnings, company: b.company ?? null } });
       return reply({ ok: true, ...done, warnings });
+    }
+    if (b.action === "hub") {               // everything the company page shows in one call: company, its contacts, leads and deals
+      const companyId = idOf(b.companyId);
+      const [company, contacts, deals, leads] = await Promise.all([
+        hs(`/crm/v3/objects/companies/${companyId}?properties=${COMPANY_READ.join(",")}`), contactsOf(companyId), dealsOf(companyId), leadsOf(companyId).catch(() => null)]);
+      return reply({ company: { id: company.id, ...company.properties }, contacts, deals, leads });   // leads is null when the token cannot read them
+    }
+    if (b.action === "add_contacts") {
+      const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), warnings: string[] = [];
+      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name`);
+      const done = await importContacts(admin, companyId, ods, Array.isArray(b.contacts) ? b.contacts : [], warnings);
+      await log({ actor: who, kind: "add_contacts", ods_code: ods, target: String(co.properties?.name ?? ""), hubspot_type: "company", hubspot_id: companyId,
+        summary: `Added ${done.length} contact(s) to ${co.properties?.name ?? companyId}`, detail: { done, warnings } });
+      return reply({ ok: true, contacts: done, warnings });
     }
     if (b.action === "deal_prefill") {      // what the create-deal form needs: the company's contacts, pipelines and stages, owners, and the signed-in user's owner
       const companyId = idOf(b.companyId), warnings: string[] = [];

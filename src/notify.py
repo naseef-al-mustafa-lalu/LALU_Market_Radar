@@ -71,7 +71,7 @@ def messages(send, others, tiers, dashboard_url=""):
     """Slack messages (text, blocks): a header, then the signals PER_MESSAGE at a time."""
     items = [signal_text(t, tiers, dashboard_url) for t in (send + others)[:MAX_SIGNALS]]
     total = len(send) + len(others)
-    head = f"*{total} new signal{'s' if total != 1 else ''}* in Lalu Market Radar" + (f" (showing the first {MAX_SIGNALS}: the rest are in the dashboard)" if total > MAX_SIGNALS else "")
+    head = f"*{total} new signal{'s' if total != 1 else ''}* in Lalu Atlas" + (f" (showing the first {MAX_SIGNALS}: the rest are in the dashboard)" if total > MAX_SIGNALS else "")
     out = []
     for i in range(0, len(items), PER_MESSAGE):
         blocks = []

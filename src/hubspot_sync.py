@@ -347,14 +347,14 @@ def main():
         print("OK", stats)
         record(rest, [{"kind": "sync_run", "summary": f"{stats['practices_linked']:,} practices linked, {stats['customers']} customers, {stats['engaged']} engaged, {stats.get('networks_linked', 0)} PCN/ICB records linked", "detail": stats}], actor)
         if stats["search_capped"]:
-            send_alert("Lalu Market Radar: HubSpot sync hit the 10,000 company search limit", f"{stats}. Some companies were not read; ask for the sync to be windowed by created date.")
+            send_alert("Lalu Atlas: HubSpot sync hit the 10,000 company search limit", f"{stats}. Some companies were not read; ask for the sync to be windowed by created date.")
     except Exception as e:  # noqa: BLE001
         try:
             record(Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]), [{"kind": "sync_run", "ok": False, "summary": "HubSpot sync failed: " + str(e)[:250], "detail": {"error": str(e)[:1000]}}],
                    "manual sync" if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" else "daily sync")
         except Exception:  # noqa: BLE001
             pass
-        send_alert("Lalu Market Radar: HubSpot sync FAILED", str(e))
+        send_alert("Lalu Atlas: HubSpot sync FAILED", str(e))
         print(e, file=sys.stderr)
         sys.exit(1)
 

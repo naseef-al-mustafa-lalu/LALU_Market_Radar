@@ -254,14 +254,14 @@ def main():
                    {"status": "success", "finished_at": datetime.now(timezone.utc).isoformat(), "stats": stats})
         print("OK", stats)
         if stats.get("patients_stale"):
-            send_alert("Lalu Market Radar: patient counts are stale",
+            send_alert("Lalu Atlas: patient counts are stale",
                        "Patient counts come from the 'Monthly patient counts' workflow (self-hosted runner). "
                        f"The latest data loaded is for {stats['patients_stale']}; check that the runner is online.")
     except Exception as e:  # noqa: BLE001
         msg = f"{e}\n\n{traceback.format_exc()}"
         rest.patch("ingest_runs", {"id": f"eq.{run_id}"},
                    {"status": "failed", "finished_at": datetime.now(timezone.utc).isoformat(), "error": msg[:4000]})
-        send_alert("Lalu Market Radar: ingestion FAILED", msg)
+        send_alert("Lalu Atlas: ingestion FAILED", msg)
         print(msg, file=sys.stderr)
         sys.exit(1)
 
