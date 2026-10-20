@@ -153,3 +153,77 @@ async function hsValidate(tries) {
     const rc = $("hs-recheck"); if (rc) rc.onclick = () => { rc.disabled = true; hsValidate(3); };
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p><div class="mt-2 text-right"><button id="hs-recheck" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold">Re-check HubSpot</button></div>`; $("hs-recheck").onclick = () => hsValidate(3); }
 }
+
+/* ---------- PCN / ICB: link to HubSpot's custom objects, shown on the network profile ---------- */
+const HS_NET = { p145802630_pcns: { id: "2-203659326", label: "PCN" }, p145802630_icbs: { id: "2-203659324", label: "ICB" } };
+async function hsNetworkSection(n) {
+  const { data } = await db.from("hubspot_network_links").select("*").eq("org_id", n.id).limit(1);
+  const box = $("dr-hsnet"); if (!box) return;
+  const l = (data || [])[0];
+  box.outerHTML = l ? `<div id="dr-hsnet">${kv(HS_NET[l.object_type].label + " record", hsLink(HS_NET[l.object_type].id, l.object_id, "Open in HubSpot"))}${kv("Matched on", esc(l.matched_on))}
+      ${kv("Practices in HubSpot record", l.associated_practices != null ? Number(l.associated_practices).toLocaleString() : "")}${kv("Active eMR+ practices", l.active_emr_practices != null ? Number(l.active_emr_practices).toLocaleString() : "")}
+      ${kv("Open deals", l.open_deals_amount != null ? gbpFull(l.open_deals_amount) : "")}${kv("Won deals", l.won_deals_amount != null ? gbpFull(l.won_deals_amount) : "")}</div>`
+    : `<div id="dr-hsnet" class="text-sm italic text-slate-500">No ${n.kind === "icb" ? "ICB" : "PCN"} record found in HubSpot (matched by ${n.kind === "icb" ? "name" : "ODS code"}). Scottish clusters and Welsh boards are not held there.</div>`;
+}
+
+/* ---------- practices that are not in HubSpot: flag, then create (or link an existing company) after a preview ---------- */
+function hsMissingBar(p) {
+  return `<div class="flex items-center justify-between gap-2 py-1">${chip("Not in HubSpot", "bg-amber-100 text-amber-800")}<button type="button" data-hs-create="${esc(p.ods_code)}" class="rounded-md bg-slate-800 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-700">Create in HubSpot…</button></div>`;
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-hs-create]"); if (b) hsCreateOpen(practices.find(x => x.ods_code === b.dataset.hsCreate)); });
+
+async function hsCreateOpen(p) {
+  if (!p) return;
+  hs = { p, create: true };
+  $("hs-modal").classList.remove("hidden"); $("hs-title").textContent = "Add to HubSpot: " + p.practice_name;
+  hsRender('<p class="text-slate-500">Checking HubSpot for an existing company…</p>');
+  try {
+    const [{ companies }, { data: cs }] = await Promise.all([hsCall({ action: "find", ods: p.ods_code, name: p.practice_name, query: p.practice_name }),
+      db.from("contacts").select("full_name,job_title,email,phone,email_opt_out").eq("ods_code", p.ods_code).limit(20)]);
+    const nets = [["pcn", p.pcn_code], ["icb", p.icb_name && p.icb_name.toLowerCase()]].map(([k, key]) => key && networks.find(x => x.kind === k && keyOf(x) === key)).filter(Boolean);
+    const { data: nl } = nets.length ? await db.from("hubspot_network_links").select("org_id,object_type,object_id").in("org_id", nets.map(x => x.id)) : { data: [] };
+    const contacts = (cs || []).filter(c => c.email && !c.email_opt_out).map(c => ({ name: c.full_name, jobtitle: c.job_title, email: c.email, phone: c.phone }));
+    if (!contacts.length && p.manager_email && !p.manager_email_opt_out) contacts.push({ name: p.manager_name, jobtitle: p.manager_title, email: p.manager_email, phone: p.manager_phone });
+    hs.cdata = { companies, contacts, skipped: (cs || []).length - contacts.length, links: nl || [], nets };
+    hsCreatePreview();
+  } catch (e) { hsRender(`<p class="text-rose-700">${esc(e.message)}</p>`); }
+}
+function hsCompanyProps(p) {
+  return { name: p.practice_name, partner_organisation_code: p.ods_code, patient_list_size: p.total_patients, address: p.address || undefined, city: p.town || undefined, zip: p.postcode || undefined,
+    phone: p.main_phone || undefined, website: p.website || undefined, country: p.country || "England" };
+}
+function hsCreatePreview() {
+  const { p, cdata } = hs, props = hsCompanyProps(p), shown = Object.entries(props).filter(([, v]) => v !== undefined && v !== "");
+  const label = { name: "Name", partner_organisation_code: "GP ODS Code", patient_list_size: "Patient list size", address: "Address", city: "Town", zip: "Postcode", phone: "Phone", website: "Website", country: "Country" };
+  const same = cdata.companies.filter(c => !c.partner_organisation_code);   // companies without an ODS code can be adopted; ones with another code are different practices
+  const near = c => (c.zip || "").replace(/\s/g, "").toUpperCase() === (p.postcode || "").replace(/\s/g, "").toUpperCase() ? '<span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-800">same postcode</span>' : "";
+  const link = o => { const l = cdata.links.find(x => x.org_id === o.id); return l ? `${HS_NET[l.object_type].label} record found` : "no HubSpot record (not associated)"; };
+  hsRender(`<p class="text-slate-600">${esc(p.practice_name)} (${esc(p.ods_code)}) has no company with this GP ODS Code in HubSpot.</p>
+    ${same.length ? `<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3"><div class="font-semibold text-amber-900">Is it already there under another name?</div><div class="text-xs text-amber-800">These companies have no GP ODS Code. Use one to avoid a duplicate; the tool then sets its GP ODS Code.</div>
+      ${same.map(c => `<div class="mt-2 flex items-center justify-between gap-3 rounded-lg bg-white p-2"><div><div class="font-medium">${hsLink("0-2", c.id, c.name)} ${near(c)}</div><div class="text-xs text-slate-500">${esc([c.address, c.city, c.zip].filter(Boolean).join(", "))}</div></div>
+        <button data-hs-adopt="${esc(c.id)}" class="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold hover:bg-slate-50">Use this company</button></div>`).join("")}</div>` : ""}
+    <div class="mt-3 text-xs font-semibold text-slate-600">New company to create</div>
+    <table class="mt-1 w-full text-sm"><tbody>${shown.map(([k, v]) => `<tr class="border-t border-slate-100"><td class="py-1 pr-3 text-slate-500">${label[k]}</td><td class="py-1 text-right font-medium">${esc(k === "patient_list_size" ? Number(v).toLocaleString() : v)}</td></tr>`).join("")}</tbody></table>
+    <div class="mt-3 text-xs font-semibold text-slate-600">Linked to</div>
+    <div class="text-sm">${cdata.nets.length ? cdata.nets.map(o => `<div class="flex justify-between border-t border-slate-100 py-1"><span>${esc(o.name)}</span><span class="text-xs text-slate-500">${esc(link(o))}</span></div>`).join("") : '<span class="text-slate-500 italic">No PCN or ICB known for this practice.</span>'}</div>
+    <div class="mt-3 text-xs font-semibold text-slate-600">Contacts to create and associate</div>
+    <div class="text-sm">${cdata.contacts.length ? cdata.contacts.map(c => `<div class="border-t border-slate-100 py-1"><b>${esc(c.name || "Unnamed")}</b> <span class="text-xs text-slate-500">${esc(c.jobtitle || "")} · ${esc(c.email)}</span></div>`).join("") : '<span class="text-slate-500 italic">No contacts with an email address.</span>'}
+      ${cdata.skipped > 0 ? `<div class="text-xs text-slate-500">${cdata.skipped} contact(s) skipped (no email or email opt-out).</div>` : ""}</div>
+    <div id="hs-msg" class="mt-3" role="status"></div>
+    <div class="mt-4 flex justify-end gap-2"><button id="hs-cancel" class="rounded-lg border border-slate-300 px-3 py-2 font-semibold">Cancel</button><button id="hs-create" class="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700">Create in HubSpot</button></div>`);
+  $("hs-cancel").onclick = hsClose;
+  $("hs-create").onclick = () => hsCreateRun("create_company", {});
+  document.querySelectorAll("[data-hs-adopt]").forEach(b => b.onclick = () => hsCreateRun("link_company", { companyId: b.dataset.hsAdopt }));
+}
+async function hsCreateRun(action, extra) {
+  const { p, cdata } = hs, msg = $("hs-msg"), btn = $("hs-create");
+  btn.disabled = true; btn.textContent = "Working…"; msg.innerHTML = "";
+  try {
+    const r = await hsCall({ action, ods: p.ods_code, ...extra, company: hsCompanyProps(p), contacts: cdata.contacts, networks: cdata.links.map(l => ({ type: l.object_type, id: l.object_id })) });
+    p.hubspot_company_id = r.companyId;
+    msg.innerHTML = `<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">${action === "create_company" ? "Company created" : "Company linked"}: ${hsLink("0-2", r.companyId, "open in HubSpot")}
+      <div class="text-xs">${r.contacts.length} contact(s) associated · ${r.networks.length} PCN/ICB association(s)</div></div>${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}`;
+    btn.classList.add("hidden"); $("hs-cancel").textContent = "Close";
+    if (drawerCode === p.ods_code) openDrawer(p);
+  } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; btn.disabled = false; btn.textContent = "Create in HubSpot"; }
+}

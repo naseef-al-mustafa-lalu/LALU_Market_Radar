@@ -39,6 +39,7 @@ function openNetworkProfile(n) {
   $("dr-body").innerHTML =
     `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
       .map(([k, v]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div></div>`).join("")}</div>` +
+    (n.kind === "pcn" || n.kind === "icb" ? sec("HubSpot", '<div id="dr-hsnet" class="text-sm text-slate-500">Checking HubSpot…</div>') : "") +
     sec("Pricing: " + KIND + " route", price) +
     sec("Linked practices: price singly vs in the network", `<div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div>`) +
     sec("Recent signals across this network", (() => {
@@ -48,6 +49,7 @@ function openNetworkProfile(n) {
     })()) +
     `<button id="np-view" class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;
+  if (n.kind === "pcn" || n.kind === "icb") hsNetworkSection(n);
   $("dr-body").onclick = ev => { const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
 }

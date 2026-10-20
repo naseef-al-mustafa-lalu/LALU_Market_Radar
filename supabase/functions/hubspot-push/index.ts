@@ -13,6 +13,10 @@ const reply = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 const COMPANY_READ = ["name", "partner_organisation_code", "patient_list_size", "domain"];
+const COMPANY_FIND = [...COMPANY_READ, "zip", "address", "city", "website"];
+const COMPANY_CREATE = new Set(["name", "partner_organisation_code", "patient_list_size", "address", "city", "zip", "phone", "website", "country"]);
+const NETWORK_TYPES = new Set(["p145802630_pcns", "p145802630_icbs"]);
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const DEAL_READ = ["dealname", "dealstage", "amount", "size_tier", "size_discount", "speed_discount", "term_length_discount", "term_length_years",
   "total_discount", "value_per_patient", "actual_value_per_patient_calculated", "patient_list_size", "commercial_model"];
 const COMPANY_WRITE = new Set(["patient_list_size"]);
@@ -70,7 +74,7 @@ Deno.serve(async (req) => {
 
     if (b.action === "find") {                       // companies by ODS code first, then by name
       const ods = String(b.ods ?? "").trim().toUpperCase().slice(0, 12), name = String(b.name ?? "").trim().slice(0, 100);
-      const search = (body: unknown) => hs(`/crm/v3/objects/companies/search`, { method: "POST", body: JSON.stringify({ properties: COMPANY_READ, limit: 10, ...(body as object) }) });
+      const search = (body: unknown) => hs(`/crm/v3/objects/companies/search`, { method: "POST", body: JSON.stringify({ properties: COMPANY_FIND, limit: 10, ...(body as object) }) });
       const out = new Map<string, any>();
       if (ods) for (const c of (await search({ filterGroups: [{ filters: [{ propertyName: "partner_organisation_code", operator: "EQ", value: ods }] }] }))?.results ?? []) out.set(c.id, { id: c.id, ...c.properties, match: "ODS code" });
       const q = String(b.query ?? name).trim().slice(0, 100);
@@ -102,6 +106,51 @@ Deno.serve(async (req) => {
       await admin.from("hubspot_push_log").insert({ ods_code: ods, company_id: companyId, deal_id: dealId, pushed_by: who,
         before_values: { company: before.company, deal: before.deal }, written_values: { company: companyProps, deal: dealProps } });
       return reply({ ok: true, ...(await readPair(companyId, dealId)) });
+    }
+    if (b.action === "create_company" || b.action === "link_company") {
+      const ods = String(b.ods ?? "").trim().toUpperCase();
+      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      const warnings: string[] = [];
+      const existing = (await hs(`/crm/v3/objects/companies/search`, { method: "POST", body: JSON.stringify({ properties: COMPANY_FIND, limit: 5,
+        filterGroups: [{ filters: [{ propertyName: "partner_organisation_code", operator: "EQ", value: ods }] }] }) }))?.results ?? [];
+      if (existing.length) throw new Fail(`A HubSpot company with ODS code ${ods} already exists (${existing[0].properties?.name ?? existing[0].id}). Run the HubSpot sync to link it.`);
+      let companyId: string;
+      if (b.action === "link_company") {      // give an existing company with no ODS code its GP ODS Code, so the sync links it
+        companyId = idOf(b.companyId);
+        const cur = await hs(`/crm/v3/objects/companies/${companyId}?properties=partner_organisation_code,name`);
+        if (cur.properties?.partner_organisation_code) throw new Fail("That company already has a GP ODS Code");
+        await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { partner_organisation_code: ods } }) });
+      } else {
+        const props: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(b.company ?? {})) { if (!COMPANY_CREATE.has(k)) throw new Fail(`Not allowed to set company property ${k}`); if (v !== null && v !== "") props[k] = v; }
+        if (!props.name || String(props.partner_organisation_code ?? "").toUpperCase() !== ods) throw new Fail("A name and the matching GP ODS Code are required");
+        props.partner_organisation_code = ods;
+        companyId = String((await hs(`/crm/v3/objects/companies`, { method: "POST", body: JSON.stringify({ properties: props }) })).id);
+      }
+      const done: any = { companyId, contacts: [] as any[], networks: [] as string[] };
+      for (const c of (Array.isArray(b.contacts) ? b.contacts : []).slice(0, 10)) {
+        const email = String(c.email ?? "").trim().toLowerCase();
+        if (!EMAIL_RE.test(email)) { warnings.push(`Skipped a contact without a valid email (${c.name ?? "unnamed"})`); continue; }
+        try {
+          const found = (await hs(`/crm/v3/objects/contacts/search`, { method: "POST", body: JSON.stringify({ properties: ["email", "createdate"], limit: 1,
+            filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }] }) }))?.results ?? [];
+          const [first, ...rest] = String(c.name ?? "").trim().split(/\s+/);
+          const cid = found[0]?.id ?? String((await hs(`/crm/v3/objects/contacts`, { method: "POST", body: JSON.stringify({ properties: { email, firstname: first || undefined, lastname: rest.join(" ") || undefined,
+            phone: c.phone || undefined, jobtitle: c.jobtitle || undefined } }) })).id);
+          await hs(`/crm/v4/objects/contacts/${cid}/associations/default/companies/${companyId}`, { method: "PUT" });
+          done.contacts.push({ email, id: cid, existed: !!found[0] });
+        } catch (e) { warnings.push(`Contact ${email}: ${(e as Error).message}`); }
+      }
+      for (const n of (Array.isArray(b.networks) ? b.networks : []).slice(0, 4)) {
+        if (!NETWORK_TYPES.has(String(n.type))) continue;
+        try { await hs(`/crm/v4/objects/companies/${companyId}/associations/default/${n.type}/${idOf(n.id)}`, { method: "PUT" }); done.networks.push(`${n.type}:${n.id}`); }
+        catch (e) { warnings.push(`Association to ${n.type === "p145802630_pcns" ? "PCN" : "ICB"} record: ${(e as Error).message}`); }
+      }
+      const now = new Date().toISOString();
+      await admin.from("gp_practices").update({ hubspot_company_id: companyId, hubspot_company_imported_at: now, hubspot_synced_at: now }).eq("ods_code", ods);
+      for (const c of done.contacts) await admin.from("contacts").update({ hubspot_status: "Imported", hubspot_contact_id: c.id, hubspot_imported_at: now }).eq("ods_code", ods).ilike("email", c.email);
+      await admin.from("hubspot_push_log").insert({ ods_code: ods, company_id: companyId, pushed_by: who, before_values: null, written_values: { action: b.action, done, warnings } });
+      return reply({ ok: true, ...done, warnings });
     }
     if (b.action === "unlink") {
       const ods = String(b.ods ?? "").trim().toUpperCase();

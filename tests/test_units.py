@@ -224,6 +224,8 @@ def test_hubspot_sync_flags_and_contact_matching():
         def __init__(self):
             self.up = {}
         def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "organisations":
+                return [dict(id="o1", kind="pcn", name="West PCN", source_key="ods:U00001"), dict(id="o2", kind="icb", name="NHS Essex ICB - D7T5G", source_key="icb:x"), dict(id="o3", kind="pcn", name="Scot cluster", source_key="ods:SC-aberd")]
             if table == "gp_practices":
                 return [dict(ods_code=c, practice_name=c, hubspot_company_id=None) for c in ("A10001", "A10002", "A10003")] + [dict(ods_code="A10004", practice_name="Old", hubspot_company_id="9")]
             return [dict(contact_urn=1, ods_code="A10001", email="Ann@x.nhs", hubspot_status="Not imported", hubspot_contact_id=None),
@@ -238,6 +240,10 @@ def test_hubspot_sync_flags_and_contact_matching():
                     {"id": "1", "properties": {"partner_organisation_code": "a10001", "lifecyclestage": "opportunity", "createdate": "2026-01-01T00:00:00Z"}},
                     {"id": "2", "properties": {"partner_organisation_code": "A10002", "lifecyclestage": "lead", "createdate": "2026-01-02T00:00:00Z"}},
                     {"id": "3", "properties": {"partner_organisation_code": "A10003", "lifecyclestage": "lead", "createdate": "2026-01-03T00:00:00Z"}}]}
+            if "objects/p145802630_pcns/search" in path:
+                return {"results": [{"id": "501", "properties": {"ods_code": "U00001", "total_amount_in_won_deals": "1200", "count_of_active_emr_practices": "2"}}]}
+            if "objects/p145802630_icbs/search" in path:
+                return {"results": [{"id": "601", "properties": {"ods_code": "D7T5G", "name": "Essex"}}]}
             if "associations/companies/contacts" in path:
                 return {"results": [{"from": {"id": "1"}, "to": [{"toObjectId": 11}]}, {"from": {"id": "2"}, "to": [{"toObjectId": 12}]}]}
             if "associations/companies/deals" in path:
@@ -259,3 +265,6 @@ def test_hubspot_sync_flags_and_contact_matching():
     c = {r["contact_urn"]: r for r in rest.up["contacts"]}
     assert c[1]["hubspot_status"] == "Imported" and c[1]["hubspot_contact_id"] == "11" and c[2]["hubspot_status"] == "Not imported"   # matched by email, case-insensitive
     assert stats["practices_linked"] == 3 and stats["customers"] == 1 and stats["engaged"] == 1
+    nl = {r["org_id"]: r for r in rest.up["hubspot_network_links"]}
+    assert nl["o1"]["object_id"] == "501" and nl["o1"]["object_type"].endswith("pcns") and nl["o1"]["won_deals_amount"] == 1200 and nl["o2"]["object_id"] == "601" and "o3" not in nl   # PCN by ODS code, ICB by name, Scottish cluster unmatched
+    assert stats["networks_linked"] == 2 and stats["networks_unmatched"] == 1

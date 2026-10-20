@@ -162,3 +162,8 @@ Setup: create a HubSpot private app with companies and deals read/write scopes a
 - the HubSpot company id, created date and lifecycle stage, and per contact "Imported" when a HubSpot contact with the same email is associated with the company.
 
 Needs the GitHub secret `HUBSPOT_TOKEN` (the same private-app token as the Supabase edge function; read scopes are enough). Without it the step is skipped.
+
+### PCN / ICB links and practices not in HubSpot
+
+- The daily sync also links each PCN (by ODS code) and ICB (by name) to HubSpot's PCN and ICB custom objects (table `hubspot_network_links`). The network profile shows an "Open in HubSpot" link plus the record's open and won deal amounts and active eMR+ practice count. Scottish clusters and Welsh boards are not held in HubSpot and show as unmatched.
+- Practices with no HubSpot company show "Not in HubSpot" in their profile, and the Practices list has a "Not in HubSpot" filter. **Create in HubSpot…** previews the new company (name, GP ODS Code, list size, address, phone, website, country), looks for an existing company without a GP ODS Code (offer to use it instead), creates the contacts that have an email and no opt-out, and associates the company to its PCN and ICB records. It refuses if a company with that ODS code already exists.
