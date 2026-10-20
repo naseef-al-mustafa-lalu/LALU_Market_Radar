@@ -204,6 +204,7 @@ with sync_playwright() as p:
     assert pg.is_visible("#dp-overview") and pg.is_hidden("#dp-sources") and pg.is_hidden("#dp-pricing")
     pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#hsp-run")   # HubSpot integration panel
     hp = pg.inner_text("#d-hubspot"); assert "HubSpot integration" in hp and "Healthy" in hp and "Needs attention" in hp and "not in HubSpot" in hp and "manual sync" in hp and "Pushed pricing to Deal X" in hp and "did not match" in hp, hp
+    pg.click("#d-hubspot summary:has-text('Response times')"); tt = pg.inner_text("#d-hubspot"); assert "Create company" in tt and "Median" in tt and "Find company" in tt, tt[-600:]   # every edge call is timed
     pg.select_option("#hsp-filter", "sync"); assert "Pushed pricing" not in pg.inner_text("#hsp-log") and "practices linked" in pg.inner_text("#hsp-log"); pg.select_option("#hsp-filter", "all")
     pg.screenshot(path=SHOTS + "/hubspot_panel.png", full_page=True); pg.click("#hsp-run"); pg.wait_for_function("document.querySelector('#hsp-msg').innerText.includes('Sync started')"); assert pg.evaluate("window.__rpc.some(c => c[0] === 'fn:hubspot-sync-trigger')")
     pg.click("#data-sub button[data-d=pricing]"); assert "How prices are worked out" in pg.inner_text("#rev-config") and "PCNs / clusters" in pg.inner_text("#rev-config") and "Federations" in pg.inner_text("#rev-config")

@@ -3,10 +3,20 @@
 // Total Discount % and Actual Value per Patient (Calculated) -> compare both with the tool. The HubSpot token lives only in the hubspot-push edge function.
 const HS_PCT = 1;   // HubSpot's % number fields hold fractions (0.05 for 5%): its Actual Value per Patient formula needs Total Discount between 0 and 1
 let hs = null;
+// Every call to the edge function is timed (round trip, so cold starts count) and the last 300 are kept in this browser, to show on Data > HubSpot.
+const HS_TIMING_KEY = "atlas_hs_timings";
+let hsTimings = (() => { try { return JSON.parse(localStorage.getItem(HS_TIMING_KEY)) || []; } catch (e) { return []; } })();
+const hsTimed = (action, ms, ok) => {
+  hsTimings.push({ a: action, ms: Math.round(ms), ok, t: Date.now() }); if (hsTimings.length > 300) hsTimings.splice(0, hsTimings.length - 300);
+  try { localStorage.setItem(HS_TIMING_KEY, JSON.stringify(hsTimings)); } catch (e) {}
+};
 const hsCall = async body => {
-  const { data, error } = await db.functions.invoke("hubspot-push", { body });
-  if (error || data?.error) { let m = data?.error || error?.message || "Request failed"; try { const j = await error?.context?.json?.(); if (j?.error) m = j.error; } catch (e) {} throw new Error(m); }
-  return data;
+  const t0 = performance.now(); let ok = false;
+  try {
+    const { data, error } = await db.functions.invoke("hubspot-push", { body });
+    if (error || data?.error) { let m = data?.error || error?.message || "Request failed"; try { const j = await error?.context?.json?.(); if (j?.error) m = j.error; } catch (e) {} throw new Error(m); }
+    ok = true; return data;
+  } finally { hsTimed(body.action, performance.now() - t0, ok); }
 };
 const hsPct = f => Math.round(f * HS_PCT * 10000) / 10000;      // fraction -> HubSpot number
 const HS_MODELS = { "Subscription": "ReportSure - MS - All Reports", "eMR+ SAR Only": "ReportSure - MS - SAR Only", Freemium: "ReportSure Freemium", PAYG: "eMR+ - PAYG", "GP eMR - Subscripton": "ReportSure - Self Service" };
@@ -494,6 +504,16 @@ const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_c
   pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"] };
 let hsLog = [], hsLogFilter = "all", hsLogQuery = "", hsPanelTimer = null;
 const hsAgo = iso => { if (!iso) return "never"; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago"; };
+const HS_CALL_LABEL = { hub: "Company page", deal_prefill: "Form data (owners, pipelines)", read: "Read a deal (profile strip, re-check)", write: "Push pricing", find: "Find company", create_deal: "Create deal", create_lead: "Create lead", create_company: "Create company", add_contacts: "Add contacts", log_check: "Log check", link_company: "Link company" };
+function hsTimingHtml() {
+  const by = {}; for (const t of hsTimings) (by[t.a] = by[t.a] || []).push(t);
+  const med = a => { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2); }, sec = ms => (ms / 1000).toFixed(1) + " s";
+  const rows = Object.entries(by).sort((x, y) => med(y[1].map(t => t.ms)) - med(x[1].map(t => t.ms))).map(([a, ts]) => { const ms = ts.map(t => t.ms), bad = ts.filter(t => !t.ok).length;
+    return `<tr class="border-t border-slate-100"><td class="py-1 pr-3">${esc(HS_CALL_LABEL[a] || a)}</td><td class="py-1 px-2 text-right">${ts.length}</td><td class="py-1 px-2 text-right font-mono ${med(ms) > 2000 ? "text-rose-700" : med(ms) > 1000 ? "text-amber-700" : ""}">${sec(med(ms))}</td><td class="py-1 px-2 text-right font-mono">${sec(Math.max(...ms))}</td><td class="py-1 px-2 text-right font-mono">${sec(ms[ms.length - 1])}</td><td class="py-1 pl-2 text-right">${bad || ""}</td></tr>`; }).join("");
+  return `<details class="mt-4"><summary class="cursor-pointer text-sm font-bold">Response times <span class="font-normal text-xs text-slate-500">this browser, last ${hsTimings.length} HubSpot calls, slowest first</span></summary>
+    ${rows ? `<table class="mt-2 w-full text-sm"><thead><tr class="text-left text-[11px] uppercase tracking-wider text-slate-500"><th class="pr-3">Action</th><th class="px-2 text-right">Calls</th><th class="px-2 text-right">Median</th><th class="px-2 text-right">Slowest</th><th class="px-2 text-right">Latest</th><th class="pl-2 text-right">Failed</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="mt-1 text-right"><button id="hsp-timclear" class="text-xs font-semibold text-blue-600 hover:underline">Clear</button></div>` : '<p class="mt-2 text-sm text-slate-500">No calls yet. Use HubSpot from a practice profile, then come back.</p>'}</details>`;
+}
 async function renderHubspotPanel() {
   const box = $("d-hubspot"); if (!box) return;
   if (!box.innerHTML) box.innerHTML = '<p class="text-sm text-slate-500">Loading HubSpot status…</p>';
@@ -518,12 +538,13 @@ async function renderHubspotPanel() {
     <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">${tile("Last sync", run ? hsAgo(run.at) : "never", run ? esc(run.actor) : "")}
       ${tile("Practices linked", (eligible.length - missing.length).toLocaleString(), "of " + eligible.length.toLocaleString() + " active with a list size")}${tile("Customers", practices.filter(p => p.hubspot_customer).length.toLocaleString())}
       ${tile("Engaged", practices.filter(p => p.hubspot_engaged && !p.hubspot_customer).length.toLocaleString())}${tile("PCN / ICB records linked", linkedIds.size.toLocaleString(), (st.pcn_records_created ? st.pcn_records_created + " created last run" : ""))}</div>
-    <h3 class="mt-4 text-sm font-bold">Needs attention</h3><div id="hsp-attn">${items || '<p class="text-sm text-slate-500">Nothing needs attention.</p>'}</div>
+    <h3 class="mt-4 text-sm font-bold">Needs attention</h3><div id="hsp-attn">${items || '<p class="text-sm text-slate-500">Nothing needs attention.</p>'}</div>${hsTimingHtml()}
     <div class="mt-4 flex flex-wrap items-center justify-between gap-2"><h3 class="text-sm font-bold">Activity log <span class="font-normal text-xs text-slate-500">everything the tool has done to HubSpot</span></h3>
       <div class="flex flex-wrap items-center gap-2"><select id="hsp-filter" class="rounded-md border border-slate-300 px-2 py-1 text-xs" aria-label="Filter activity">${[["all", "All activity"], ["push", "Pricing pushes"], ["create", "Companies created or linked"], ["pcn", "PCN records"], ["sync", "Sync runs"], ["bad", "Needs attention"]].map(([k, l]) => `<option value="${k}" ${hsLogFilter === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <input id="hsp-q" value="${esc(hsLogQuery)}" placeholder="Search practice or text" class="rounded-md border border-slate-300 px-2 py-1 text-xs" aria-label="Search activity"><button id="hsp-csv" class="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold hover:bg-slate-50">Export CSV</button></div></div>
     <div id="hsp-log" class="mt-2 max-h-96 overflow-y-auto text-sm"></div>`;
   hsLogRender();
+  const tc = $("hsp-timclear"); if (tc) tc.onclick = () => { hsTimings = []; try { localStorage.removeItem(HS_TIMING_KEY); } catch (e) {} renderHubspotPanel(); };
   $("hsp-missing").onclick = () => { showTab("practices"); $("f-hs").value = "missing"; applyFilters(); };
   const bad = $("hsp-bad"); if (bad) bad.onclick = () => { hsLogFilter = "bad"; $("hsp-filter").value = "bad"; hsLogRender(); };
   $("hsp-filter").onchange = e => { hsLogFilter = e.target.value; hsLogRender(); };
