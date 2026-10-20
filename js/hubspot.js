@@ -1,14 +1,14 @@
 /* ---------- push the selected pricing to the practice's HubSpot deal ---------- */
 // Flow: find / confirm the company and deal (saved once per practice) -> preview what will be written -> write -> wait for HubSpot to recalculate
 // Total Discount % and Actual Value per Patient (Calculated) -> compare both with the tool. The HubSpot token lives only in the hubspot-push edge function.
-const HS_PCT = 100;   // HubSpot's % number fields hold 5 for 5%; change to 1 if a test write shows they hold fractions
+const HS_PCT = 1;   // HubSpot's % number fields hold fractions (0.05 for 5%): its Actual Value per Patient formula needs Total Discount between 0 and 1
 let hs = null;
 const hsCall = async body => {
   const { data, error } = await db.functions.invoke("hubspot-push", { body });
   if (error || data?.error) { let m = data?.error || error?.message || "Request failed"; try { const j = await error?.context?.json?.(); if (j?.error) m = j.error; } catch (e) {} throw new Error(m); }
   return data;
 };
-const hsPct = f => Math.round(f * HS_PCT * 1000) / 1000;      // fraction -> HubSpot number
+const hsPct = f => Math.round(f * HS_PCT * 10000) / 10000;      // fraction -> HubSpot number
 const hsNum = v => (v === "" || v == null ? null : Number(v));
 const hsClose = () => { $("hs-modal").classList.add("hidden"); hs = null; };
 
