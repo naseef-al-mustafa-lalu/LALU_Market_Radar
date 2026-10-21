@@ -155,7 +155,6 @@ Deno.serve(async (req) => {
       if (q) for (const c of (await search({ query: q }))?.results ?? []) if (!out.has(c.id)) out.set(c.id, { id: c.id, ...c.properties, match: "Name" });
       return reply({ companies: [...out.values()] });
     }
-    if (b.action === "deals") return reply({ deals: await dealsOf(idOf(b.companyId)) });
     if (b.action === "read") return reply(await readPair(idOf(b.companyId), idOf(b.dealId)));
 
     if (b.action === "write") {
@@ -337,12 +336,6 @@ Deno.serve(async (req) => {
       await log({ actor: who, kind: "push_check", ok: b.ok === true, ods_code: ods, target: String(b.dealName ?? "").slice(0, 120), hubspot_type: "deal", hubspot_id: b.dealId ? idOf(b.dealId) : null,
         summary: b.ok === true ? "HubSpot's Total Discount % and Actual Value per Patient match the tool" : String(b.note ?? "HubSpot's calculated fields did not match the tool").slice(0, 300),
         detail: { hubspot: b.hubspot ?? null, tool: b.tool ?? null } });
-      return reply({ ok: true });
-    }
-    if (b.action === "unlink") {
-      const ods = String(b.ods ?? "").trim().toUpperCase();
-      const { error } = await admin.from("hubspot_links").delete().eq("ods_code", ods);
-      if (error) throw new Fail("Could not unlink");
       return reply({ ok: true });
     }
     throw new Fail("Unknown action");
