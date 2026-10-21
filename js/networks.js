@@ -75,7 +75,7 @@ function renderMoreNetworks() {
     const KIND = { pcn: "PCN", icb: "ICB", group: "group", federation: "federation" }[n.kind] || n.kind;
     const tr = document.createElement("tr"); tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer"; tr.tabIndex = 0; tr.setAttribute("role", "button");
     tr.innerHTML = `<td class="px-3 py-2 align-top"><div class="font-semibold leading-tight">${esc(n.name)}</div>
-        <div class="text-xs text-slate-500">EMIS ${n.emis} · SystmOne ${n.systmone}${n.cqc_concern ? " · " + chip(n.cqc_concern + " CQC flagged", "bg-amber-100 text-amber-800") : ""}${n.confirmed === false ? " · " + chip("inferred: verify", "bg-amber-50 text-amber-700") : ""}</div></td>
+        ${n.cqc_concern || n.confirmed === false ? `<div class="text-xs text-slate-500">${[n.cqc_concern ? chip(n.cqc_concern + " CQC flagged", "bg-amber-100 text-amber-800") : "", n.confirmed === false ? chip("inferred: verify", "bg-amber-50 text-amber-700") : ""].filter(Boolean).join(" · ")}</div>` : ""}</td>
       <td class="px-3 py-2 text-right font-mono align-top">${n.practices}</td>
       <td class="px-3 py-2 text-right font-mono align-top">${n.patients ? Number(n.patients).toLocaleString() : "–"}</td>
       <td class="px-3 py-2 whitespace-nowrap align-top">${n.network_tier ? chip("Tier " + n.network_tier, TIER_CLS["Tier " + n.network_tier]) : '<span class="text-slate-300">–</span>'}</td>
