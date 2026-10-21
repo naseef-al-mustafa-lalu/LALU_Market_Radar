@@ -253,6 +253,8 @@ def test_hubspot_sync_flags_and_contact_matching():
             if "objects/contacts/batch/read" in path:
                 return {"results": [{"id": "11", "properties": {"lifecyclestage": "salesqualifiedlead", "email": "ann@x.nhs", "createdate": "2026-02-01T00:00:00Z"}},
                                     {"id": "12", "properties": {"lifecyclestage": "lead", "email": "z@x.nhs"}}]}
+            if "associations/companies/0-162" in path:
+                return {"results": []}
             if "objects/deals/batch/read" in path:
                 return {"results": [{"id": "31", "properties": {"hs_is_closed_won": "true"}}]}
             raise AssertionError(path)
@@ -319,6 +321,22 @@ def test_hubspot_sync_ex_customer_is_not_a_customer():
     assert hsy.classify([ex], [], {}, ["d1"], won)["hubspot_customer"] is False   # an old won deal does not make an ex-customer current
     assert hsy.classify([cur], [], {}, [], {})["hubspot_customer"] is True
     assert hsy.classify([ex, cur], [], {}, [], {})["hubspot_customer"] is True      # another live company with the same ODS code still counts
+
+
+def test_hubspot_contracted_arr_and_pipeline():
+    from src import hubspot_sync as hsy
+    deals = {"w": {"hs_is_closed_won": "true", "amount": "900", "pipeline": "default", "hs_is_closed": "true"},
+             "o": {"hs_is_closed_won": "false", "hs_is_closed": "false", "amount": "500", "pipeline": "2298660077"},
+             "r": {"hs_is_closed": "false", "amount": "700", "pipeline": "3784347852"}}
+    svc = {"s1": {"hs_pipeline_stage": "2551571664", "actual_annual_contract_value__acv_": "4000"},
+           "s2": {"hs_pipeline_stage": "2551571667", "actual_annual_contract_value__acv_": "9999"},   # churned: ignored
+           "s3": {"hs_pipeline_stage": "2551571663", "actual_annual_contract_value__acv_": "800"}}    # pilot: ignored
+    f = hsy.revenue_fields(["w", "o", "r"], deals, ["s1", "s2", "s3"], svc, True, "eMR Plus")
+    assert f == {"hubspot_contracted_arr": 4000.0, "hubspot_contracted_src": "service", "hubspot_pipeline": 500.0, "hubspot_renewal_pipeline": 700.0}
+    g = hsy.revenue_fields(["w"], deals, [], {}, True, "eMR Plus")                  # no Service: fall back to the won deal, flagged
+    assert g["hubspot_contracted_arr"] == 900.0 and g["hubspot_contracted_src"] == "deal"
+    assert hsy.revenue_fields(["w"], deals, [], {}, True, "Freemium")["hubspot_contracted_arr"] is None   # freemium has no revenue
+    assert hsy.revenue_fields(["w"], deals, [], {}, False, None)["hubspot_contracted_arr"] is None
 
 
 def test_hubspot_audit_names_and_issues():

@@ -35,6 +35,14 @@ const HS_LABEL = { customer: "Customer", freemium: "Freemium", engaged: "Engaged
 const HS_RANK = { customer: 1, freemium: 2, engaged: 3, imported: 4, company: 5, none: 6 };
 // HubSpot company "Commercial Model" values (current_subscription) as HubSpot labels them. Freemium is a customer that brings no revenue.
 const HS_COMPANY_MODEL = { "eMR Plus": "ReportSure - MS - All reports", PAYG: "ReportSure PAYG", Freemium: "ReportSure Freemium", "GP eMR": "ReportSure Self Service", "eMR+ SAR Only": "ReportSure - MS - SAR Only" };
+// HubSpot's real value for a customer, beside the estimate. * = from closed-won deals (no live Service ACV), so unverified.
+const contractedCell = p => {
+  const c = Number(p.hubspot_contracted_arr);
+  if (!(c > 0)) return p.hubspot_commercial_model === "Freemium" && p.hubspot_customer ? '<span class="text-xs text-slate-400" title="Freemium: no revenue">Freemium</span>' : '<span class="text-slate-300">–</span>';
+  const est = Number(p.est_arr), d = est > 0 ? c - est : null, from = p.hubspot_contracted_src === "deal";
+  return `<span class="font-mono font-semibold text-teal-700" title="${from ? "From closed-won deals: no live Service ACV, so unverified" : "Live Service ACV in HubSpot"}">${gbpFull(c)}${from ? "*" : ""}</span>` +
+    (d != null ? `<div class="text-[10px] ${d < 0 ? "text-amber-700" : "text-slate-500"}" title="Contracted minus estimate">${d >= 0 ? "+" : "−"}${gbpFull(Math.abs(d))} vs est.</div>` : "");
+};
 const hsState = p => p.hubspot_customer ? (p.hubspot_commercial_model === "Freemium" ? "freemium" : "customer") : p.hubspot_engaged ? "engaged" : p.hs_imported > 0 ? "imported" : p.hubspot_company_id ? "company" : "none";
 const NET_KINDS = { pcn: "PCNs", group: "Provider groups", federation: "Federations", icb: "ICBs" };
 const SYS = { "EMIS Web": "EMIS", "SystmOne": "SystmOne", "Vision": "Vision" };

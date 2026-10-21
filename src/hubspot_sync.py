@@ -95,6 +95,24 @@ def classify(companies, contact_ids, contacts, deal_ids, deals):
             "hubspot_engaged": bool(engaged), "hubspot_customer": bool(customer), "hubspot_commercial_model": model}
 
 
+SERVICE_OBJECT = "0-162"
+# Service pipeline stages that are a live paying contract: In Contract, In contract, Renewal Period, Renewed, Within 4 weeks of Cancellation Notice Date. Pilots, freemium and churned/ceased stages are not contracted ARR.
+LIVE_SERVICE_STAGES = {"2551571664", "4743369939", "4743369940", "2551571666", "2551571665"}
+PIPELINE_SALES = {"default", "2298660077"}   # Sales + Conversion (CS); Renewals is kept apart
+PIPELINE_RENEWALS = "3784347852"
+
+
+def revenue_fields(deal_ids, deals, service_ids, services, customer, model):
+    """Contracted ARR (live Service ACV, else closed-won deal amounts flagged 'deal') and the open deal pipeline for one practice."""
+    acv = sum(_num(services.get(s, {}).get("actual_annual_contract_value__acv_")) or 0 for s in service_ids if services.get(s, {}).get("hs_pipeline_stage") in LIVE_SERVICE_STAGES)
+    won = sum(_num(deals[d].get("amount")) or 0 for d in deal_ids if d in deals and deals[d].get("hs_is_closed_won") == "true" and deals[d].get("pipeline") in PIPELINE_SALES)
+    arr, src = (acv, "service") if acv > 0 else (won, "deal") if customer and model != "Freemium" and won > 0 else (None, None)
+    open_ = [deals[d] for d in deal_ids if d in deals and deals[d].get("hs_is_closed") != "true"]
+    return {"hubspot_contracted_arr": arr, "hubspot_contracted_src": src,
+            "hubspot_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") in PIPELINE_SALES) or None,
+            "hubspot_renewal_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_RENEWALS) or None}
+
+
 PCN_OBJECT, ICB_OBJECT = "p145802630_pcns", "p145802630_icbs"
 NETWORK_PROPS = ["name", "ods_code", "address_line_1", "status", "total_amount_in_open_deals", "total_amount_in_won_deals", "count_of_active_emr_practices", "count_of_associated_practices"]
 
@@ -428,7 +446,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
     cids = [str(c["id"]) for cs in by_ods.values() for c in cs]
     to_contacts, to_deals = associations(hub, "contacts", cids), associations(hub, "deals", cids)
     contacts = read_objects(hub, "contacts", [i for v in to_contacts.values() for i in v], ["lifecyclestage", "email", "createdate"])
-    deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won"])
+    deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won", "hs_is_closed", "amount", "pipeline"])
+    to_services, services, service_error = {}, {}, None
+    try:   # Service ACV is the contracted-ARR source; if the token cannot read Services, fall back to deals and say so in the run summary
+        to_services = associations(hub, SERVICE_OBJECT, cids)
+        services = read_objects(hub, SERVICE_OBJECT, [i for v in to_services.values() for i in v], ["hs_pipeline_stage", "actual_annual_contract_value__acv_"])
+    except Exception as e:  # noqa: BLE001
+        service_error = str(e)[:300]
 
     rows, flags = [], {"customers": 0, "engaged": 0}
     hs_contacts = {}   # ods -> {email: (contact id, createdate)}
@@ -438,12 +462,14 @@ def sync(rest, hub, now=None, actor="daily sync"):
         deal_ids = sorted({i for c in cset for i in to_deals.get(c, [])})
         f = classify(cs, contact_ids, contacts, deal_ids, deals)
         flags["customers"] += f["hubspot_customer"]; flags["engaged"] += f["hubspot_engaged"]
-        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, "hubspot_synced_at": now})
+        service_ids = sorted({i for c in cset for i in to_services.get(c, [])})
+        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"]), "hubspot_synced_at": now})
         hs_contacts[ods] = {(contacts[i].get("email") or "").strip().lower(): (i, contacts[i].get("createdate")) for i in contact_ids if contacts.get(i, {}).get("email")}
     for ods, p in practices.items():   # a practice that had a company before but no longer does: clear the link and flags
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
-                         "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_synced_at": now})
+                         "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
+                         "hubspot_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     audit_all = audit_rows(raw, practices, now)
     conflicts = []
@@ -478,7 +504,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
     return {**nets, **pcn_stats, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
-            "contacts_updated": len(crow), "search_capped": total > len(raw), **audit}
+            "contacts_updated": len(crow), **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
 
 
 def main():

@@ -3,7 +3,7 @@
 const netMatch = (p, nf) => !nf || (nf.kind === "pcn" ? p.pcn_code === nf.key : nf.kind === "group" ? p.cqc_provider_id === nf.key
   : nf.kind === "federation" ? (p.gp_federation || "").toLowerCase() === nf.key : (p.icb_name || "").toLowerCase() === nf.key);
 const SORTERS = {
-  name: p => (p.practice_name || "").toLowerCase(), patients: p => p.total_patients || 0, arr: p => p.est_arr || 0, arr_sar: p => p.est_arr_sar || 0,
+  name: p => (p.practice_name || "").toLowerCase(), patients: p => p.total_patients || 0, arr: p => p.est_arr || 0, arr_sar: p => p.est_arr_sar || 0, contracted: p => p.hubspot_contracted_arr || 0,
   cqc: p => CQC_RANK[p.cqc_rating] || 9, hubspot: p => HS_RANK[hsState(p)] };
 function applyFilters() {
   const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, hs = $("f-hs").value,
@@ -84,7 +84,8 @@ function renderMore() {
         <div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}</div></td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-xs text-slate-500 underline decoration-dotted cursor-help" title="${esc(noSizeReason(p))}">${p.merged_into ? "Merged" : isClosed(p) ? "Closed" : "No list size"}</span>`}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold text-emerald-700" title="£${rate3(Number(p.base_price))} per patient per month">${gbpFull(p.est_arr)}</span>` : '<span class="text-slate-300">–</span>'}</td>
-      <td class="px-3 py-2 text-right whitespace-nowrap">${hasN && p.est_arr_sar != null ? `<span class="font-mono text-slate-600" title="£${rate3(Number(p.base_price_sar))} per patient per month, SAR only">${gbpFull(p.est_arr_sar)}</span>` : '<span class="text-slate-300">–</span>'}</td>
+      <td class="hidden xl:table-cell px-3 py-2 text-right whitespace-nowrap">${hasN && p.est_arr_sar != null ? `<span class="font-mono text-slate-600" title="£${rate3(Number(p.base_price_sar))} per patient per month, SAR only">${gbpFull(p.est_arr_sar)}</span>` : '<span class="text-slate-300">–</span>'}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${contractedCell(p)}</td>
       <td class="px-3 py-2">${networkCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap">${cqcCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-600">${SYS[p.clinical_software] || '<span class="text-slate-300">–</span>'}</td>
@@ -95,7 +96,7 @@ function renderMore() {
   }
   $("rows").appendChild(frag);
   $("more").classList.toggle("hidden", shown >= filtered.length);
-  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-500 italic">No practices match these filters.</td></tr>';
+  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="10" class="p-6 text-center text-slate-500 italic">No practices match these filters.</td></tr>';
 }
 $("more").addEventListener("click", renderMore);
 

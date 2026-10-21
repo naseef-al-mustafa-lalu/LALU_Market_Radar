@@ -130,7 +130,22 @@ function renderRevenue() {
   const labels = cfgTiers.filter(t => t.route === "practice").sort((a, b) => a.tier - b.tier);
   $("rev-matrix").innerHTML = labels.map(t => `<tr><td class="py-1.5">${chip("Tier " + t.tier, TIER_CLS["Tier " + t.tier] || "")} <span class="text-slate-500 text-xs">${esc(t.label)}</span></td>${routes.map(r => `<td class="py-1.5 text-right font-mono">${fmt(cell(r, t.tier))}</td>`).join("")}</tr>`).join("") +
     `<tr class="font-semibold"><td class="py-1.5">Total</td>${routes.map(r => `<td class="py-1.5 text-right font-mono">${fmt(revMetric === "arr" ? sum(r.list, r.val) : revMetric === "patients" ? sum(r.list, r.pat) : r.list.length)}</td>`).join("")}</tr>`;
+  const paying = p => p.hubspot_customer && p.hubspot_commercial_model !== "Freemium";
+  const est = p => scen(p.est_arr, p.est_arr_sar), tam = sum(act, est);
+  const contracted = act.filter(p => Number(p.hubspot_contracted_arr) > 0), cSum = sum(contracted, p => p.hubspot_contracted_arr);
+  const fromDeals = contracted.filter(p => p.hubspot_contracted_src === "deal"), noValue = act.filter(p => paying(p) && !(Number(p.hubspot_contracted_arr) > 0));
+  const pipe = act.filter(p => Number(p.hubspot_pipeline) > 0), ren = act.filter(p => Number(p.hubspot_renewal_pipeline) > 0);
+  const card = (label, value, sub, cls = "") => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs font-semibold uppercase tracking-wider text-slate-500">${label}</div><div class="text-xl font-bold mt-1 ${cls}">${value}</div><div class="text-xs text-slate-500 mt-0.5">${sub}</div></div>`;
+  const pct = v => tam ? (v / tam * 100).toFixed(1) + "% of TAM" : "";
+  $("rev-bridge").innerHTML = card("TAM (estimate)", gbp(tam), `${act.length.toLocaleString()} active practices, priced from list size`) +
+    card("Contracted ARR", gbp(cSum), `${contracted.length.toLocaleString()} practices · ${pct(cSum)}${fromDeals.length ? ` · ${fromDeals.length} from deals, unverified` : ""}`, "text-teal-700") +
+    card("Open pipeline", gbp(sum(pipe, p => p.hubspot_pipeline)), `${pipe.length.toLocaleString()} practices · raw deal amounts, Sales + Conversion`) +
+    card("Open renewals", gbp(sum(ren, p => p.hubspot_renewal_pipeline)), `${ren.length.toLocaleString()} practices · already inside contracted ARR`) +
+    card("Remaining headroom", gbp(Math.max(0, tam - sum(contracted, est) - sum(act.filter(p => !(Number(p.hubspot_contracted_arr) > 0) && Number(p.hubspot_pipeline) > 0), est))), "TAM minus the estimate for contracted practices and practices with an open deal", "text-slate-700");
+  const cmpEst = sum(contracted, est);
+  $("rev-bridge-note").innerHTML = `Contracted practices are estimated at <b>${gbp(cmpEst)}</b> but contract at <b>${gbp(cSum)}</b> (${cmpEst ? ((cSum / cmpEst - 1) * 100).toFixed(0) : 0}%), so the estimate ${cSum < cmpEst ? "overstates" : "understates"} what customers actually pay.` +
+    (noValue.length ? ` ${noValue.length} paying customer${noValue.length > 1 ? "s have" : " has"} no Service ACV or won deal yet.` : "") + " Pipeline amounts are raw and not probability-weighted. Contracted ARR is the same whichever route you sell by, because it comes from practice-level Services.";
   $("rev-pipeline").innerHTML = ["customer", "freemium", "engaged", "imported", "company", "none"].map(st => {
     const m = act.filter(p => hsState(p) === st);
-    return `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(HS_LABEL[st], HS_CLS[st])}</div><div class="text-xl font-bold mt-1">${gbp(sum(m, p => scen(p.est_arr, p.est_arr_sar)))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices</div></div>`; }).join("");
+    return `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(HS_LABEL[st], HS_CLS[st])}</div><div class="text-xl font-bold mt-1">${gbp(st === "customer" ? sum(m, p => p.hubspot_contracted_arr) : sum(m, est))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices · ${st === "customer" ? "contracted (est. " + gbp(sum(m, est)) + ")" : "estimated"}</div></div>`; }).join("");
 }
