@@ -134,18 +134,23 @@ function renderRevenue() {
   const est = p => scen(p.est_arr, p.est_arr_sar), tam = sum(act, est);
   const contracted = act.filter(p => Number(p.hubspot_contracted_arr) > 0), cSum = sum(contracted, p => p.hubspot_contracted_arr);
   const fromDeals = contracted.filter(p => p.hubspot_contracted_src === "deal"), noValue = act.filter(p => paying(p) && !(Number(p.hubspot_contracted_arr) > 0));
-  const pipe = act.filter(p => Number(p.hubspot_pipeline) > 0), ren = act.filter(p => Number(p.hubspot_renewal_pipeline) > 0);
+  const pipe = act.filter(p => Number(p.hubspot_pipeline) > 0), conv = act.filter(p => Number(p.hubspot_conversion_pipeline) > 0), ren = act.filter(p => Number(p.hubspot_renewal_pipeline) > 0);
   const card = (label, value, sub, cls = "") => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs font-semibold uppercase tracking-wider text-slate-500">${label}</div><div class="text-xl font-bold mt-1 ${cls}">${value}</div><div class="text-xs text-slate-500 mt-0.5">${sub}</div></div>`;
   const pct = v => tam ? (v / tam * 100).toFixed(1) + "% of TAM" : "";
+  const inDeal = p => Number(p.hubspot_pipeline) > 0 || Number(p.hubspot_conversion_pipeline) > 0;
   $("rev-bridge").innerHTML = card("TAM (estimate)", gbp(tam), `${act.length.toLocaleString()} active practices, priced from list size`) +
     card("Contracted ARR", gbp(cSum), `${contracted.length.toLocaleString()} practices · ${pct(cSum)}${fromDeals.length ? ` · ${fromDeals.length} from deals, unverified` : ""}`, "text-teal-700") +
-    card("Open pipeline", gbp(sum(pipe, p => p.hubspot_pipeline)), `${pipe.length.toLocaleString()} practices · raw deal amounts, Sales + Conversion`) +
+    card("New-business pipeline", gbp(sum(pipe, p => p.hubspot_pipeline)), `${pipe.length.toLocaleString()} practices · open Sales deals, raw amounts`) +
+    card("Freemium conversion", gbp(sum(conv, p => p.hubspot_conversion_pipeline)), `${conv.length.toLocaleString()} practices · open Conversion deals moving Freemium to ReportSure`) +
     card("Open renewals", gbp(sum(ren, p => p.hubspot_renewal_pipeline)), `${ren.length.toLocaleString()} practices · already inside contracted ARR`) +
-    card("Remaining headroom", gbp(Math.max(0, tam - sum(contracted, est) - sum(act.filter(p => !(Number(p.hubspot_contracted_arr) > 0) && Number(p.hubspot_pipeline) > 0), est))), "TAM minus the estimate for contracted practices and practices with an open deal", "text-slate-700");
+    card("Remaining headroom", gbp(Math.max(0, tam - sum(contracted, est) - sum(act.filter(p => !(Number(p.hubspot_contracted_arr) > 0) && inDeal(p)), est))), "TAM minus the estimate for contracted practices and practices with an open deal", "text-slate-700");
   const cmpEst = sum(contracted, est);
   $("rev-bridge-note").innerHTML = `Contracted practices are estimated at <b>${gbp(cmpEst)}</b> but contract at <b>${gbp(cSum)}</b> (${cmpEst ? ((cSum / cmpEst - 1) * 100).toFixed(0) : 0}%), so the estimate ${cSum < cmpEst ? "overstates" : "understates"} what customers actually pay.` +
-    (noValue.length ? ` ${noValue.length} paying customer${noValue.length > 1 ? "s have" : " has"} no Service ACV or won deal yet.` : "") + " Pipeline amounts are raw and not probability-weighted. Contracted ARR is the same whichever route you sell by, because it comes from practice-level Services.";
-  $("rev-pipeline").innerHTML = ["customer", "freemium", "engaged", "imported", "company", "none"].map(st => {
-    const m = act.filter(p => hsState(p) === st);
-    return `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(HS_LABEL[st], HS_CLS[st])}</div><div class="text-xl font-bold mt-1">${gbp(st === "customer" ? sum(m, p => p.hubspot_contracted_arr) : sum(m, est))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices · ${st === "customer" ? "contracted (est. " + gbp(sum(m, est)) + ")" : "estimated"}</div></div>`; }).join("");
+    (noValue.length ? ` ${noValue.length} customer${noValue.length > 1 ? "s are" : " is"} marked as customers in HubSpot but ${noValue.length > 1 ? "have" : "has"} no live contract, Commercial Model value or won deal.` : "") + " Freemium was discontinued, so every Freemium customer is a conversion target. Pipeline amounts are raw and not probability-weighted. Contracted ARR is the same whichever route you sell by, because it comes from practice-level Services.";
+  const tiles = [["customer", HS_LABEL.customer, HS_CLS.customer, act.filter(p => hsState(p) === "customer" && Number(p.hubspot_contracted_arr) > 0), p => p.hubspot_contracted_arr, m => "contracted (est. " + gbp(sum(m, est)) + ")"],
+    ["nocontract", "Customer, no contract", "bg-amber-100 text-amber-800", act.filter(p => hsState(p) === "customer" && !(Number(p.hubspot_contracted_arr) > 0)), est, () => "estimated; no live contract found in HubSpot"],
+    ["freemium", "Freemium: to convert", HS_CLS.freemium, act.filter(p => hsState(p) === "freemium"), est, m => `estimated · ${m.filter(p => Number(p.hubspot_conversion_pipeline) > 0).length} with an open conversion deal`],
+    ...["engaged", "imported", "company", "none"].map(st => [st, HS_LABEL[st], HS_CLS[st], act.filter(p => hsState(p) === st), est, () => "estimated"])];
+  $("rev-pipeline").innerHTML = tiles.map(([, label, cls, m, val, subf]) =>
+    `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(label, cls)}</div><div class="text-xl font-bold mt-1">${gbp(sum(m, val))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices · ${subf(m)}</div></div>`).join("");
 }

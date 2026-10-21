@@ -98,8 +98,8 @@ def classify(companies, contact_ids, contacts, deal_ids, deals):
 SERVICE_OBJECT = "0-162"
 # Service pipeline stages that are a live paying contract: In Contract, In contract, Renewal Period, Renewed, Within 4 weeks of Cancellation Notice Date. Pilots, freemium and churned/ceased stages are not contracted ARR.
 LIVE_SERVICE_STAGES = {"2551571664", "4743369939", "4743369940", "2551571666", "2551571665"}
-PIPELINE_SALES = {"default", "2298660077"}   # Sales + Conversion (CS); Renewals is kept apart
-PIPELINE_RENEWALS = "3784347852"
+PIPELINE_SALES, PIPELINE_CONVERSION, PIPELINE_RENEWALS = "default", "2298660077", "3784347852"   # new business | freemium -> ReportSure conversion (Freemium was discontinued) | renewals
+PIPELINE_WON = {PIPELINE_SALES, PIPELINE_CONVERSION}   # closed-won deals in these are contracted revenue
 
 
 def _date(v):
@@ -117,12 +117,13 @@ def revenue_fields(deal_ids, deals, service_ids, services, customer, model):
     live = [services[s] for s in service_ids if services.get(s, {}).get("hs_pipeline_stage") in LIVE_SERVICE_STAGES]
     acv = sum(_num(sv.get("actual_annual_contract_value__acv_")) or 0 for sv in live)
     starts, ends = [d for d in (_date(sv.get("contract_start_date")) for sv in live) if d], [d for d in (_date(sv.get("contract_end_date")) for sv in live) if d]
-    won = sum(_num(deals[d].get("amount")) or 0 for d in deal_ids if d in deals and deals[d].get("hs_is_closed_won") == "true" and deals[d].get("pipeline") in PIPELINE_SALES)
+    won = sum(_num(deals[d].get("amount")) or 0 for d in deal_ids if d in deals and deals[d].get("hs_is_closed_won") == "true" and deals[d].get("pipeline") in PIPELINE_WON)
     arr, src = (acv, "service") if acv > 0 else (won, "deal") if customer and model != "Freemium" and won > 0 else (None, None)
     open_ = [deals[d] for d in deal_ids if d in deals and deals[d].get("hs_is_closed") != "true"]
     return {"hubspot_contracted_arr": arr, "hubspot_contracted_src": src,
             "hubspot_contract_start": min(starts) if starts and src == "service" else None, "hubspot_contract_end": min(ends) if ends and src == "service" else None,
-            "hubspot_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") in PIPELINE_SALES) or None,
+            "hubspot_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_SALES) or None,
+            "hubspot_conversion_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_CONVERSION) or None,
             "hubspot_renewal_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_RENEWALS) or None}
 
 
@@ -482,7 +483,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
-                         "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
+                         "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     audit_all = audit_rows(raw, practices, now)
     conflicts = []
