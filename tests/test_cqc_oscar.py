@@ -1,8 +1,7 @@
 from datetime import datetime, timezone
 
-from src import cqc, ingest, oscar
-from tests.conftest import OSCAR_HEAD
-from tests.test_pipeline import FakeRest, patch_sources
+from src import cqc, oscar
+from tests.test_pipeline import FakeRest
 
 FULL_HEAD = ("ContactURN,OrgURN,SiteURN,KKOrgUrn,Title,FirstName,LastName,Quals,JobTitle,Dept,Add1,Add2,Town,County,Region,"
              "ContactPhone,ContactEmail,ContactEmailOptOut,MainPhone,MainEmail,MainEmailOptOut,Seniority,AllCategories,DataTypes,"

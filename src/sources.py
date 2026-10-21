@@ -9,7 +9,7 @@ from datetime import date
 import pandas as pd
 import requests
 
-from .common import ODS_RE, norm_ods
+from .common import norm_ods
 
 GP_REG_PAGE = "https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice"
 UA = {"User-Agent": "LaluMarketRadar/1.0 (+https://lalu.co.uk)"}

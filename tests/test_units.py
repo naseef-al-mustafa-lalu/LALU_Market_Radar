@@ -2,7 +2,7 @@ import pytest
 
 from src import notify, oscar, slack, software, sources
 from src.common import esc, norm_ods, title_case
-from tests.conftest import make_epraccur, make_oscar, make_patients, zipped
+from tests.conftest import make_oscar, make_patients
 
 
 def test_ods_and_title_case():

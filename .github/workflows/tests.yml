@@ -10,6 +10,19 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
 
+  lint:
+    # real mistakes only: Python syntax errors, undefined names, unused imports (ruff.toml); JavaScript syntax (each script is loaded by the page)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12' }
+      - run: pip install ruff==0.16.8
+      - run: ruff check src tests
+      - uses: actions/setup-node@v5
+        with: { node-version: '22' }
+      - run: for f in js/*.js; do node --check "$f"; done
+
   dashboard:
     # builds the stylesheet (it must match what is committed) and drives the real page in a browser against a fake Supabase
     runs-on: ubuntu-latest
