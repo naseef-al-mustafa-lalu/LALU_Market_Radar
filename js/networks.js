@@ -10,7 +10,7 @@ function openNetwork(kind, key, label) {
 /* ---------- network profile (side panel): how the network price is built and what it does to each practice ---------- */
 function openNetworkProfile(n) {
   hsShowBar(null);
-  drawerCode = null; document.querySelectorAll("#rows tr.bg-blue-50").forEach(r => r.classList.remove("bg-blue-50"));
+  drawerCode = null; document.querySelectorAll("#rows tr.bg-lalu-teal-50").forEach(r => r.classList.remove("bg-lalu-teal-50"));
   const KIND = { pcn: "PCN / cluster", icb: "ICB / health board", group: "Provider group", federation: "Federation" }[n.kind] || n.kind, key = keyOf(n);
   const members = practices.filter(p => p.status === "Active" && netMatch(p, { kind: n.kind, key })).sort((a, b) => b.total_patients - a.total_patients);
   const list = Number(cfgSettings.list_price_per_patient?.value || 0);

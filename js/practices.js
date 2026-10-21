@@ -77,7 +77,7 @@ function renderMore() {
   const frag = document.createDocumentFragment();
   for (const p of slice) {
     const tr = document.createElement("tr"); tr.dataset.ods = p.ods_code; tr.tabIndex = 0; tr.setAttribute("role", "button");
-    tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer" + (p.ods_code === drawerCode ? " bg-blue-50" : "");
+    tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer" + (p.ods_code === drawerCode ? " bg-lalu-teal-50" : "");
     const sig = signalCounts.get(p.ods_code), hasN = p.total_patients > 0;
     tr.innerHTML = `
       <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}${p.merged_into ? " " + chip("Merged → " + ((byOds.get(p.merged_into) || {}).practice_name || p.merged_into), "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : mergeSugg.has(p.ods_code) || closureCands.has(p.ods_code) ? " " + chip("May have closed or merged", "bg-amber-100 text-amber-800", "Review in Signals > Closures and mergers") : ""}</div>
@@ -212,12 +212,12 @@ const sec = (title, body) => body && body.trim() ? `<section class="border-t bor
 let drawerOpener = null;
 function drawerOpened() { if (!drawerOpener || !document.body.contains(drawerOpener)) drawerOpener = document.activeElement; $("dr-close").focus({ preventScroll: true }); }
 function closeDrawer() { const was = !$("drawer").classList.contains("translate-x-full"); drawerCode = null; $("drawer").classList.add("translate-x-full");
-  if (was && drawerOpener && document.body.contains(drawerOpener)) drawerOpener.focus({ preventScroll: true }); drawerOpener = null; stateToUrl(); document.querySelectorAll("#rows tr.bg-blue-50").forEach(r => r.classList.remove("bg-blue-50")); }
+  if (was && drawerOpener && document.body.contains(drawerOpener)) drawerOpener.focus({ preventScroll: true }); drawerOpener = null; stateToUrl(); document.querySelectorAll("#rows tr.bg-lalu-teal-50").forEach(r => r.classList.remove("bg-lalu-teal-50")); }
 $("dr-close").onclick = closeDrawer;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 async function openDrawer(p) {
   drawerCode = p.ods_code;
-  document.querySelectorAll("#rows tr").forEach(r => r.classList.toggle("bg-blue-50", r.dataset.ods === p.ods_code));
+  document.querySelectorAll("#rows tr").forEach(r => r.classList.toggle("bg-lalu-teal-50", r.dataset.ods === p.ods_code));
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
   $("dr-title").textContent = p.practice_name; stateToUrl(); hsShowBar(p);
   const st = hsState(p);
@@ -266,7 +266,7 @@ function sigTiles(sg, jobs) {
         <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">${esc(s.headline)}</span><span class="block truncate text-xs text-slate-500">${esc(fmtDate(s.detected_at))} · ${esc(type)}</span></span>
         <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${SIG_CHIP[st]}">${esc(SIG_STATUS[st])}</span>${tileChev}</summary>
       <div class="space-y-2 border-t border-slate-100 px-3 py-2.5 text-sm">${s.description ? `<p class="text-slate-700">${esc(s.description)}</p>` : ""}
-        ${s.action ? `<div class="rounded-lg bg-blue-50 p-2 text-blue-900"><div class="text-[11px] font-semibold uppercase tracking-wider text-lalu-teal-800">Next step</div><div class="mt-0.5">${esc(s.action)}</div></div>` : ""}
+        ${s.action ? `<div class="rounded-lg bg-lalu-teal-50 p-2 text-blue-900"><div class="text-[11px] font-semibold uppercase tracking-wider text-lalu-teal-800">Next step</div><div class="mt-0.5">${esc(s.action)}</div></div>` : ""}
         ${s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="inline-block text-xs font-semibold text-lalu-teal-700 hover:underline">Open source ↗</a>` : ""}</div></details>`; };
   const jobTile = j => `<details class="dtile rounded-xl border border-slate-200 bg-white"><summary class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50"><span class="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-400"></span>
       <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">${esc(j.title)}</span><span class="block truncate text-xs text-slate-500">${esc(j.matched_role)} · posted ${esc(fmtDate(j.post_date))}</span></span>

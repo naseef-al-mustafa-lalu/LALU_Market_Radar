@@ -127,7 +127,7 @@ const TABS = ["practices", "networks", "revenue", "signals", "data"]; let curren
 function showTab(which, fromUrl) {
   if (which === "data" && currentTab !== "data") setDataSub("overview");
   const changed = currentTab !== which; currentTab = which;
-  for (const t of TABS) { $("view-" + t).classList.toggle("hidden", t !== which); $("tab-" + t).className = "px-3 py-1 rounded-md " + (t === which ? "bg-white shadow-sm" : "text-slate-500"); }
+  for (const t of TABS) { $("view-" + t).classList.toggle("hidden", t !== which); $("tab-" + t).className = "px-3 py-1 rounded-md " + (t === which ? "bg-white text-lalu-navy shadow-sm" : "text-slate-300 hover:text-white hover:bg-white/10"); }
   if (which === "revenue") renderRevenue();
   if (which === "data") renderData();
   if (which !== "practices") closeDrawer();

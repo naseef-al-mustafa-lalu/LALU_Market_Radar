@@ -98,7 +98,7 @@ function renderSignals() {
 const linkIcon = '<svg viewBox="0 0 20 20" class="inline w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M11 3h6v6M17 3l-8 8M8 5H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3"/></svg>';
 const sigLink = s => s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="text-lalu-teal-700 hover:text-lalu-teal-800" title="Open source: ${esc(s.url)}" aria-label="Open source" onclick="event.stopPropagation()">${linkIcon}</a>` : "";
 const SIG_STATUS = { new: "New", in_progress: "In progress", done: "Done", dismissed: "Dismissed" };
-const SIG_STATUS_CLS = { new: "bg-white", in_progress: "bg-blue-50", done: "bg-emerald-50", dismissed: "bg-slate-100 text-slate-500" };
+const SIG_STATUS_CLS = { new: "bg-white", in_progress: "bg-lalu-teal-50", done: "bg-emerald-50", dismissed: "bg-slate-100 text-slate-500" };
 async function saveSignal(id, patch) {
   const s = signals.find(x => String(x.id) === String(id)); if (!s) return;
   const before = { status: s.status, note: s.note, handled_at: s.handled_at };
