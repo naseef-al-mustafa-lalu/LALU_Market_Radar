@@ -327,15 +327,17 @@ def test_hubspot_audit_names_and_issues():
     assert hsy.names_match("St Mary's Surgery", "St Marys Surgery")
     assert hsy.names_match("Dr Smith & Partners", "Smith and Partners Medical Centre")
     assert not hsy.names_match("Dr Jefferies & Partners", "GP at Hand")
-    practices = {"A10001": {"practice_name": "Alpha Surgery", "status": "Active", "merged_into": None}, "B20002": {"practice_name": "Beta Health Centre", "status": "Closed", "merged_into": None},
-                 "C30003": {"practice_name": "Gamma Practice", "status": "Active", "merged_into": None}}
+    practices = {"A10001": {"practice_name": "Alpha Surgery", "status": "Active", "merged_into": None, "postcode": "LS1 1AA"}, "B20002": {"practice_name": "Beta Health Centre", "status": "Closed", "merged_into": None, "postcode": "LS2 2BB"},
+                 "C30003": {"practice_name": "Gamma Practice", "status": "Active", "merged_into": None, "postcode": "LS3 3CC"}}
     raw = [{"id": 1, "properties": {"name": "Alpha Surgery", "partner_organisation_code": "a10001"}},
            {"id": 2, "properties": {"name": "Beta Health Centre", "partner_organisation_code": "B20002"}},
-           {"id": 3, "properties": {"name": "Something Else Ltd", "partner_organisation_code": "C30003"}},
+           {"id": 3, "properties": {"name": "Something Else Ltd", "partner_organisation_code": "C30003", "zip": "M1 1AA"}},
            {"id": 4, "properties": {"name": "Gamma Practice", "partner_organisation_code": "C30003"}},
-           {"id": 5, "properties": {"name": "Nowhere", "partner_organisation_code": "Z90009"}}]
+           {"id": 5, "properties": {"name": "Nowhere", "partner_organisation_code": "Z90009"}},
+           {"id": 6, "properties": {"name": "Dr Smith & Partners", "partner_organisation_code": "A10001", "zip": "ls1 1aa"}},
+           {"id": 7, "properties": {"name": "Cardiff Surgery", "partner_organisation_code": "W95001"}}]
     got = {(r["issue"], r["company_id"]) for r in hsy.audit_rows(raw, practices, "now")}
-    assert got == {("closed_practice", "2"), ("name_mismatch", "3"), ("duplicate_code", "3"), ("duplicate_code", "4"), ("unknown_code", "5")}, got
+    assert got == {("closed_practice", "2"), ("name_mismatch", "3"), ("duplicate_code", "3"), ("duplicate_code", "4"), ("unknown_code", "5"), ("unknown_wales", "7"), ("duplicate_code", "1"), ("duplicate_code", "6")}, got
 
 
 def test_hubspot_network_audit():

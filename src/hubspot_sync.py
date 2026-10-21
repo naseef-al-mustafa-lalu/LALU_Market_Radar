@@ -51,7 +51,7 @@ def fetch_companies(hub):
     out, after = [], None
     while True:
         body = {"filterGroups": [{"filters": [{"propertyName": "partner_organisation_code", "operator": "HAS_PROPERTY"}]}], "limit": 100,
-                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "createdate"], "sorts": ["createdate"]}
+                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate"], "sorts": ["createdate"]}
         if after:
             body["after"] = after
         d = hub.call("POST", "/crm/v3/objects/companies/search", json=body)
@@ -300,6 +300,13 @@ def names_match(a, b):
     return difflib.SequenceMatcher(None, " ".join(sorted(ta)), " ".join(sorted(tb))).ratio() >= 0.72
 
 
+def norm_postcode(pc):
+    return re.sub(r"[^A-Z0-9]", "", str(pc or "").upper())
+
+
+WELSH_CODE = re.compile(r"^W9\d{4}$")   # Welsh GP practice codes; Atlas holds Welsh practices only once the Wales files are loaded
+
+
 def audit_rows(raw, practices, now):
     """Mismatches between HubSpot companies (that carry a GP ODS Code) and the NHS practice list."""
     rows, by_code = [], {}
@@ -316,14 +323,18 @@ def audit_rows(raw, practices, now):
         pr = practices.get(ods)
         for c in cs:
             if pr is None:
-                add("unknown_code", c, ods, None, f"{ods} is not a GP practice in the NHS list")
+                if WELSH_CODE.match(ods):
+                    add("unknown_wales", c, ods, None, f"{ods} is a Welsh practice code that Atlas does not hold (load the Wales files on Data > Data sources)")
+                else:
+                    add("unknown_code", c, ods, None, f"{ods} is not a GP practice in the NHS list")
                 continue
             if len(cs) > 1:
                 add("duplicate_code", c, ods, pr, f"{len(cs)} HubSpot companies carry {ods}")
             if pr.get("status") != "Active" or pr.get("merged_into"):
                 add("closed_practice", c, ods, pr, "Merged into " + str(pr["merged_into"]) if pr.get("merged_into") else f"NHS status: {pr.get('status')}")
-            if not names_match(c.get("name"), pr.get("practice_name")):
-                add("name_mismatch", c, ods, pr, "HubSpot and NHS names differ")
+            same_place = norm_postcode(c.get("zip")) and norm_postcode(c.get("zip")) == norm_postcode(pr.get("postcode"))
+            if not names_match(c.get("name"), pr.get("practice_name")) and not same_place:   # a different name at the same postcode is the same practice under another name
+                add("name_mismatch", c, ods, pr, "Names and postcodes both differ" if c.get("zip") else "Names differ and the company has no postcode")
     return rows
 
 
@@ -406,7 +417,7 @@ def record(rest, rows, actor):
 
 def sync(rest, hub, now=None, actor="daily sync"):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,status,merged_into,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
+    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,postcode,status,merged_into,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
     by_ods = {}
     for c in raw:

@@ -2,8 +2,9 @@
 /* ---------- Data > HubSpot audit: HubSpot companies that do not match the NHS practice list (rebuilt by every HubSpot sync) ---------- */
 const AUDIT_ISSUES = {
   closed_practice: { label: "Closed or merged practice", tone: "bg-rose-100 text-rose-800", help: "The NHS shows this practice as closed or merged, but HubSpot still has a company for it." },
-  name_mismatch: { label: "Name differs", tone: "bg-amber-100 text-amber-800", help: "Same ODS code, but the HubSpot company name and the NHS practice name look like different places. One of them is probably on the wrong code." },
+  name_mismatch: { label: "Name differs", tone: "bg-amber-100 text-amber-800", help: "Same ODS code, but the HubSpot company's name and postcode both differ from the NHS practice. One of them is probably on the wrong code. A different name at the same postcode is not listed: that is the same practice under another name." },
   duplicate_code: { label: "Code on several companies", tone: "bg-violet-100 text-violet-800", help: "More than one HubSpot company carries the same GP ODS Code. Merge or correct them." },
+  unknown_wales: { label: "Welsh code, not in Atlas", tone: "bg-sky-100 text-sky-800", help: "A Welsh practice code (W9xxxx) that Atlas does not hold. This clears once the Wales files are loaded on Data > Data sources; any left after that are errors." },
   unknown_code: { label: "Not a GP practice code", tone: "bg-slate-200 text-slate-700", help: "The code is not a GP practice in the NHS list (a typo, a PCN or hospital code, or a practice that no longer exists)." },
   pcn_no_code: { label: "PCN record has no code", group: "net", tone: "bg-amber-100 text-amber-800", help: "A HubSpot PCN record with no ODS code cannot be linked to the NHS PCN. Where one NHS PCN has the same name the suggested code is shown. Until it has a code, the sync will not create a second record for that PCN." },
   pcn_duplicate: { label: "PCN code on several records", group: "net", tone: "bg-violet-100 text-violet-800", help: "More than one HubSpot PCN record carries the same code. Merge them." },
