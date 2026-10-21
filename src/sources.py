@@ -187,6 +187,24 @@ def pcn_for_practice(detail):
     return best[1] if best else None
 
 
+def operational_dates(detail):
+    """(start, end) ISO dates of the practice's Operational period in an ODS organisation record; None where absent or malformed."""
+    ops = [d for d in ((detail or {}).get("Organisation") or {}).get("Date", []) if d.get("Type") == "Operational"]
+    ok = lambda v: v if re.match(r"^\d{4}-\d{2}-\d{2}$", v or "") else None  # noqa: E731
+    return ok(min((d.get("Start", "") for d in ops if d.get("Start")), default="")), ok(max((d.get("End", "") for d in ops if d.get("End")), default=""))
+
+
+def fetch_ods_dates(codes, getj=get_json, workers=12):
+    """{ods: (operational start, end)} for each practice looked up; failed lookups are omitted and retried on a later run."""
+    def one(code):
+        try:
+            return code, operational_dates(getj(f"{ODS_API}/organisations/{code}"))
+        except Exception:  # noqa: BLE001
+            return code, None
+    with ThreadPoolExecutor(workers) as ex:
+        return {c: v for c, v in ex.map(one, codes) if v is not None}
+
+
 def fetch_pcn_codes(codes, getj=get_json, workers=12):
     """{ods: pcn_code or ''} for each practice looked up; practices whose lookup failed are omitted."""
     def one(code):

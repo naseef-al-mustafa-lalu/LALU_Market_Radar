@@ -65,6 +65,8 @@ function cqcCell(p) {
   if (!p.cqc_rating) return '<span class="text-slate-300">–</span>';
   return CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating], p.cqc_last_inspection ? "Inspected " + p.cqc_last_inspection : "") : `<span class="text-xs text-slate-500" title="${p.cqc_last_inspection ? "Inspected " + esc(p.cqc_last_inspection) : ""}">${esc(p.cqc_rating)}</span>`;
 }
+// Operational period from the ODS API: opened date, and the closed date once it has one
+const opPeriod = p => p.operational_start_date || p.operational_end_date ? esc((p.operational_start_date ? "Opened " + fmtDate(p.operational_start_date) : "") + (p.operational_end_date ? (p.operational_start_date ? " · " : "") + "Closed " + fmtDate(p.operational_end_date) : "")) : "";
 function hsCell(p) {
   const st = hsState(p), stage = p.hubspot_stage;
   const tip = p.hs_contacts === 0 ? "No contact yet" : p.hs_primary_imported ? "Key contact imported " + fmtDate(p.hs_primary_imported_at) : p.hs_imported > 0 ? p.hs_imported + " of " + p.hs_contacts + " contacts imported" : "Contact not imported";
@@ -88,7 +90,6 @@ function renderMore() {
       <td class="px-3 py-2 text-right whitespace-nowrap">${contractedCell(p)}</td>
       <td class="px-3 py-2">${networkCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap">${cqcCell(p)}</td>
-      <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-600">${SYS[p.clinical_software] || '<span class="text-slate-300">–</span>'}</td>
       <td class="px-3 py-2">${p.manager_name ? `<div class="font-medium leading-tight">${esc(p.manager_name)}</div><div class="text-xs text-slate-500">${esc(p.manager_title)}</div>` : '<span class="text-xs text-slate-300">no contact yet</span>'}</td>
       <td class="px-3 py-2 whitespace-nowrap">${hsCell(p)}</td>`;
     tr.onclick = () => openDrawer(p);
@@ -96,7 +97,7 @@ function renderMore() {
   }
   $("rows").appendChild(frag);
   $("more").classList.toggle("hidden", shown >= filtered.length);
-  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="10" class="p-6 text-center text-slate-500 italic">No practices match these filters.</td></tr>';
+  if (!filtered.length) $("rows").innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-500 italic">No practices match these filters.</td></tr>';
 }
 $("more").addEventListener("click", renderMore);
 
@@ -228,14 +229,15 @@ async function openDrawer(p) {
   const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
   const body = $("dr-body");
   body.innerHTML = mergeSection(p) + `<div id="dr-contacts" class="text-sm text-slate-500">Loading contacts…</div><div id="dr-signals"></div>` +
-    sec("Practice details", kv("Address", addr) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Region", esc(p.region)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
+    sec("Practice details", kv("Address", addr) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Region", esc(p.region)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : '<span class="text-slate-500">Not identified</span>') +
+      kv("Operational", opPeriod(p)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
       kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)) + kv("Categories", esc(p.oscar_categories))) +
     sec("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + " practices)", "group", p.cqc_provider_id) : "") +
       kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") + kv("ICB", p.icb_name && p.icb_name !== "Unallocated ICB" ? link(p.icb_name, "icb", p.icb_name.toLowerCase()) : "")) +
     sec("Pricing", p.total_patients > 0 ? priceCard({ patients: p.total_patients, tierRow: cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), route: "practice", arr: p.est_arr }) +
       `<div class="text-xs text-slate-500 mt-1">List size ${p.data_month ? "from " + esc(p.data_month) : ""}.</div>` + routeComparison(p) : `<p class="text-sm text-slate-600">No list size, so no price. ${esc(p.merged_into ? "Its patients are counted under the practice it merged into." : isClosed(p) ? "This practice has closed." : noSizeReason(p))}</p>`) +
     sec("Quality and system", kv("CQC rating", p.cqc_rating ? (CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : esc(p.cqc_rating)) : p.cqc_location_id ? '<span class="text-slate-500">Not rated yet</span>' : '<span class="text-slate-500" title="No CQC location could be matched to this practice by postcode and ODS code, so there is no rating, registration status or inspection date.">Not matched to a CQC location</span>') + kv("Registration", esc(p.cqc_status)) + kv("Last inspection", esc(p.cqc_last_inspection)) +
-      kv("Manager absent since", esc(p.cqc_manager_absent_date)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : ""))  +
+      kv("Manager absent since", esc(p.cqc_manager_absent_date)))  +
     hsSection(p, st) +
     sec("Notes (Oscar)", p.org_notes ? `<div class="text-sm text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : "");
   body.scrollTop = 0;

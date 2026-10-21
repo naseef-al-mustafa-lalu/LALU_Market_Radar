@@ -381,3 +381,15 @@ def test_hubspot_sync_commercial_model_makes_a_customer():
     f = hsy.classify([ex], [], {}, [], {})
     assert f["hubspot_customer"] is False and f["hubspot_commercial_model"] is None        # an ex-customer keeps no model
     assert hsy.classify([{"id": "2", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}], [], {}, [], {})["hubspot_commercial_model"] is None
+
+
+def test_ods_operational_dates():
+    from datetime import datetime, timezone
+    from src import ingest, sources
+    d = {"Organisation": {"Date": [{"Type": "Legal", "Start": "2001-01-01"}, {"Type": "Operational", "Start": "2013-04-01", "End": "2024-03-31"}]}}
+    assert sources.operational_dates(d) == ("2013-04-01", "2024-03-31")
+    assert sources.operational_dates({"Organisation": {"Date": [{"Type": "Operational", "Start": "bad"}]}}) == (None, None)
+    now = datetime(2026, 10, 21, tzinfo=timezone.utc)
+    existing = {"A": {"status": "Closed"}, "B": {"status": "Active"}, "C": {"status": "Active", "ods_dates_checked_at": "2026-10-01T00:00:00+00:00"},
+                "D": {"status": "Active", "ods_dates_checked_at": "2025-01-01T00:00:00+00:00"}}
+    assert ingest.dates_due(existing, existing, now) == ["A", "B", "D"]   # closed without an end date first, then never fetched, then stale; C is fresh

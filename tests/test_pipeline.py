@@ -49,6 +49,8 @@ def patch_sources(monkeypatch, oscar_bytes, n=5200, with_counts=True, rest=None)
     monkeypatch.setattr(sources, "load_active_gp_practices", lambda: active)
     monkeypatch.setattr(sources, "fetch", lambda url, timeout=0: b'"U11111","PCN ONE","X","NHS TEST ICB - 99Z","2024"\n' if "epcn" in url else oscar_bytes)
     monkeypatch.setattr(sources, "fetch_pcn_codes", lambda codes: {c: ("U11111" if c == "A10000" else "") for c in codes})
+    monkeypatch.setattr(sources, "fetch_ods_dates", lambda codes: {c: ("2013-04-01", None) for c in codes})
+    monkeypatch.setattr(ingest, "DATES_DAILY_CAP", 10**6)
     monkeypatch.setattr(ingest.software, "check_many", lambda d: {k: "Unknown" for k in d})
     monkeypatch.setenv("OSCAR_API_URL", "http://oscar")
     if rest is not None and with_counts:

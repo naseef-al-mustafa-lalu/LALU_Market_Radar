@@ -14,9 +14,11 @@ CONTACT_FIELDS = ["ods_code", "full_name", "job_title", "seniority", "email", "p
                   "org_urn", "title", "first_name", "last_name", "quals", "dept", "categories", "data_types", "main_site"]
 SOFTWARE_DAILY_CAP = 400
 SOFTWARE_RECHECK = timedelta(days=90)
+DATES_DAILY_CAP = 2500
+DATES_RECHECK = timedelta(days=180)
 
 
-def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software, pcn_checked=frozenset()):
+def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software, pcn_checked=frozenset(), dates=None):
     """Merge sources into upsert rows (only rows that changed). Pure function: no I/O except software checks."""
     now = datetime.now(timezone.utc)
     recs = {}
@@ -32,6 +34,8 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
                                    **dict.fromkeys(oscar.ORG_KEYS), "main_email_opt_out": False}
         r.update(ods_code=code, practice_name=title_case(o["name"]), postcode=o["postcode"] or r.get("postcode"),
                  status=o["status"], data_month=month if code in patients else r.get("data_month"))
+        if dates and code in dates:
+            r["operational_start_date"], r["operational_end_date"], r["ods_dates_checked_at"] = dates[code][0], dates[code][1], now.isoformat()
         if o["status"] == "Active" and code in patients:
             r["total_patients"] = patients[code]
         pcn_icb = None
@@ -79,7 +83,7 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
     changed = []
     for code, r in recs.items():
         old = existing.get(code)
-        if not old or any(r.get(k) != old.get(k) for k in TRACKED) or r.get("software_checked_at") != old.get("software_checked_at") or r.get("pcn_checked_at") != old.get("pcn_checked_at"):
+        if not old or any(r.get(k) != old.get(k) for k in TRACKED) or r.get("software_checked_at") != old.get("software_checked_at") or r.get("pcn_checked_at") != old.get("pcn_checked_at") or r.get("ods_dates_checked_at") != old.get("ods_dates_checked_at"):
             changed.append({k: v for k, v in r.items() if k not in ("lead_status", "first_seen", "last_updated", "sales_segment", "price_tier", "base_price", "est_arr")})
     return changed, len(due)
 
@@ -145,6 +149,31 @@ def pcn_step(active, existing, now, stats):
     except Exception as e:  # noqa: BLE001  PCN is enrichment, not critical
         stats["pcn_error"] = str(e)[:200]
         return {}, frozenset()
+
+
+def dates_due(ods, existing, now):
+    """Practices whose ODS operational dates are missing for a closed one, never fetched, or older than DATES_RECHECK (capped per run)."""
+    first, never, stale = [], [], []
+    for c in sorted(ods):
+        old = existing.get(c) or {}
+        checked = old.get("ods_dates_checked_at")
+        if old.get("status") == "Closed" and not old.get("operational_end_date"):
+            first.append(c)
+        elif not checked:
+            never.append(c)
+        elif datetime.fromisoformat(checked.replace("Z", "+00:00")) < now - DATES_RECHECK:
+            stale.append(c)
+    return (first + never + stale)[:DATES_DAILY_CAP]
+
+
+def dates_step(ods, existing, now, stats):
+    try:
+        dates = sources.fetch_ods_dates(dates_due(ods, existing, now))
+        stats["ods_dates_fetched"] = len(dates)
+        return dates
+    except Exception as e:  # noqa: BLE001  enrichment, not critical
+        stats["ods_dates_error"] = str(e)[:200]
+        return {}
 
 
 def oscar_step(env, active, stats, rejects):
@@ -225,8 +254,9 @@ def sync(rest, run_id):
     patients, month = read_patient_counts(rest, now, stats)
     pcn_map, pcn_checked = pcn_step(active, existing, now, stats)
     contacts, oscar_info = oscar_step(env, active, stats, rejects)
+    dates = dates_step(ods, existing, now, stats)
 
-    records, checked = build_records(ods, patients, month, existing, pcn_map, oscar_info, software.check_many, pcn_checked)
+    records, checked = build_records(ods, patients, month, existing, pcn_map, oscar_info, software.check_many, pcn_checked, dates)
     stats.update(practices_changed=len(records), software_checked=checked)
     rest.upsert("gp_practices", records, "ods_code")
 
