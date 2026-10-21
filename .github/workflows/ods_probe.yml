@@ -1,0 +1,11 @@
+name: ODS probe (temporary)
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          B=https://directory.spineservices.nhs.uk/ORD/2-0-0
+          echo "== search Holycroft"; curl -s "$B/organisations?Name=Holycroft&Limit=20" | tee /tmp/s.json | head -c 3000; echo
+          for c in $(python3 -c "import json;print(' '.join(o['OrgId'] for o in json.load(open('/tmp/s.json')).get('Organisations',[])[:4]))"); do echo "== detail $c"; curl -s "$B/organisations/$c" | head -c 3500; echo; done
+          echo "== roles with branch"; curl -s "$B/roles" | python3 -c "import sys,json;[print(r) for r in json.load(sys.stdin).get('Roles',[]) if 'BRANCH' in r.get('displayName','').upper() or 'GP' in r.get('displayName','').upper()]"
