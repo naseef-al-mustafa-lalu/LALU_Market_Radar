@@ -82,13 +82,11 @@ The views `practice_pricing` and `org_pricing` calculate it live, so editing a r
 The dashboard shows it per practice, per network (Networks tab) and in the **Revenue** tab (route totals, tier breakdown, pipeline by lead status, rate card).
 Provider groups and federations are priced on the aggregate patients of their linked practices (seeded from the PCN schedule; edit the `group` / `federation` rows in `pricing_tiers`). The routes are alternative ways to sell to the same patients: do not add them together. `MIN_TIER_ALERT` (Tier 1-5) uses the single-practice tiers.
 
-## HubSpot status (for the future integration)
-No HubSpot connection exists yet; the tables are ready for one. Fields the integration should write:
+## HubSpot status (what the dashboard reads)
+The daily HubSpot sync (see "HubSpot sync" below) writes these fields; daily NHS loads never overwrite them:
 - `contacts.hubspot_status` (`Not imported` / `Imported`), `hubspot_imported_at`, `hubspot_contact_id`: has this contact been imported into HubSpot, and when.
-- `gp_practices.hubspot_company_id`, `hubspot_company_imported_at`, `hubspot_stage` (raw lifecycle stage), `hubspot_engaged`, `hubspot_customer`, `hubspot_synced_at`.
-The dashboard reads them: the practice table's **HubSpot** column (Customer / Engaged / In HubSpot / Not in HubSpot plus the import date), the Networks tab's **Engaged**
-(x of N linked practices) and **Customers** status, and the Revenue tab's HubSpot position. Daily loads never overwrite these fields.
-Example manual update: `update contacts set hubspot_status='Imported', hubspot_imported_at=now() where contact_urn=123;`
+- `gp_practices.hubspot_company_id`, `hubspot_company_imported_at`, `hubspot_stage` (lifecycle stage, or "Ex-customer"), `hubspot_engaged`, `hubspot_customer`, `hubspot_synced_at`.
+The dashboard shows them as the practice table's **HubSpot** column (Customer / Engaged / In HubSpot / Company only / Not in HubSpot), the Networks tab's **Engaged** and **Customers**, and the Revenue tab's HubSpot position.
 
 ## Data model
 `gp_practices` holds one row per practice with everything collected about it. `organisations` + `org_relationships` form a graph
@@ -129,7 +127,7 @@ tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Osca
 ## Security notes
 
 - The Supabase client script is hosted in `assets/vendor/` (version in the file name) rather than loaded from a CDN, so a compromised CDN cannot inject code. To upgrade it, `npm pack @supabase/supabase-js@<version>` and copy `dist/umd/supabase.js` there.
-- The Supabase advisor flags four `SECURITY DEFINER` functions and three tables with RLS but no policy. All are intentional and documented in migration `20261017000018`.
+- The Supabase advisor flags eight `SECURITY DEFINER` functions that signed-in users can call (`am_i_allowed`, `dismiss_merge_suggestion`, `link_job_employer`, `load_devolved`, `load_patient_counts`, `set_practice_closed`, `set_practice_merge`, `sync_pricing`) and three tables with RLS but no policy (`allowed_users`, `ingest_rejects`, `kv_state`). All eight functions check the allowlist inside; the tables are service-role only. Intentional, see migration `20261017000018`.
 - Turn on leaked-password protection in the Supabase dashboard (Authentication) so breached passwords are rejected.
 
 ## Updating prices from the pricing spreadsheet
