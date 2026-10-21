@@ -332,7 +332,10 @@ def test_hubspot_contracted_arr_and_pipeline():
            "s2": {"hs_pipeline_stage": "2551571667", "actual_annual_contract_value__acv_": "9999"},   # churned: ignored
            "s3": {"hs_pipeline_stage": "2551571663", "actual_annual_contract_value__acv_": "800"}}    # pilot: ignored
     f = hsy.revenue_fields(["w", "o", "r"], deals, ["s1", "s2", "s3"], svc, True, "eMR Plus")
-    assert f == {"hubspot_contracted_arr": 4000.0, "hubspot_contracted_src": "service", "hubspot_pipeline": 500.0, "hubspot_renewal_pipeline": 700.0}
+    svc["s1"].update(contract_start_date="2025-02-01", contract_end_date="1801440000000")
+    f = hsy.revenue_fields(["w", "o", "r"], deals, ["s1", "s2", "s3"], svc, True, "eMR Plus")
+    assert f == {"hubspot_contracted_arr": 4000.0, "hubspot_contracted_src": "service", "hubspot_contract_start": "2025-02-01", "hubspot_contract_end": "2027-02-01",
+                 "hubspot_pipeline": 500.0, "hubspot_renewal_pipeline": 700.0}
     g = hsy.revenue_fields(["w"], deals, [], {}, True, "eMR Plus")                  # no Service: fall back to the won deal, flagged
     assert g["hubspot_contracted_arr"] == 900.0 and g["hubspot_contracted_src"] == "deal"
     assert hsy.revenue_fields(["w"], deals, [], {}, True, "Freemium")["hubspot_contracted_arr"] is None   # freemium has no revenue
