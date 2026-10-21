@@ -85,6 +85,7 @@ The dashboard shows it per practice, per network (Networks tab) and in the **Rev
 Provider groups and federations are priced on the aggregate patients of their linked practices (seeded from the PCN schedule; edit the `group` / `federation` rows in `pricing_tiers`). The routes are alternative ways to sell to the same patients: do not add them together. `MIN_TIER_ALERT` (Tier 1-5) uses the single-practice tiers.
 
 ## HubSpot status (what the dashboard reads)
+The company's **Commercial Model** (HubSpot property `current_subscription`, which HubSpot clears at churn) is stored as `gp_practices.hubspot_commercial_model` and makes the practice a customer even with no deal or a lead lifecycle stage. **Freemium** customers show as their own status ("Freemium", filter "Freemium customers", own card in the revenue pipeline), have no deal prompt in the profile, and are left out of the customer ARR on the Networks tab (migration `20261021000033`): they bring no revenue.
 The daily HubSpot sync (see "HubSpot sync" below) writes these fields; daily NHS loads never overwrite them:
 - `contacts.hubspot_status` (`Not imported` / `Imported`), `hubspot_imported_at`, `hubspot_contact_id`: has this contact been imported into HubSpot, and when.
 - `gp_practices.hubspot_company_id`, `hubspot_company_imported_at`, `hubspot_stage` (lifecycle stage, or "Ex-customer"), `hubspot_engaged`, `hubspot_customer`, `hubspot_synced_at`.

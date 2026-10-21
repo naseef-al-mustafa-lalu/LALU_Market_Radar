@@ -130,7 +130,7 @@ function renderRevenue() {
   const labels = cfgTiers.filter(t => t.route === "practice").sort((a, b) => a.tier - b.tier);
   $("rev-matrix").innerHTML = labels.map(t => `<tr><td class="py-1.5">${chip("Tier " + t.tier, TIER_CLS["Tier " + t.tier] || "")} <span class="text-slate-500 text-xs">${esc(t.label)}</span></td>${routes.map(r => `<td class="py-1.5 text-right font-mono">${fmt(cell(r, t.tier))}</td>`).join("")}</tr>`).join("") +
     `<tr class="font-semibold"><td class="py-1.5">Total</td>${routes.map(r => `<td class="py-1.5 text-right font-mono">${fmt(revMetric === "arr" ? sum(r.list, r.val) : revMetric === "patients" ? sum(r.list, r.pat) : r.list.length)}</td>`).join("")}</tr>`;
-  $("rev-pipeline").innerHTML = ["customer", "engaged", "imported", "company", "none"].map(st => {
+  $("rev-pipeline").innerHTML = ["customer", "freemium", "engaged", "imported", "company", "none"].map(st => {
     const m = act.filter(p => hsState(p) === st);
     return `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(HS_LABEL[st], HS_CLS[st])}</div><div class="text-xl font-bold mt-1">${gbp(sum(m, p => scen(p.est_arr, p.est_arr_sar)))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices</div></div>`; }).join("");
 }

@@ -30,10 +30,12 @@ const noSizeReason = p => p.merged_into ? "Merged into another practice: its pat
 const TIER_CLS = { "Tier 1": "bg-purple-200 text-purple-900", "Tier 2": "bg-purple-100 text-purple-800", "Tier 3": "bg-violet-50 text-violet-700", "Tier 4": "bg-slate-100 text-slate-600", "Tier 5": "bg-slate-50 text-slate-500" };
 const CQC_CHIP = { "Outstanding": "bg-emerald-100 text-emerald-800", "Requires improvement": "bg-amber-100 text-amber-800", "Inadequate": "bg-rose-100 text-rose-800" };   // "Good" is the norm: plain text
 const CQC_RANK = { "Inadequate": 1, "Requires improvement": 2, "Good": 3, "Outstanding": 4 };
-const HS_CLS = { customer: "bg-emerald-100 text-emerald-800", engaged: "bg-blue-100 text-blue-800", imported: "bg-slate-100 text-slate-700", company: "bg-slate-100 text-slate-700", none: "bg-slate-50 text-slate-500" };
-const HS_LABEL = { customer: "Customer", engaged: "Engaged", imported: "In HubSpot", company: "Company only", none: "Not in HubSpot" };
-const HS_RANK = { customer: 1, engaged: 2, imported: 3, company: 4, none: 5 };
-const hsState = p => p.hubspot_customer ? "customer" : p.hubspot_engaged ? "engaged" : p.hs_imported > 0 ? "imported" : p.hubspot_company_id ? "company" : "none";
+const HS_CLS = { customer: "bg-emerald-100 text-emerald-800", freemium: "bg-teal-50 text-teal-800 ring-1 ring-teal-200", engaged: "bg-blue-100 text-blue-800", imported: "bg-slate-100 text-slate-700", company: "bg-slate-100 text-slate-700", none: "bg-slate-50 text-slate-500" };
+const HS_LABEL = { customer: "Customer", freemium: "Freemium", engaged: "Engaged", imported: "In HubSpot", company: "Company only", none: "Not in HubSpot" };
+const HS_RANK = { customer: 1, freemium: 2, engaged: 3, imported: 4, company: 5, none: 6 };
+// HubSpot company "Commercial Model" values (current_subscription) as HubSpot labels them. Freemium is a customer that brings no revenue.
+const HS_COMPANY_MODEL = { "eMR Plus": "ReportSure - MS - All reports", PAYG: "ReportSure PAYG", Freemium: "ReportSure Freemium", "GP eMR": "ReportSure Self Service", "eMR+ SAR Only": "ReportSure - MS - SAR Only" };
+const hsState = p => p.hubspot_customer ? (p.hubspot_commercial_model === "Freemium" ? "freemium" : "customer") : p.hubspot_engaged ? "engaged" : p.hs_imported > 0 ? "imported" : p.hubspot_company_id ? "company" : "none";
 const NET_KINDS = { pcn: "PCNs", group: "Provider groups", federation: "Federations", icb: "ICBs" };
 const SYS = { "EMIS Web": "EMIS", "SystmOne": "SystmOne", "Vision": "Vision" };
 const HOT = ["MERGER_DETECTED", "NEW_PRACTICE", "CQC_DEREGISTERED", "CQC_PROVIDER_CHANGE"];

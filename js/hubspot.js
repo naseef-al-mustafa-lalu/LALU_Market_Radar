@@ -53,7 +53,7 @@ function hsDesired(p) {
 // The HubSpot section of the profile now holds facts only (status, links, lifecycle); the one action lives beside the price controls (hsBarHtml).
 function hsSection(p, st) {
   const linked = !!p.hubspot_company_id, active = p.status === "Active" && p.total_patients > 0, when = [p.hubspot_company_imported_at && "Created from Atlas " + fmtDate(p.hubspot_company_imported_at), p.hubspot_synced_at && "last synced " + fmtDate(p.hubspot_synced_at)].filter(Boolean).join(" · ");
-  return sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st]) + (!linked && active && st !== "none" ? " " + chip("No company record", "bg-amber-100 text-amber-800") : "")) + kv("Company record", linked ? hsLink("0-2", p.hubspot_company_id, "Open in HubSpot") : "") + '<div id="dr-hsdeal"></div>' + kv("Lifecycle stage", esc(p.hubspot_stage))
+  return sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st]) + (!linked && active && st !== "none" ? " " + chip("No company record", "bg-amber-100 text-amber-800") : "")) + kv("Company record", linked ? hsLink("0-2", p.hubspot_company_id, "Open in HubSpot") : "") + '<div id="dr-hsdeal"></div>' + kv("Commercial model", p.hubspot_commercial_model ? esc(HS_COMPANY_MODEL[p.hubspot_commercial_model] || p.hubspot_commercial_model) : "") + kv("Lifecycle stage", esc(p.hubspot_stage))
     + kv("Contacts in HubSpot", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + (when ? `<div class="mt-1 text-xs text-slate-500">${esc(when)}</div>` : ""));
 }
 
@@ -78,6 +78,7 @@ function hsBarHtml(p) {
   let dot = "bg-slate-300", text = "", right = "";
   if (!linked) { dot = "bg-amber-400"; text = "Not in HubSpot yet"; right = act("create", "Add to HubSpot"); }
   else if (i.loading) text = "Checking the linked deal…";
+  else if (!i.link && p.hubspot_commercial_model === "Freemium") { dot = "bg-teal-500"; text = "Freemium customer: no deal needed"; right = act("push", "Manage in HubSpot"); }
   else if (!i.link) { dot = "bg-amber-400"; text = "Company in HubSpot, no deal linked yet"; right = act("push", "Set up in HubSpot"); }
   else if (i.error) { dot = "bg-rose-500"; text = "Could not read the linked deal"; right = act("push", "Retry"); }
   else if (i.pair) {

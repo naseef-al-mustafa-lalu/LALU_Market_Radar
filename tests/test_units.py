@@ -350,3 +350,14 @@ def test_hubspot_network_audit():
                    ("pcn_association", "77")}, got
     nocode = next(r for r in rows if r["issue"] == "pcn_no_code")
     assert "U00002" in nocode["detail"] and nocode["nhs_name"] == "East Health Network"   # the code-less record is matched to its NHS PCN by name
+
+
+def test_hubspot_sync_commercial_model_makes_a_customer():
+    from src import hubspot_sync as hsy
+    free = {"id": "1", "lifecyclestage": "lead", "company_status": "Current Customer", "current_subscription": "Freemium", "createdate": "2025-01-01T00:00:00Z"}
+    f = hsy.classify([free], [], {}, [], {})
+    assert f["hubspot_customer"] is True and f["hubspot_commercial_model"] == "Freemium"   # a customer with no deal and a lead lifecycle stage
+    ex = dict(free, company_status="Ex-Customer")
+    f = hsy.classify([ex], [], {}, [], {})
+    assert f["hubspot_customer"] is False and f["hubspot_commercial_model"] is None        # an ex-customer keeps no model
+    assert hsy.classify([{"id": "2", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}], [], {}, [], {})["hubspot_commercial_model"] is None

@@ -1,7 +1,7 @@
 """Daily HubSpot -> dashboard sync: link each practice to its HubSpot company (matched on the GP ODS Code field) and fill in
 customer / engaged status, lifecycle stage and which of the practice's contacts already exist in HubSpot. Read-only on HubSpot.
 
-Customer: company lifecycle stage is Customer, or any associated deal is Closed Won, unless the company's Company Status is Ex-Customer.
+Customer: company lifecycle stage is Customer, the company has a Commercial Model, or any associated deal is Closed Won, unless the company's Company Status is Ex-Customer.
 Engaged: the company's lifecycle stage is past New / Prospecting (Engaged, MQL, SQL, Opportunity, Evangelist, Client Services).
 """
 import difflib
@@ -51,7 +51,7 @@ def fetch_companies(hub):
     out, after = [], None
     while True:
         body = {"filterGroups": [{"filters": [{"propertyName": "partner_organisation_code", "operator": "HAS_PROPERTY"}]}], "limit": 100,
-                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "createdate"], "sorts": ["createdate"]}
+                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "createdate"], "sorts": ["createdate"]}
         if after:
             body["after"] = after
         d = hub.call("POST", "/crm/v3/objects/companies/search", json=body)
@@ -86,12 +86,13 @@ def classify(companies, contact_ids, contacts, deal_ids, deals):
     """One practice's flags from all HubSpot companies that carry its ODS code. Returns dict of the dashboard fields."""
     # HubSpot never moves a company back out of the Customer stage, so a company whose Company Status is Ex-Customer is not a customer
     live = [c for c in companies if c.get("company_status") != "Ex-Customer"]
-    customer = any(c.get("lifecyclestage") == "customer" for c in live) or (bool(live) and any(deals.get(d, {}).get("hs_is_closed_won") == "true" for d in deal_ids))
+    model = next((c.get("current_subscription") for c in live if c.get("current_subscription")), None)   # the company's Commercial Model: HubSpot clears it at churn
+    customer = any(c.get("lifecyclestage") == "customer" for c in live) or bool(model) or (bool(live) and any(deals.get(d, {}).get("hs_is_closed_won") == "true" for d in deal_ids))
     engaged = any(c.get("lifecyclestage") in ENGAGED_STAGES for c in companies)
     primary = sorted(companies, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]
     stage = "Ex-customer" if primary.get("company_status") == "Ex-Customer" else LIFECYCLE.get(primary.get("lifecyclestage") or "", primary.get("lifecyclestage") or None)
     return {"hubspot_company_id": str(primary["id"]), "hubspot_company_imported_at": primary.get("createdate"), "hubspot_stage": stage,
-            "hubspot_engaged": bool(engaged), "hubspot_customer": bool(customer)}
+            "hubspot_engaged": bool(engaged), "hubspot_customer": bool(customer), "hubspot_commercial_model": model}
 
 
 PCN_OBJECT, ICB_OBJECT = "p145802630_pcns", "p145802630_icbs"
@@ -431,7 +432,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     for ods, p in practices.items():   # a practice that had a company before but no longer does: clear the link and flags
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
-                         "hubspot_engaged": False, "hubspot_customer": False, "hubspot_synced_at": now})
+                         "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     audit_all = audit_rows(raw, practices, now)
     conflicts = []
