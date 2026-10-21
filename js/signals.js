@@ -20,7 +20,7 @@ function renderSignalTypes() {
   $("sig-types-rows").innerHTML = sigSettings.map(t => `<tr class="align-top ${t.enabled ? "" : "opacity-60"}"><td class="py-2 pr-3"><div class="font-semibold leading-tight">${esc(t.label)}</div><div class="font-mono text-xs text-slate-500">${esc(t.trigger_type)}</div></td>
     <td class="pr-3 text-xs text-slate-700">${esc(t.source)}</td><td class="pr-3 text-xs text-slate-600">${esc(t.rule)}</td><td class="pr-3 text-xs text-slate-500">${esc(t.why)}</td>
     <td class="pr-3 text-right font-mono">${rec.get(t.trigger_type) || 0}</td><td class="pr-3 text-right font-mono">${tot.get(t.trigger_type) || 0}</td>
-    <td class="text-center"><input type="checkbox" class="h-4 w-4 accent-blue-600" data-t="${esc(t.trigger_type)}" ${t.enabled ? "checked" : ""} aria-label="Enable ${esc(t.label)}"></td></tr>`).join("") || '<tr><td colspan="7" class="py-4 text-slate-500 italic">No signal catalogue found.</td></tr>';
+    <td class="text-center"><input type="checkbox" class="h-4 w-4 accent-lalu-teal-700" data-t="${esc(t.trigger_type)}" ${t.enabled ? "checked" : ""} aria-label="Enable ${esc(t.label)}"></td></tr>`).join("") || '<tr><td colspan="7" class="py-4 text-slate-500 italic">No signal catalogue found.</td></tr>';
 }
 $("sig-types-rows").addEventListener("change", async e => {
   const cb = e.target.closest("input[data-t]"); if (!cb) return;
@@ -61,11 +61,11 @@ function renderMoreJobMatches() {
     const ads = adv.get(e.employer_code) || [], cur = e.ods_code ? byOds.get(e.ods_code) : null;
     const linkedNet = e.org_id ? networks.find(n => n.id === e.org_id) : null; const opts = (e.candidates || []).map(c => `<option value="${esc(c.ods_code)}" ${c.ods_code === e.ods_code ? "selected" : ""}>${esc(c.name)} (${esc(c.ods_code)}${c.postcode ? ", " + esc(c.postcode) : ""})${c.reason ? " – " + esc(c.reason) : ""}</option>`).join("");
     return `<tr class="align-top" data-c="${esc(e.employer_code)}"><td class="py-2 pr-3"><div class="font-semibold leading-tight">${esc(e.employer_name)}</div><div class="font-mono text-xs text-slate-500">${esc(e.employer_code)} · ${esc((e.postcodes || []).slice(0, 3).join(", "))}</div></td>
-      <td class="pr-3 text-xs">${ads.length ? ads.slice(0, 3).map(j => `<div><a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(j.url)}">${esc(j.title)}</a> <span class="text-slate-500">${esc(fmtDate(j.post_date))}</span></div>`).join("") + (ads.length > 3 ? `<div class="text-slate-500">+${ads.length - 3} more</div>` : "") : '<span class="text-slate-300">none</span>'}</td>
+      <td class="pr-3 text-xs">${ads.length ? ads.slice(0, 3).map(j => `<div><a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${esc(j.url)}">${esc(j.title)}</a> <span class="text-slate-500">${esc(fmtDate(j.post_date))}</span></div>`).join("") + (ads.length > 3 ? `<div class="text-slate-500">+${ads.length - 3} more</div>` : "") : '<span class="text-slate-300">none</span>'}</td>
       <td class="pr-3 text-xs">${e.match_status === "confirmed" || e.match_status === "auto" ? `<b>${esc(cur ? cur.practice_name : linkedNet ? linkedNet.name : (e.ods_code || e.org_id || ""))}</b> <span class="text-slate-500">${esc(e.ods_code || (linkedNet ? linkedNet.kind : ""))}</span>` :
         `<select class="jm-pick border border-slate-300 rounded px-2 py-1 text-xs max-w-[18rem]"><option value="">${opts ? "Choose the practice…" : "No practice at this postcode"}</option>${opts}</select><div class="mt-1 flex gap-1"><input class="jm-ods border border-slate-300 rounded px-2 py-0.5 text-xs w-24" placeholder="or ODS code"><input list="jm-netlist" class="jm-net border border-slate-300 rounded px-2 py-0.5 text-xs w-44" placeholder="or PCN / federation / group"></div>`}</td>
       <td class="whitespace-nowrap text-xs">${e.match_status === "confirmed" || e.match_status === "auto" || e.match_status === "rejected" ? `<button data-a="reopen" class="jm-act text-slate-500 hover:underline">Reopen</button>` :
-        `<button data-a="confirm" class="jm-act bg-blue-600 text-white rounded px-2 py-1 mr-1">Confirm</button><button data-a="reject" class="jm-act text-slate-500 hover:underline">Not a practice</button>`}</td></tr>`; }).join(""));
+        `<button data-a="confirm" class="jm-act bg-lalu-teal-700 text-white rounded px-2 py-1 mr-1">Confirm</button><button data-a="reject" class="jm-act text-slate-500 hover:underline">Not a practice</button>`}</td></tr>`; }).join(""));
   $("jm-more").classList.toggle("hidden", jmShown >= jmList.length);
   if (!jmList.length) $("jm-rows").innerHTML = '<tr><td colspan="4" class="py-4 text-slate-500 italic">Nothing here.</td></tr>';
 }
@@ -96,7 +96,7 @@ function renderSignals() {
   $("s-count").textContent = `${sigList.length.toLocaleString()} signals`;
 }
 const linkIcon = '<svg viewBox="0 0 20 20" class="inline w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M11 3h6v6M17 3l-8 8M8 5H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3"/></svg>';
-const sigLink = s => s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-800" title="Open source: ${esc(s.url)}" aria-label="Open source" onclick="event.stopPropagation()">${linkIcon}</a>` : "";
+const sigLink = s => s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="text-lalu-teal-700 hover:text-lalu-teal-800" title="Open source: ${esc(s.url)}" aria-label="Open source" onclick="event.stopPropagation()">${linkIcon}</a>` : "";
 const SIG_STATUS = { new: "New", in_progress: "In progress", done: "Done", dismissed: "Dismissed" };
 const SIG_STATUS_CLS = { new: "bg-white", in_progress: "bg-blue-50", done: "bg-emerald-50", dismissed: "bg-slate-100 text-slate-500" };
 async function saveSignal(id, patch) {
@@ -117,7 +117,7 @@ function renderMoreSignals() {
   const slice = sigList.slice(sigShown, sigShown + PAGE); sigShown += slice.length;
   const frag = document.createDocumentFragment();
   for (const s of slice) {
-    const t = sigTarget(s), tr = document.createElement("tr"); tr.className = "hover:bg-blue-50/50 cursor-pointer align-top"; tr.tabIndex = 0; tr.setAttribute("role", "button");
+    const t = sigTarget(s), tr = document.createElement("tr"); tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer align-top"; tr.tabIndex = 0; tr.setAttribute("role", "button");
     tr.innerHTML = `<td class="px-3 py-2 whitespace-nowrap font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</td>
       <td class="px-3 py-2 whitespace-nowrap">${chip(s.trigger_type.replaceAll("_", " ").toLowerCase(), HOT.includes(s.trigger_type) ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-700")}</td>
       <td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(t.label)}${t.kind === "unlinked" ? " " + chip("unlinked", "bg-amber-100 text-amber-800") : t.kind === "network" ? " " + chip("network", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-xs text-slate-500 ${t.kind === "practice" ? "font-mono" : ""}">${esc(t.sub)}</div></td>

@@ -15,7 +15,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const rate3 = x => { x = Number(x); const f4 = x.toFixed(4); return f4.endsWith("0") ? x.toFixed(3) : f4; };
 // HubSpot record links (portal 145802630, EU1): contact 0-1, company 0-2, deal 0-3, lead 0-136
 const hsUrl = (type, id) => `https://app-eu1.hubspot.com/contacts/145802630/record/${type}/${encodeURIComponent(id)}`;
-const hsLink = (type, id, text) => `<a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${hsUrl(type, id)}">${esc(text)} ↗</a>`;
+const hsLink = (type, id, text) => `<a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${hsUrl(type, id)}">${esc(text)} ↗</a>`;
 const chip = (text, cls, title) => `<span class="chip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</span>`;
 const gbp = n => n == null ? "–" : n >= 1e6 ? "£" + (n / 1e6).toFixed(2) + "m" : n >= 1e4 ? "£" + Math.round(n / 1e3).toLocaleString() + "k" : "£" + Math.round(n).toLocaleString();   // summaries
 const gbpFull = n => n == null ? "–" : "£" + Math.round(n).toLocaleString();                                                                                    // table cells

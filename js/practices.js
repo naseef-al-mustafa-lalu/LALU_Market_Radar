@@ -25,7 +25,7 @@ function renderChips() {
   const add = (label, clear) => { const c = document.createElement("span"); c.className = "chip bg-indigo-50 text-indigo-800 border border-indigo-100"; c.innerHTML = `${esc(label)} <button class="ml-0.5 font-bold" aria-label="Remove filter">✕</button>`; c.querySelector("button").onclick = clear; box.appendChild(c); };
   const sel = (id, label) => { const el = $(id); if (el.value) add(label + ": " + el.options[el.selectedIndex].text, () => { el.value = ""; applyFilters(); }); };
   if (netFilter) {
-    if (fromNetworks) { const b = document.createElement("button"); b.className = "text-sm text-blue-600 hover:underline mr-1"; b.textContent = "← Back to networks"; b.onclick = () => { netFilter = null; fromNetworks = false; showTab("networks"); applyFilters(); }; box.appendChild(b); }
+    if (fromNetworks) { const b = document.createElement("button"); b.className = "text-sm text-lalu-teal-700 hover:underline mr-1"; b.textContent = "← Back to networks"; b.onclick = () => { netFilter = null; fromNetworks = false; showTab("networks"); applyFilters(); }; box.appendChild(b); }
     add((NET_KINDS[netFilter.kind] || "").replace(/s$/, "") + ": " + netFilter.label, () => { netFilter = null; fromNetworks = false; applyFilters(); });
   }
   if ($("f-search").value.trim()) add("Search: " + $("f-search").value.trim(), () => { $("f-search").value = ""; applyFilters(); });
@@ -77,7 +77,7 @@ function renderMore() {
   const frag = document.createDocumentFragment();
   for (const p of slice) {
     const tr = document.createElement("tr"); tr.dataset.ods = p.ods_code; tr.tabIndex = 0; tr.setAttribute("role", "button");
-    tr.className = "hover:bg-blue-50/50 cursor-pointer" + (p.ods_code === drawerCode ? " bg-blue-50" : "");
+    tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer" + (p.ods_code === drawerCode ? " bg-blue-50" : "");
     const sig = signalCounts.get(p.ods_code), hasN = p.total_patients > 0;
     tr.innerHTML = `
       <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}${p.merged_into ? " " + chip("Merged → " + ((byOds.get(p.merged_into) || {}).practice_name || p.merged_into), "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : mergeSugg.has(p.ods_code) || closureCands.has(p.ods_code) ? " " + chip("May have closed or merged", "bg-amber-100 text-amber-800", "Review in Signals > Closures and mergers") : ""}</div>
@@ -196,7 +196,7 @@ function routeComparisonBody(p) {
   const ctx = [product === "sar" ? "SAR only" : "All reports", monthly ? "monthly plan" : `annual, ${termYrs}-year term`, !monthly && speedOn ? "speed discount on" : null].filter(Boolean).join(" · ");
   const card = r => { const d = r.arr - all[0].arr, base = r === all[0];
     return `<div class="flex items-start justify-between gap-4 rounded-lg border ${base ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white"} px-3 py-2.5">
-      <div class="min-w-0"><div class="font-medium leading-tight">${base ? "On its own" : `<a href="#" class="text-blue-600 hover:underline" data-net="${r.net}">${esc(r.name)}</a>`}${r.price === best && best < worst ? ' <span class="ml-1 align-middle rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Lowest</span>' : ""}</div>
+      <div class="min-w-0"><div class="font-medium leading-tight">${base ? "On its own" : `<a href="#" class="text-lalu-teal-700 hover:underline" data-net="${r.net}">${esc(r.name)}</a>`}${r.price === best && best < worst ? ' <span class="ml-1 align-middle rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Lowest</span>' : ""}</div>
         <div class="mt-0.5 text-xs text-slate-500">${esc(r.sub)}</div><div class="text-xs text-slate-400">${esc(r.sub2)}</div></div>
       <div class="shrink-0 text-right tabular-nums"><div class="font-mono font-semibold">${gbpFull(r.arr)}<span class="text-xs font-normal text-slate-500"> /yr</span></div>
         <div class="text-xs text-slate-600">${list > 0 && r.price < list - 1e-9 ? "−" + pct(1 - r.price / list) + " off · " : ""}£${rate3(r.price)} /mo</div>
@@ -222,8 +222,8 @@ async function openDrawer(p) {
   $("dr-title").textContent = p.practice_name; stateToUrl(); hsShowBar(p);
   const st = hsState(p);
   $("dr-sub").innerHTML = `<span class="font-mono">${esc(p.ods_code)}</span>${p.merged_into ? " " + chip("Merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : ""}${p.town ? " · " + esc(p.town) : ""} ${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${p.cqc_rating && CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : ""}${p.cqc_status === "Deregistered" ? " " + chip("CQC deregistered", "bg-amber-100 text-amber-800", "CQC lists this location as deregistered; check whether the practice still operates") : ""} ${st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st]) : ""}`;
-  const link = (label, kind, key) => `<a href="#" class="text-blue-600 hover:underline" data-net="${kind}|${esc(key)}|${esc(label)}">${esc(label)}</a>`;
-  const web = p.website ? `<a class="text-blue-600 hover:underline" target="_blank" rel="noopener" href="${esc(/^https?:/.test(p.website) ? p.website : "https://" + p.website)}">${esc(p.website)}</a>` : "";
+  const link = (label, kind, key) => `<a href="#" class="text-lalu-teal-700 hover:underline" data-net="${kind}|${esc(key)}|${esc(label)}">${esc(label)}</a>`;
+  const web = p.website ? `<a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${esc(/^https?:/.test(p.website) ? p.website : "https://" + p.website)}">${esc(p.website)}</a>` : "";
   const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
   const body = $("dr-body");
   body.innerHTML = mergeSection(p) + `<div id="dr-contacts" class="text-sm text-slate-500">Loading contacts…</div><div id="dr-signals"></div>` +
@@ -249,7 +249,7 @@ async function openDrawer(p) {
   const dealBox = $("dr-hsdeal"); if (dealBox && hl && hl[0]) dealBox.outerHTML = kv("Linked deal", hsLink("0-3", hl[0].deal_id, hl[0].deal_name || "Open deal"));
   $("dr-contacts").outerHTML = `<section><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Contacts</h4>` + ((cs || []).map(c => `<div class="py-1.5 border-t border-slate-100 first:border-0"><b>${esc(c.full_name)}</b>${c.is_primary ? ' <span class="text-amber-500" title="Primary contact">★</span>' : ""}
       <span class="text-slate-500 text-sm"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span>
-      <div class="text-xs text-slate-600">${c.email ? (c.email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : `<a class="text-blue-600 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : ""} ${esc(c.phone)}</div>
+      <div class="text-xs text-slate-600">${c.email ? (c.email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : `<a class="text-lalu-teal-700 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : ""} ${esc(c.phone)}</div>
       <div class="mt-0.5">${c.hubspot_status === "Imported" ? (c.hubspot_contact_id ? hsLink("0-1", c.hubspot_contact_id, "In HubSpot · " + fmtDate(c.hubspot_imported_at)) : chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800")) : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-500">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
   $("dr-signals").outerHTML = sec("Signals and hiring", sigTiles(sg || [], jobs));
 }
@@ -266,12 +266,12 @@ function sigTiles(sg, jobs) {
         <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">${esc(s.headline)}</span><span class="block truncate text-xs text-slate-500">${esc(fmtDate(s.detected_at))} · ${esc(type)}</span></span>
         <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${SIG_CHIP[st]}">${esc(SIG_STATUS[st])}</span>${tileChev}</summary>
       <div class="space-y-2 border-t border-slate-100 px-3 py-2.5 text-sm">${s.description ? `<p class="text-slate-700">${esc(s.description)}</p>` : ""}
-        ${s.action ? `<div class="rounded-lg bg-blue-50 p-2 text-blue-900"><div class="text-[11px] font-semibold uppercase tracking-wider text-blue-700">Next step</div><div class="mt-0.5">${esc(s.action)}</div></div>` : ""}
-        ${s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="inline-block text-xs font-semibold text-blue-600 hover:underline">Open source ↗</a>` : ""}</div></details>`; };
+        ${s.action ? `<div class="rounded-lg bg-blue-50 p-2 text-blue-900"><div class="text-[11px] font-semibold uppercase tracking-wider text-lalu-teal-800">Next step</div><div class="mt-0.5">${esc(s.action)}</div></div>` : ""}
+        ${s.url && /^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="inline-block text-xs font-semibold text-lalu-teal-700 hover:underline">Open source ↗</a>` : ""}</div></details>`; };
   const jobTile = j => `<details class="dtile rounded-xl border border-slate-200 bg-white"><summary class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50"><span class="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-400"></span>
       <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">${esc(j.title)}</span><span class="block truncate text-xs text-slate-500">${esc(j.matched_role)} · posted ${esc(fmtDate(j.post_date))}</span></span>
       ${j.close_date ? `<span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">closes ${esc(fmtDate(j.close_date))}</span>` : ""}${tileChev}</summary>
-      <div class="border-t border-slate-100 px-3 py-2.5 text-sm"><a href="${esc(j.url)}" target="_blank" rel="noopener" class="text-xs font-semibold text-blue-600 hover:underline">Open the advert on NHS Jobs ↗</a></div></details>`;
+      <div class="border-t border-slate-100 px-3 py-2.5 text-sm"><a href="${esc(j.url)}" target="_blank" rel="noopener" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Open the advert on NHS Jobs ↗</a></div></details>`;
   const head = (t, n) => `<div class="mb-1 mt-1 flex items-center gap-2 text-xs font-semibold text-slate-600">${t}<span class="rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">${n}</span></div>`;
   if (!sg.length && !jobs.length) return "";   // nothing to show: the whole section hides
   return (sg.length ? head("Signals", sg.length) + `<div class="space-y-1.5">${sg.map(sigTile).join("")}</div>` : "") + (jobs.length ? `<div class="${sg.length ? "mt-3" : ""}">${head("Hiring: report / records roles (NHS Jobs)", jobs.length)}<div class="space-y-1.5">${jobs.map(jobTile).join("")}</div></div>` : "");

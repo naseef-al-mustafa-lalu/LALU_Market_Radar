@@ -61,7 +61,7 @@ async function hsCreateRun(action, extra) {
     p.hubspot_company_id = r.companyId;
     msg.innerHTML = `<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">${action === "create_company" ? "Company created" : "Company linked"}: ${hsLink("0-2", r.companyId, "open in HubSpot")}
       <div class="text-xs">${r.contacts.length} contact(s) associated · ${r.networks.length} PCN/ICB association(s)</div></div>
-      <div class="mt-2 rounded-lg border border-slate-200 p-3 text-sm"><b>Next:</b> create a lead or a deal. <button id="hs-next" class="ml-1 font-semibold text-blue-600 hover:underline">Continue</button></div>${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}`;
+      <div class="mt-2 rounded-lg border border-slate-200 p-3 text-sm"><b>Next:</b> create a lead or a deal. <button id="hs-next" class="ml-1 font-semibold text-lalu-teal-700 hover:underline">Continue</button></div>${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}`;
     btn.classList.add("hidden"); $("hs-cancel").textContent = "Close";
     const nx = $("hs-next"); if (nx) nx.onclick = () => { hs = { p, want: hsDesired(p), busy: false }; hsCompanyPage(r.companyId); };
     if (drawerCode === p.ods_code) openDrawer(p);
@@ -82,7 +82,7 @@ function hsTimingHtml() {
     return `<tr class="border-t border-slate-100"><td class="py-1 pr-3">${esc(HS_CALL_LABEL[a] || a)}</td><td class="py-1 px-2 text-right">${ts.length}</td><td class="py-1 px-2 text-right font-mono ${med(ms) > 2000 ? "text-rose-700" : med(ms) > 1000 ? "text-amber-700" : ""}">${sec(med(ms))}</td><td class="py-1 px-2 text-right font-mono">${sec(Math.max(...ms))}</td><td class="py-1 px-2 text-right font-mono">${sec(ms[ms.length - 1])}</td><td class="py-1 pl-2 text-right">${bad || ""}</td></tr>`; }).join("");
   return `<details class="mt-4"><summary class="cursor-pointer text-sm font-bold">Response times <span class="font-normal text-xs text-slate-500">this browser, last ${hsTimings.length} HubSpot calls, slowest first</span></summary>
     ${rows ? `<table class="mt-2 w-full text-sm"><thead><tr class="text-left text-[11px] uppercase tracking-wider text-slate-500"><th class="pr-3">Action</th><th class="px-2 text-right">Calls</th><th class="px-2 text-right">Median</th><th class="px-2 text-right">Slowest</th><th class="px-2 text-right">Latest</th><th class="pl-2 text-right">Failed</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="mt-1 text-right"><button id="hsp-timclear" class="text-xs font-semibold text-blue-600 hover:underline">Clear</button></div>` : '<p class="mt-2 text-sm text-slate-500">No calls yet. Use HubSpot from a practice profile, then come back.</p>'}</details>`;
+    <div class="mt-1 text-right"><button id="hsp-timclear" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Clear</button></div>` : '<p class="mt-2 text-sm text-slate-500">No calls yet. Use HubSpot from a practice profile, then come back.</p>'}</details>`;
 }
 async function renderHubspotPanel() {
   const box = $("d-hubspot"); if (!box) return;
@@ -99,12 +99,12 @@ async function renderHubspotPanel() {
   const tile = (k, v, sub = "") => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-xl font-bold leading-tight">${v}</div>${sub ? `<div class="text-xs text-slate-500">${sub}</div>` : ""}</div>`;
   const attn = (n, label, action = "") => n ? `<div class="flex items-center justify-between gap-3 border-t border-slate-100 py-1.5 first:border-0"><span class="text-sm"><b>${n.toLocaleString()}</b> ${label}</span>${action}</div>` : "";
   const items = [attn(ok === false ? 1 : 0, "The last sync failed: " + esc((run?.summary || "").slice(0, 120))),
-    attn(missing.length, "active practices with a list size are not in HubSpot", '<button id="hsp-missing" class="text-xs font-semibold text-blue-600 hover:underline">View them</button>'),
+    attn(missing.length, "active practices with a list size are not in HubSpot", '<button id="hsp-missing" class="text-xs font-semibold text-lalu-teal-700 hover:underline">View them</button>'),
     attn(pcnMiss.length, "PCNs have no HubSpot PCN record yet (the next sync creates English ones)"), attn(icbMiss.length, "ICBs have no HubSpot ICB record"),
-    attn(badChecks.length, "recent pricing pushes where HubSpot's calculated values did not match the tool", '<button id="hsp-bad" class="text-xs font-semibold text-blue-600 hover:underline">Show</button>')].join("");
+    attn(badChecks.length, "recent pricing pushes where HubSpot's calculated values did not match the tool", '<button id="hsp-bad" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Show</button>')].join("");
   box.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3"><div class="flex items-center gap-2"><h2 class="font-bold">HubSpot integration</h2>
       ${chip(ok === null ? "Never synced" : ok ? "Healthy" : "Last sync failed", ok === null ? "bg-slate-100 text-slate-700" : ok ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800")}</div>
-      <div class="flex items-center gap-3"><span id="hsp-msg" class="text-xs text-slate-500" role="status"></span><button id="hsp-run" class="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">Run sync now</button></div></div>
+      <div class="flex items-center gap-3"><span id="hsp-msg" class="text-xs text-slate-500" role="status"></span><button id="hsp-run" class="rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Run sync now</button></div></div>
     <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">${tile("Last sync", run ? hsAgo(run.at) : "never", run ? esc(run.actor) : "")}
       ${tile("Practices linked", (eligible.length - missing.length).toLocaleString(), "of " + eligible.length.toLocaleString() + " active with a list size")}${tile("Customers", practices.filter(p => p.hubspot_customer).length.toLocaleString())}
       ${tile("Engaged", practices.filter(p => p.hubspot_engaged && !p.hubspot_customer).length.toLocaleString())}${tile("PCN / ICB records linked", linkedIds.size.toLocaleString(), (st.pcn_records_created ? st.pcn_records_created + " created last run" : ""))}</div>
@@ -140,7 +140,7 @@ function hsLogRender() {
   box.innerHTML = rows.length ? `<table class="w-full text-left"><thead class="sticky top-0 bg-white text-[11px] uppercase tracking-wider text-slate-500"><tr><th class="py-1 pr-2 font-medium">When</th><th class="font-medium">Who</th><th class="font-medium">Type</th><th class="font-medium">What</th></tr></thead><tbody>` +
     rows.map(r => { const [lab, cls] = HS_KINDS[r.kind] || [r.kind, "bg-slate-100 text-slate-700"], p = r.ods_code && practices.find(x => x.ods_code === r.ods_code);
       return `<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2 whitespace-nowrap text-xs text-slate-500" title="${esc(r.at)}">${esc(fmtDate(r.at))}<div>${esc(hsAgo(r.at))}</div></td><td class="pr-2 text-xs">${esc(r.actor)}</td><td class="pr-2">${chip(lab, r.ok ? cls : "bg-rose-100 text-rose-800")}</td>
-        <td class="py-1.5"><div>${p ? `<a href="#" data-hsp-open="${esc(p.ods_code)}" class="font-medium text-blue-600 hover:underline">${esc(p.practice_name)}</a> ` : ""}${esc(r.summary)}</div>
+        <td class="py-1.5"><div>${p ? `<a href="#" data-hsp-open="${esc(p.ods_code)}" class="font-medium text-lalu-teal-700 hover:underline">${esc(p.practice_name)}</a> ` : ""}${esc(r.summary)}</div>
         ${r.detail ? `<details class="text-xs text-slate-500"><summary class="cursor-pointer">Details</summary><pre class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2">${esc(JSON.stringify(r.detail, null, 1).slice(0, 4000))}</pre></details>` : ""}</td></tr>`; }).join("") + "</tbody></table>"
     : '<p class="py-3 text-sm italic text-slate-500">No activity matches.</p>';
   box.querySelectorAll("[data-hsp-open]").forEach(a => a.onclick = e => { e.preventDefault(); const p = practices.find(x => x.ods_code === a.dataset.hspOpen); if (p) { showTab("practices"); openDrawer(p); } });

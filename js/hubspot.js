@@ -74,7 +74,7 @@ function hsChanges(p, want, company, deal, pair) {
 function hsBarHtml(p) {
   if (!p || p.status !== "Active" || !(p.total_patients > 0) || !p.price_tier) return "";
   const i = hsInfo[p.ods_code] || { loading: true }, linked = !!p.hubspot_company_id;   // not looked up yet counts as loading
-  const act = (kind, label) => `<button type="button" data-hs-act="${kind}" data-ods="${esc(p.ods_code)}" class="shrink-0 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">${label}</button>`;
+  const act = (kind, label) => `<button type="button" data-hs-act="${kind}" data-ods="${esc(p.ods_code)}" class="shrink-0 rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">${label}</button>`;
   let dot = "bg-slate-300", text = "", right = "";
   if (!linked) { dot = "bg-amber-400"; text = "Not in HubSpot yet"; right = act("create", "Add to HubSpot"); }
   else if (i.loading) text = "Checking the linked deal…";

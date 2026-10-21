@@ -42,7 +42,7 @@ async function dismissMerge(ods, dismissed) {
 
 /* ---------- practice profile: status card ---------- */
 const mgBtn = (act, ods, label, cls, extra = "") => `<button type="button" data-mg="${act}" data-ods="${esc(ods)}" ${extra} class="${cls} rounded-lg px-3 py-1.5 text-xs font-semibold">${label}</button>`;
-const BTN_PRIMARY = "bg-indigo-600 hover:bg-indigo-700 text-white", BTN_DARK = "bg-slate-700 hover:bg-slate-800 text-white", BTN_GHOST = "border border-slate-300 bg-white hover:bg-slate-50 text-slate-700";
+const BTN_PRIMARY = "bg-indigo-600 hover:bg-indigo-700 text-white", BTN_DARK = "bg-lalu-navy hover:bg-lalu-navy-700 text-white", BTN_GHOST = "border border-slate-300 bg-white hover:bg-slate-50 text-slate-700";
 const cqcEvidence = p => p.cqc_status === "Deregistered" ? chip("Deregistered from CQC", "bg-rose-100 text-rose-800", p.cqc_last_inspection ? "Last inspected " + p.cqc_last_inspection : "") : "";
 function mergeSection(p) {
   const kids = absorbedBy(p.ods_code), noList = !(p.total_patients > 0) && (p.country || "England") === "England" && p.status === "Active";
@@ -69,17 +69,17 @@ function mergeSection(p) {
     else if (cand) card = `<div class="rounded-xl border border-rose-200 bg-rose-50 p-3"><div class="font-semibold text-rose-900">Probably closed</div>
         <p class="text-xs text-rose-900/80 mt-0.5">${ev} No NHS list size, and nothing at its postcode looks like it absorbed it.</p>
         <div class="mt-2 flex flex-wrap gap-2">${mgBtn("close", p.ods_code, "Confirm closed", BTN_DARK)}${mgBtn("dismiss", p.ods_code, "Not closed", BTN_GHOST)}</div></div>`;
-    else card = `<div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">${esc(noSizeReason(p))}${p.merge_dismissed ? `<div class="mt-1 text-xs text-slate-500">You reviewed this and chose neither. ${mgBtn("restore", p.ods_code, "Review again", "text-blue-600 hover:underline px-0")}</div>` : ""}
+    else card = `<div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">${esc(noSizeReason(p))}${p.merge_dismissed ? `<div class="mt-1 text-xs text-slate-500">You reviewed this and chose neither. ${mgBtn("restore", p.ods_code, "Review again", "text-lalu-teal-700 hover:underline px-0")}</div>` : ""}
         <div class="mt-2">${mgBtn("close", p.ods_code, "Mark as closed", BTN_GHOST)}</div></div>`;
     card += mergePicker(p);
   }
   const absorbed = kids.length ? `<div class="${card ? "mt-3" : ""} rounded-xl border border-slate-200 p-3"><div class="text-xs font-semibold text-slate-600 mb-1">Practices merged into this one</div>${kids.map(k =>
-    `<div class="flex justify-between gap-2 py-0.5 text-sm"><a href="#" data-open="${esc(k.ods_code)}" class="text-blue-600 hover:underline">${esc(k.practice_name)}</a><span class="font-mono text-xs text-slate-500">${esc(k.ods_code)}</span></div>`).join("")}
+    `<div class="flex justify-between gap-2 py-0.5 text-sm"><a href="#" data-open="${esc(k.ods_code)}" class="text-lalu-teal-700 hover:underline">${esc(k.practice_name)}</a><span class="font-mono text-xs text-slate-500">${esc(k.ods_code)}</span></div>`).join("")}
     <p class="text-xs text-slate-500 mt-1">Their patients are included in this practice's list size.</p></div>` : "";
   return card || absorbed ? sec("Status", card + absorbed + '<p id="mg-msg" class="text-xs text-rose-600 mt-1 min-h-[1rem]" role="status"></p>') : "";
 }
 function mergePicker(p) {
-  return `<details class="mt-2 text-sm"><summary class="cursor-pointer text-blue-600 hover:underline">Mark as merged into another practice…</summary>
+  return `<details class="mt-2 text-sm"><summary class="cursor-pointer text-lalu-teal-700 hover:underline">Mark as merged into another practice…</summary>
     <div class="mt-2 space-y-2"><input data-mg-search type="text" autocomplete="off" placeholder="Search the practice it merged into…" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" aria-label="Practice it merged into">
       <div data-mg-results class="space-y-1"></div>
       <input data-mg-note type="text" maxlength="300" placeholder="Note (optional)" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm" aria-label="Note">
@@ -90,7 +90,7 @@ const pickable = (q, self) => { q = q.trim().toLowerCase(); return q.length < 2 
 $("dr-body").addEventListener("input", e => {
   const inp = e.target.closest("[data-mg-search]"); if (!inp) return;
   const res = inp.closest("details").querySelector("[data-mg-results]");
-  res.innerHTML = pickable(inp.value, drawerCode).map(x => `<button type="button" data-mg="choose" data-into="${esc(x.ods_code)}" class="w-full text-left rounded-lg border border-slate-200 hover:bg-blue-50 px-2 py-1 text-xs"><b>${esc(x.practice_name)}</b> <span class="font-mono text-slate-500">${esc(x.ods_code)}</span> · ${esc(x.postcode || "")} · ${x.total_patients.toLocaleString()} patients</button>`).join("") || (inp.value.trim().length > 1 ? '<div class="text-xs text-slate-500">No match.</div>' : "");
+  res.innerHTML = pickable(inp.value, drawerCode).map(x => `<button type="button" data-mg="choose" data-into="${esc(x.ods_code)}" class="w-full text-left rounded-lg border border-slate-200 hover:bg-lalu-teal-50 px-2 py-1 text-xs"><b>${esc(x.practice_name)}</b> <span class="font-mono text-slate-500">${esc(x.ods_code)}</span> · ${esc(x.postcode || "")} · ${x.total_patients.toLocaleString()} patients</button>`).join("") || (inp.value.trim().length > 1 ? '<div class="text-xs text-slate-500">No match.</div>' : "");
 });
 async function decide(act, ods, btn) {
   if (act === "confirm") return setMerge(ods, btn.dataset.into, null);

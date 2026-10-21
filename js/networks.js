@@ -29,7 +29,7 @@ function openNetworkProfile(n) {
     <p class="text-xs text-slate-500 mt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</p>`;
   const rows = members.map(p => {
     const net = base != null ? p.total_patients * base * 12 : null;
-    return `<tr class="border-t border-slate-100 hover:bg-blue-50/50 cursor-pointer" tabindex="0" role="button" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}${p.merged_into ? " " + chip("merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("closed", "bg-slate-200 text-slate-700") : ""}</div><div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)}</div></td>
+    return `<tr class="border-t border-slate-100 hover:bg-lalu-teal-50/50 cursor-pointer" tabindex="0" role="button" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}${p.merged_into ? " " + chip("merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("closed", "bg-slate-200 text-slate-700") : ""}</div><div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)}</div></td>
       <td class="text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : "–"}</td>
       <td class="px-2">${p.price_tier ? chip("T" + p.price_tier, TIER_CLS["Tier " + p.price_tier] || "") : ""}</td>
       <td class="text-right font-mono">${p.base_price != null ? "£" + rate3(Number(p.base_price)) : "–"}</td>
@@ -48,7 +48,7 @@ function openNetworkProfile(n) {
       return signals.filter(x => (x.ods_code && codes.has(x.ods_code)) || x.org_id === n.id).slice(0, 8).map(x => `<div class="py-1 border-t border-slate-100 first:border-0 text-sm"><span class="font-mono text-xs text-slate-500">${esc(fmtDate(x.detected_at))}</span> <b class="text-xs">${esc(x.headline)}</b>
         <div class="text-xs text-slate-500">${esc(x.ods_code ? (byOds.get(x.ods_code)?.practice_name || x.ods_code) : "network-level")} · ${esc(x.trigger_type.replaceAll("_", " ").toLowerCase())}</div></div>`).join("");
     })()) +
-    `<button id="np-view" class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
+    `<button id="np-view" class="w-full bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;
   if (n.kind === "pcn" || n.kind === "icb") hsNetworkSection(n);
   $("dr-body").onclick = ev => { const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
@@ -73,7 +73,7 @@ function renderMoreNetworks() {
     const open = n.practices - n.engaged, tot = Math.max(n.practices, 1);
     const bar = (v, cls) => v ? `<div class="${cls}" style="width:${(v / tot) * 100}%" title="${v}"></div>` : "";
     const KIND = { pcn: "PCN", icb: "ICB", group: "group", federation: "federation" }[n.kind] || n.kind;
-    const tr = document.createElement("tr"); tr.className = "hover:bg-blue-50/50 cursor-pointer"; tr.tabIndex = 0; tr.setAttribute("role", "button");
+    const tr = document.createElement("tr"); tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer"; tr.tabIndex = 0; tr.setAttribute("role", "button");
     tr.innerHTML = `<td class="px-3 py-2 align-top"><div class="font-semibold leading-tight">${esc(n.name)}</div>
         <div class="text-xs text-slate-500">EMIS ${n.emis} · SystmOne ${n.systmone}${n.cqc_concern ? " · " + chip(n.cqc_concern + " CQC flagged", "bg-amber-100 text-amber-800") : ""}${n.confirmed === false ? " · " + chip("inferred: verify", "bg-amber-50 text-amber-700") : ""}</div></td>
       <td class="px-3 py-2 text-right font-mono align-top">${n.practices}</td>
@@ -86,7 +86,7 @@ function renderMoreNetworks() {
         <div class="text-xs text-slate-500 mt-0.5">${[n.tier1, n.tier2, n.tier3, n.tier4, n.tier5].map((v, i) => v ? "T" + (i + 1) + " " + v : "").filter(Boolean).join(" · ")}</div></td>
       <td class="px-3 py-2 text-xs whitespace-nowrap align-top"><div class="font-semibold">${n.engaged} of ${n.practices}</div>${open > 0 ? `<div class="text-xs text-slate-500">${open} to approach</div>` : '<div class="text-xs text-emerald-700">all engaged</div>'}</td>
       <td class="px-3 py-2 whitespace-nowrap align-top">${n.customers > 0 ? chip("Has " + (n.customers === 1 ? "a customer" : n.customers + " customers"), "bg-emerald-100 text-emerald-800") + `<div class="text-xs text-slate-500 mt-0.5">${gbpFull(n.arr_customers)}/yr live</div>` : '<span class="text-xs text-slate-300">no customers</span>'}</td>
-      <td class="px-3 py-2 text-right align-top"><button class="text-blue-600 hover:underline text-xs whitespace-nowrap">View →</button></td>`;
+      <td class="px-3 py-2 text-right align-top"><button class="text-lalu-teal-700 hover:underline text-xs whitespace-nowrap">View →</button></td>`;
     tr.onclick = () => openNetworkProfile(n);
     tr.querySelector("button").onclick = e => { e.stopPropagation(); openNetwork(n.kind, keyOf(n), n.name); };
     frag.appendChild(tr);

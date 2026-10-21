@@ -12,8 +12,8 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261021s"></script>
-<link rel="stylesheet" href="assets/tailwind.css?v=20261021s">
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261021t"></script>
+<link rel="stylesheet" href="assets/tailwind.css?v=20261021t">
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
 <body class="bg-slate-100 text-slate-900 antialiased">
@@ -22,11 +22,11 @@
 <!-- Login -->
 <div id="loading" class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-6" role="status" aria-live="polite">
   <div class="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 w-full max-w-sm text-center">
-    <div id="load-spin" class="mx-auto w-10 h-10 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin"></div>
+    <div id="load-spin" class="mx-auto w-10 h-10 rounded-full border-4 border-lalu-teal-100 border-t-lalu-teal-700 animate-spin"></div>
     <div class="mt-4 flex justify-center"><span class="atlas-chip"><svg viewBox="0 0 170.28 41.16" role="img" aria-label="Lalu"><use href="#lalu-logo"/></svg><i></i><span class="a-name">Atlas</span><b>Beta</b></span></div><h2 class="sr-only">Loading Lalu Atlas</h2>
     <p id="load-step" class="mt-1 text-sm text-slate-600">Starting…</p>
     <p id="load-slow" class="hidden mt-3 text-xs text-slate-500">Still working: the first load pulls about 6,000 practices and can take up to 30 seconds. It isn't stuck.</p>
-    <button id="load-retry" class="hidden mt-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-1.5 text-sm font-semibold">Try again</button>
+    <button id="load-retry" class="hidden mt-4 bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg px-4 py-1.5 text-sm font-semibold">Try again</button>
   </div>
 </div>
 
@@ -36,9 +36,9 @@
     <p class="text-sm text-slate-500">Sign in with your Lalu account.</p>
     <input id="email" type="email" required autocomplete="username" placeholder="Email" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
     <input id="password" type="password" required autocomplete="current-password" placeholder="Password" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-    <button class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 text-sm font-semibold">Sign in</button>
+    <button class="w-full bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg py-2 text-sm font-semibold">Sign in</button>
     <p id="login-error" class="text-sm text-rose-600 min-h-[1.25rem]"></p>
-    <button type="button" id="forgot" class="text-xs text-blue-600 hover:underline">Forgot your password?</button>
+    <button type="button" id="forgot" class="text-xs text-lalu-teal-700 hover:underline">Forgot your password?</button>
   </form>
 </section>
 
@@ -48,7 +48,7 @@
     <p id="setpw-who" class="text-sm text-slate-500">Set a password to finish setting up your account.</p>
     <input id="pw1" type="password" required minlength="10" autocomplete="new-password" placeholder="New password (10+ characters)" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
     <input id="pw2" type="password" required minlength="10" autocomplete="new-password" placeholder="Repeat password" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-    <button class="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 text-sm font-semibold">Save and continue</button>
+    <button class="w-full bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg py-2 text-sm font-semibold">Save and continue</button>
     <p id="setpw-error" class="text-sm text-rose-600 min-h-[1.25rem]"></p>
   </form>
 </section>
@@ -65,7 +65,7 @@
     </div>
     <div class="ml-auto flex items-center gap-4 text-sm text-slate-500">
       <span id="refresh-badge" class="hidden sm:inline">Loading…</span>
-      <button id="signout" class="text-blue-600 hover:underline">Sign out</button>
+      <button id="signout" class="text-lalu-teal-700 hover:underline">Sign out</button>
     </div>
   </nav>
 
@@ -109,7 +109,7 @@
           <tbody id="rows" class="divide-y divide-slate-100"></tbody>
         </table>
       </div>
-      <div class="p-3 text-center"><button id="more" class="hidden text-blue-600 hover:underline text-sm">Show more</button></div>
+      <div class="p-3 text-center"><button id="more" class="hidden text-lalu-teal-700 hover:underline text-sm">Show more</button></div>
     </section>
 
     <!-- Networks -->
@@ -139,7 +139,7 @@
           <tbody id="net-rows" class="divide-y divide-slate-100"></tbody>
         </table>
       </div>
-      <div class="p-3 text-center"><button id="n-more" class="hidden text-blue-600 hover:underline text-sm">Show more</button></div>
+      <div class="p-3 text-center"><button id="n-more" class="hidden text-lalu-teal-700 hover:underline text-sm">Show more</button></div>
     </section>
 
     <!-- Revenue -->
@@ -166,7 +166,7 @@
       <div class="p-4 border-b border-slate-200 flex flex-wrap items-center gap-2">
         <h2 class="font-bold mr-2">Signals <span id="sig-live" class="text-xs font-semibold text-slate-500 ml-1">connecting…</span></h2>
         <div id="sig-sub" class="bg-slate-100 rounded-lg p-0.5 text-sm"><button data-s="feed" class="px-3 py-1 rounded-md bg-white shadow-sm">Feed</button><button data-s="mergers" class="px-3 py-1 rounded-md text-slate-500">Closures &amp; mergers <span id="merge-badge" title="Practices that look closed or merged and need a decision" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-s="jobs" class="px-3 py-1 rounded-md text-slate-500">Job matches <span id="jobs-badge" title="Employers waiting for a link that have a report / records advert" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button></div>
-        <select id="s-type" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All signal types</option></select><button id="sig-settings-link" class="text-xs text-blue-600 hover:underline" title="Turn signal types on or off">Signal settings →</button>
+        <select id="s-type" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">All signal types</option></select><button id="sig-settings-link" class="text-xs text-lalu-teal-700 hover:underline" title="Turn signal types on or off">Signal settings →</button>
         <select id="s-status" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" aria-label="Signal status"><option value="open">Open (new + in progress)</option><option value="all">All statuses</option><option value="new">New</option><option value="in_progress">In progress</option><option value="done">Done</option><option value="dismissed">Dismissed</option></select>
         <input id="s-search" placeholder="Search practice or text…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm min-w-[220px]" aria-label="Search signals">
         <span id="s-count" class="text-sm text-slate-500 ml-auto"></span><button id="s-export" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 text-sm font-semibold">Export CSV</button>
@@ -180,7 +180,7 @@
           <span id="mg-count" class="text-sm text-slate-500 ml-auto"></span>
         </div>
         <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Practice with no list size</th><th class="pr-3">Looks like</th><th class="pr-3">Evidence</th><th></th></tr></thead><tbody id="mg-rows" class="divide-y divide-slate-100"></tbody></table></div>
-        <button id="mg-more" class="hidden mt-2 text-blue-600 hover:underline text-sm">Show more</button>
+        <button id="mg-more" class="hidden mt-2 text-lalu-teal-700 hover:underline text-sm">Show more</button>
         <p id="mg-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]" role="status"></p>
       </div>
       <div id="sig-jobs" class="hidden p-4">
@@ -191,14 +191,14 @@
           <span id="jm-count" class="text-sm text-slate-500 ml-auto"></span>
         </div>
         <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Employer</th><th class="pr-3">Adverts</th><th class="pr-3 min-w-[16rem]">Link to practice</th><th></th></tr></thead><tbody id="jm-rows" class="divide-y divide-slate-100"></tbody></table></div><datalist id="jm-netlist"></datalist>
-        <button id="jm-more" class="hidden mt-2 text-blue-600 hover:underline text-sm">Show more</button>
+        <button id="jm-more" class="hidden mt-2 text-lalu-teal-700 hover:underline text-sm">Show more</button>
         <p id="jm-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
       
       <div id="sig-feed"><div class="overflow-x-auto max-h-[80vh]"><table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr><th class="px-3 py-2.5 whitespace-nowrap">Date</th><th class="px-3 py-2.5 whitespace-nowrap">Type</th><th class="px-3 py-2.5 min-w-[14rem]">Practice</th><th class="px-3 py-2.5 min-w-[18rem]">Signal</th><th class="px-3 py-2.5 min-w-[16rem]">Next step</th><th class="px-3 py-2.5 min-w-[11rem]">Status</th><th class="px-3 py-2.5 w-10 text-center" title="Link to the source, e.g. the NHS Jobs advert">Link</th></tr></thead>
         <tbody id="s-rows" class="divide-y divide-slate-100"></tbody></table></div>
-      <div class="p-3 text-center"><button id="s-more" class="hidden text-blue-600 hover:underline text-sm">Show more</button></div></div>
+      <div class="p-3 text-center"><button id="s-more" class="hidden text-lalu-teal-700 hover:underline text-sm">Show more</button></div></div>
     </section>
 
     <!-- Data -->
@@ -221,7 +221,7 @@
         <p id="pc-status" class="text-sm text-slate-500 mt-1">Checking…</p>
         <div class="mt-3 border-t border-slate-100 pt-3">
           <div class="text-xs font-semibold text-slate-600 mb-1">Needs the office PC runner. Without it, upload the file below.</div>
-          <button id="pc-run" class="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg px-4 py-1.5 text-xs font-semibold">Update from NHS now</button>
+          <button id="pc-run" class="bg-lalu-navy hover:bg-lalu-navy-700 disabled:opacity-50 text-white rounded-lg px-4 py-1.5 text-xs font-semibold">Update from NHS now</button>
           <p id="pc-run-msg" class="mt-1 text-xs text-slate-500 min-h-[1rem]"></p>
         </div>
       </div>
@@ -244,7 +244,7 @@
         <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
           <h2 class="font-bold">Update rates from the pricing spreadsheet</h2>
           <p class="text-sm text-slate-500 mt-1">In the spreadsheet, open the <b>Pricing-Discount-Model</b> tab, then File &gt; Download &gt; Comma-separated values (.csv). For the 2 and 3-year term discounts and the price floor, do the same for the <b>Multi-Year-Matrix</b> tab. SAR-only rates sync from cells labelled &ldquo;SAR Only Annual List Price&rdquo; and &ldquo;SAR Only Monthly List Price&rdquo;. Choose one or both files here: you see what would change before anything is saved.</p>
-          <div class="mt-2 flex flex-wrap items-center gap-3"><input id="ps-file" type="file" accept=".csv,text/csv" multiple class="text-sm" aria-label="Pricing spreadsheet CSV files"><button id="ps-apply" class="hidden bg-blue-600 text-white rounded px-3 py-1.5 text-sm font-semibold">Apply</button></div>
+          <div class="mt-2 flex flex-wrap items-center gap-3"><input id="ps-file" type="file" accept=".csv,text/csv" multiple class="text-sm" aria-label="Pricing spreadsheet CSV files"><button id="ps-apply" class="hidden bg-lalu-teal-700 text-white rounded px-3 py-1.5 text-sm font-semibold">Apply</button></div>
           <p id="ps-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]" aria-live="polite"></p><div id="ps-preview"></div>
         </div>
         <div id="rev-config" class="space-y-4"></div>
@@ -269,20 +269,20 @@
     <div id="hs-body" class="mt-3 flex-1 overflow-y-auto pr-1 text-sm"></div>
   </div>
 </div>
-<script src="js/core.js?v=20261021s"></script>
-<script src="js/data-load.js?v=20261021s"></script>
-<script src="js/practices.js?v=20261021s"></script>
-<script src="js/networks.js?v=20261021s"></script>
-<script src="js/signals.js?v=20261021s"></script>
-<script src="js/mergers.js?v=20261021s"></script>
-<script src="js/data-tab.js?v=20261021s"></script>
-<script src="js/data-connections.js?v=20261021s"></script>
-<script src="js/data-uploads.js?v=20261021s"></script>
-<script src="js/data-audit.js?v=20261021s"></script>
-<script src="js/hubspot.js?v=20261021s"></script>
-<script src="js/hubspot-company.js?v=20261021s"></script>
-<script src="js/hubspot-admin.js?v=20261021s"></script>
-<script src="js/export.js?v=20261021s"></script>
-<script src="js/main.js?v=20261021s"></script>
+<script src="js/core.js?v=20261021t"></script>
+<script src="js/data-load.js?v=20261021t"></script>
+<script src="js/practices.js?v=20261021t"></script>
+<script src="js/networks.js?v=20261021t"></script>
+<script src="js/signals.js?v=20261021t"></script>
+<script src="js/mergers.js?v=20261021t"></script>
+<script src="js/data-tab.js?v=20261021t"></script>
+<script src="js/data-connections.js?v=20261021t"></script>
+<script src="js/data-uploads.js?v=20261021t"></script>
+<script src="js/data-audit.js?v=20261021t"></script>
+<script src="js/hubspot.js?v=20261021t"></script>
+<script src="js/hubspot-company.js?v=20261021t"></script>
+<script src="js/hubspot-admin.js?v=20261021t"></script>
+<script src="js/export.js?v=20261021t"></script>
+<script src="js/main.js?v=20261021t"></script>
 </body>
 </html>

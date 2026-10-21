@@ -2,17 +2,17 @@
 /* step 1: find the company and deal */
 const hsFind = () => `<p class="text-slate-600">Find the HubSpot company for this practice, then choose its deal. This is saved so you only do it once.</p>
   <div class="mt-3 flex gap-2"><input id="hs-q" class="flex-1 rounded-lg border border-slate-300 px-3 py-2" value="${esc(hs.p.practice_name + " " + hs.p.ods_code)}" aria-label="Search HubSpot companies">
-  <button id="hs-search" class="rounded-lg bg-slate-800 px-3 py-2 font-semibold text-white">Search</button></div><div id="hs-results" class="mt-3"></div>`;
+  <button id="hs-search" class="rounded-lg bg-lalu-navy px-3 py-2 font-semibold text-white">Search</button></div><div id="hs-results" class="mt-3"></div>`;
 function hsBindFind(auto) {
   const run = async () => {
     const box = $("hs-results"); box.innerHTML = '<p class="text-slate-500">Searching HubSpot…</p>';
     try {
       const { companies } = await hsCall({ action: "find", ods: hs.p.ods_code, name: hs.p.practice_name, query: $("hs-q").value });
-      box.innerHTML = companies.length ? companies.map(c => `<button type="button" data-co="${esc(c.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50">
+      box.innerHTML = companies.length ? companies.map(c => `<button type="button" data-co="${esc(c.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-lalu-teal hover:bg-lalu-teal-50">
           <div class="flex justify-between gap-3"><b>${esc(c.name)}</b><span class="text-xs ${c.match === "ODS code" ? "text-emerald-700" : "text-slate-500"}">matched on ${esc(c.match)}</span></div>
           <div class="text-xs text-slate-500">ODS ${esc(c.partner_organisation_code || "not set")} · list size ${c.patient_list_size ? Number(c.patient_list_size).toLocaleString() : "not set"}</div></button>`).join("")
         : '<p class="text-slate-500 italic">No companies found. Try a shorter name.</p>';
-      box.insertAdjacentHTML("beforeend", `<div class="mt-1 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500"><span>${companies.length ? "Not the right one?" : "Nothing matches."}</span><button id="hs-new" class="font-semibold text-blue-600 hover:underline">Create ${esc(hs.p.practice_name)} in HubSpot</button></div>`);
+      box.insertAdjacentHTML("beforeend", `<div class="mt-1 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500"><span>${companies.length ? "Not the right one?" : "Nothing matches."}</span><button id="hs-new" class="font-semibold text-lalu-teal-700 hover:underline">Create ${esc(hs.p.practice_name)} in HubSpot</button></div>`);
       $("hs-new").onclick = () => hsCreateOpen(hs.p);
       box.querySelectorAll("[data-co]").forEach(b => b.onclick = () => hsCompanyPage(b.dataset.co));
     } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
@@ -69,7 +69,7 @@ async function hsCompanyPage(companyId, force) {
 }
 function hsHubRender() {
   const box = $("hs-results"), p = hs.p, h = hs.hub, co = h.company, leads = h.leads, nLeads = leads ? leads.length : 0, next = !h.contacts.length ? 2 : !nLeads && !h.deals.length ? 3 : 4;
-  const btn = (id, label, primary) => `<button id="${id}" class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold ${primary ? "bg-slate-800 text-white hover:bg-slate-700" : "border border-slate-300 hover:bg-slate-50"}">${label}</button>`;
+  const btn = (id, label, primary) => `<button id="${id}" class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold ${primary ? "bg-lalu-navy text-white hover:bg-lalu-navy-700" : "border border-slate-300 hover:bg-slate-50"}">${label}</button>`;
   const card = (n, title, count, action, body) => `<section class="rounded-xl border ${next === n ? "border-slate-400 shadow-sm" : "border-slate-200"} p-3"><div class="mb-2 flex items-center justify-between gap-3"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">${n}. ${title} <span class="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] normal-case text-slate-600">${count}</span></h4>${action}</div>${body}</section>`;
   const row = (l, r, fresh) => `<div class="flex items-center justify-between gap-3 border-t border-slate-100 py-1.5 first:border-0 ${fresh ? "-mx-1 rounded bg-emerald-50 px-1" : ""}"><div class="min-w-0">${l}</div><div class="shrink-0 text-right text-xs text-slate-500">${r}</div></div>`;
   const empty = t => `<p class="text-sm italic text-slate-500">${t}</p>`, flash = hs.flash; hs.flash = null;
@@ -85,7 +85,7 @@ function hsHubRender() {
     ${card(3, "Leads", leads ? nLeads : "?", btn("hs-newlead", "+ Create lead", next === 3),
       leads ? (leads.map(l => row(`<b>${esc(l.name)}</b>`, `${l.open ? "" : "closed · "}${esc(l.stage)} ${hsLink("0-136", l.id, "open")}`, fresh.has(l.id))).join("") || empty("No leads yet. A lead tracks the practice before there is a deal.")) : '<p class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">Leads could not be read: add the crm.objects.leads.read scope to the HubSpot token.</p>')}
     ${card(4, "Deals", h.deals.length, btn("hs-newdeal", "+ Create deal", next === 4),
-      h.deals.length ? '<div class="mb-1 text-xs text-slate-500">Choose a deal to push this practice\'s pricing to it.</div>' + h.deals.map(d => `<button type="button" data-deal="${esc(d.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50">
+      h.deals.length ? '<div class="mb-1 text-xs text-slate-500">Choose a deal to push this practice\'s pricing to it.</div>' + h.deals.map(d => `<button type="button" data-deal="${esc(d.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-lalu-teal hover:bg-lalu-teal-50">
         <div class="flex justify-between gap-3"><b>${esc(d.dealname)}</b><span class="text-xs text-slate-500">${esc(d.dealstage || "")}</span></div>
         <div class="text-xs text-slate-500">${d.amount ? "£" + Number(d.amount).toLocaleString() : "no amount"} · ${esc(d.size_tier || "no size tier")} · ${esc(d.value_per_patient || "no value per patient")}</div></button>`).join("") : empty("No deals yet."))}</div>`;
   const company = { id: co.id, name: co.name };
@@ -234,7 +234,7 @@ function hsPreview() {
   hsRender(`<div class="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><div class="min-w-0"><div class="truncate font-semibold">${hsLink("0-2", company.id, company.name)}</div><div class="text-xs text-slate-500">ODS ${esc(company.partner_organisation_code || "not set")}</div></div>
       <div class="min-w-0 text-right"><div class="truncate font-semibold">${hsLink("0-3", deal.id, deal.dealname)}</div><div class="text-xs text-slate-500">${esc(deal.dealstage || "")} · ${hs.linked ? "saved link" : "link saved after the write"}</div></div></div>
     ${hs.auto ? '<div class="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-sm text-emerald-900">Deal created. Writing the pricing and checking it against HubSpot…</div>' : ""}
-    <div class="mt-1 flex items-center justify-between text-xs"><span class="font-semibold text-slate-600">Selected in the profile: ${esc(want.label)}</span>${hs.linked ? '<button id="hs-relink" class="text-blue-600 hover:underline">Choose a different deal</button>' : '<button id="hs-back" class="text-blue-600 hover:underline">Choose a different deal</button>'}</div>
+    <div class="mt-1 flex items-center justify-between text-xs"><span class="font-semibold text-slate-600">Selected in the profile: ${esc(want.label)}</span>${hs.linked ? '<button id="hs-relink" class="text-lalu-teal-700 hover:underline">Choose a different deal</button>' : '<button id="hs-back" class="text-lalu-teal-700 hover:underline">Choose a different deal</button>'}</div>
     ${warn}
     ${sectionCard("Deal pricing fields", badge(nDeal), discRows)}
     ${sectionCard("Line item", badge(nLine), lineCard)}
