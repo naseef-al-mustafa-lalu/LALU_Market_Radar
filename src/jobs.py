@@ -117,7 +117,9 @@ def fetch_all(get=requests.get, pause=0.5, max_pages=400, fallback=None):
                     r = None
                 time.sleep(2 * (attempt + 1))
         if r is None or r.status_code != 200:
-            raise RuntimeError(f"NHS Jobs feed failed on page {page}" + (f" (HTTP {r.status_code}{', also via Supabase' if SCAN['via'] == 'supabase' else ''})" if r is not None else ""))
+            snippet = re.sub(r"<[^>]+>|\s+", " ", str(getattr(r, "text", "") or ""))[:100].strip()
+            via = ", also via Supabase" if SCAN["via"] == "supabase" else ""
+            raise RuntimeError(f"NHS Jobs feed failed on page {page}" + (f" (HTTP {r.status_code}{via}: {snippet})" if r is not None else ""))
         t, rows = parse_page(r.text)
         total = total or t
         if not rows:

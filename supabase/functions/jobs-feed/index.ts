@@ -14,7 +14,7 @@ function sameKey(a: string, b: string): boolean {   // constant-time compare
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
   const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!sameKey(bearer, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "")) return new Response("Forbidden", { status: 403 });
+  if (!sameKey(bearer, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "")) return new Response("jobs-feed: caller key not accepted", { status: 401 });
   let body: { page?: number; limit?: number; sort?: string } = {};
   try { body = await req.json(); } catch { /* defaults below reject it */ }
   const page = Number(body.page), limit = Number(body.limit ?? 100);
