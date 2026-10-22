@@ -27,19 +27,21 @@ function openNetworkProfile(n) {
       <div class="flex justify-between mt-0.5 border-t border-slate-200 pt-1"><span class="font-medium">${saving > 0 ? "Network discount" : "Difference"}</span><span class="font-mono font-semibold ${saving > 0 ? "text-emerald-700" : ""}">${saving == null ? "–" : (saving > 0 ? "−" : "+") + gbpFull(Math.abs(saving))} <span class="text-xs font-normal text-slate-500">${n.arr_single && saving != null ? "(" + pct(Math.abs(saving) / n.arr_single) + ")" : ""}</span></span></div></div>
     ${n.arr_network_sar != null ? `<div class="mt-2 flex justify-between text-sm text-slate-600"><span>SAR only: network price (signed separately ${gbpFull(n.arr_single_sar)})</span><span class="font-mono">${gbpFull(n.arr_network_sar)}</span></div>` : ""}
     <p class="text-xs text-slate-500 mt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</p>`;
+  const sitesOf = p => branchesByParent.get(p.ods_code) || [], siteCount = members.reduce((t, p) => t + sitesOf(p).length, 0);
   const rows = members.map(p => {
     const net = base != null ? p.total_patients * base * 12 : null;
-    return `<tr class="border-t border-slate-100 hover:bg-lalu-teal-50/50 cursor-pointer" tabindex="0" role="button" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}${p.merged_into ? " " + chip("merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("closed", "bg-slate-200 text-slate-700") : ""}</div><div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)}</div></td>
+    return `<tr class="border-t border-slate-100 hover:bg-lalu-teal-50/50 cursor-pointer" tabindex="0" role="button" data-ods="${esc(p.ods_code)}"><td class="py-1 pr-2"><div class="font-medium leading-tight">${esc(p.practice_name)}${p.merged_into ? " " + chip("merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("closed", "bg-slate-200 text-slate-700") : ""}</div><div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)}${sitesOf(p).length ? ` <button type="button" class="np-sites ml-1 rounded-full bg-sky-100 px-1.5 py-0.5 text-[11px] font-sans font-semibold text-sky-800 hover:bg-sky-200" data-for="${esc(p.ods_code)}" aria-expanded="false">▸ +${sitesOf(p).length} site${sitesOf(p).length > 1 ? "s" : ""}</button>` : ""}</div></td>
       <td class="text-right font-mono">${p.total_patients > 0 ? p.total_patients.toLocaleString() : "–"}</td>
       <td class="px-2">${p.price_tier ? chip("T" + p.price_tier, TIER_CLS["Tier " + p.price_tier] || "") : ""}</td>
       <td class="text-right font-mono">${p.base_price != null ? "£" + rate3(Number(p.base_price)) : "–"}</td>
       <td class="text-right font-mono">${gbpFull(p.est_arr)}</td>
       <td class="text-right font-mono text-slate-500">${gbpFull(p.est_arr_sar)}</td>
-      <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net) : "–"}</td></tr>`; }).join("");
+      <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net) : "–"}</td></tr>` +
+      (sitesOf(p).length ? `<tr class="np-sub hidden bg-slate-50" data-sub="${esc(p.ods_code)}"><td colspan="7" class="pl-4 pr-2 pb-1.5"><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 pt-1">Branch sites of ${esc(p.practice_name)} <span class="normal-case font-normal">(list size, price and HubSpot sit on the practice)</span></div>${sitesOf(p).map(siteDetails).join("")}</td></tr>` : ""); }).join("");
   const hdr = ["Practice", "Patients", "Tier", "£/pt/mo singly", "ARR singly", "SAR-only singly", "ARR in network"].map((h, i) => `<th class="${i === 0 ? "text-left" : i === 2 ? "text-left px-2" : "text-right"} font-medium">${h}</th>`).join("");
   $("dr-body").innerHTML =
-    `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
-      .map(([k, v]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div></div>`).join("")}</div>` +
+    `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices, siteCount ? "+" + siteCount.toLocaleString() + " branch site" + (siteCount > 1 ? "s" : "") : ""], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
+      .map(([k, v, small]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div>${small ? `<div class="text-[11px] text-sky-800">${small}</div>` : ""}</div>`).join("")}</div>` +
     (n.kind === "pcn" || n.kind === "icb" ? sec("HubSpot", '<div id="dr-hsnet" class="text-sm text-slate-500">Checking HubSpot…</div>') : "") +
     sec("Pricing: " + KIND + " route", price) +
     sec("Linked practices: price singly vs in the network", `<div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div>`) +
@@ -51,7 +53,8 @@ function openNetworkProfile(n) {
     `<button id="np-view" class="w-full bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;
   if (n.kind === "pcn" || n.kind === "icb") hsNetworkSection(n);
-  $("dr-body").onclick = ev => { const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
+  $("dr-body").onclick = ev => { const tg = ev.target.closest(".np-sites"); if (tg) { const sub = $("dr-body").querySelector(`tr.np-sub[data-sub="${tg.dataset.for}"]`), open = sub.classList.toggle("hidden") === false; tg.setAttribute("aria-expanded", open); tg.textContent = (open ? "▾ " : "▸ ") + tg.textContent.slice(2); return; }
+    const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
 }
 function renderNetworks() {

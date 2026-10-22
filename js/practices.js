@@ -32,10 +32,13 @@ function renderBranchHits(list) {
     show.map(b => `<div>${esc(b.branch_name)} <span class="font-mono text-xs">${esc(b.branch_code)}</span> · ${esc(b.postcode || "")} · belongs to ${esc(b.parent_name || b.parent_code || "an unknown organisation")} <span class="font-mono text-xs">${esc(b.parent_code || "")}</span> ${chip(b.kind === "non_gp" ? "Non-GP: " + (b.parent_role_name || "organisation") : "GP practice not in Atlas", "bg-slate-200 text-slate-700")}</div>`).join("") : "";
 }
 // A practice's branch sites (ODS role Branch Surgery): list size, price and HubSpot all stay on the practice
+// A branch site has no profile of its own, so this shows everything we hold for it (profile and network panels)
+const siteDetails = b => `<div class="text-sm py-1"><div class="font-semibold">${esc(b.branch_name)} <span class="font-mono text-xs text-slate-500">${esc(b.branch_code)}</span></div>
+  <div class="text-xs text-slate-500">${[b.address, b.town, b.county, b.postcode].filter(Boolean).map(esc).join(", ")}</div>
+  <div class="text-xs text-slate-500">${[b.opened ? "Opened " + esc(fmtDate(b.opened)) : "", b.phone ? esc(b.phone) : ""].filter(Boolean).join(" · ")}</div></div>`;
 function branchSection(p) {
   const list = branchesByParent.get(p.ods_code);
-  return list ? sec("Branch sites", list.map(b => `<div class="text-sm py-1"><div class="font-semibold">${esc(b.branch_name)} <span class="font-mono text-xs text-slate-500">${esc(b.branch_code)}</span></div>
-    <div class="text-xs text-slate-500">${[b.address, b.town, b.postcode].filter(Boolean).map(esc).join(", ")}${b.opened ? " · opened " + esc(fmtDate(b.opened)) : ""}${b.phone ? " · " + esc(b.phone) : ""}</div></div>`).join("")) : "";
+  return list ? sec("Branch sites", list.map(siteDetails).join("")) : "";
 }
 function renderChips() {
   const box = $("f-chips"); box.innerHTML = "";

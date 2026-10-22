@@ -172,6 +172,12 @@ with sync_playwright() as p:
     prof = pg.inner_text("#dr-body")
     assert "pricing" in prof.lower() and "size discount" in prof.lower() and "estimated annual revenue" in prof.lower() and "signed separately" in prof and "Network discount" in prof and "Test Surgery 0" in prof, prof
     pg.wait_for_timeout(500); pg.screenshot(path=SHOTS + "/netprofile.png")
+    assert "+1 branch site" in prof and "+1 site" in prof and pg.locator("#dr-body tr.np-sub").first.is_hidden(), prof     # branch sites: counted on the tile, collapsed under their practice
+    pg.click("#dr-body .np-sites"); assert pg.locator("#dr-body tr.np-sub").first.is_visible()
+    pg.screenshot(path=SHOTS + "/netprofile_sites.png")
+    sub_txt = pg.inner_text("#dr-body tr.np-sub"); assert "Holycroft Surgery" in sub_txt and "Oakworth Road" in sub_txt and "Opened" in sub_txt, sub_txt
+    assert pg.locator("#drawer:not(.translate-x-full)").count() == 1 and pg.inner_text("#dr-title") != "Test Surgery 2"      # the toggle did not open the practice
+    pg.click("#dr-body .np-sites"); assert pg.locator("#dr-body tr.np-sub").first.is_hidden()
     pg.click("#dr-body tr[data-ods=A10001]"); pg.wait_for_function("document.querySelector('#dr-title').textContent === 'Test Surgery 1'")
     pg.click("#tab-networks"); pg.click("#net-kinds button[data-k=group]"); pg.click("#net-rows tr:first-child"); pg.click("#np-view")
     pg.wait_for_selector("#view-practices:not(.hidden)")
