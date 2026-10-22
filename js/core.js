@@ -6,7 +6,22 @@ const $ = id => document.getElementById(id);
 const PAGE = 100;
 let practices = [], byOds = new Map(), filtered = [], shown = 0, signals = [], sigShown = 0, sigList = [], channel = null, lastRunDate = null;
 let signalCodes = new Set(), signalCounts = new Map();
-let branches = [], branchesByParent = new Map(), branchHit = new Map();   // ODS branch surgeries: sites of a parent practice, found through search
+let branches = [], branchesByParent = new Map(), branchAlso = new Map(), branchHit = new Map();   // ODS branch surgeries: sites of a practice (see src/branches.py), found through search
+// A branch record is one of: branch (a real site of its practice), duplicate_branch / duplicate_practice (an operator's listing of something we already hold),
+// hosted (a differently named building a practice uses), shared (a building with several practices) or other (hospital, urgent care, PCN hub...).
+// A person's reject turns a match into "other"; a hosted match counts once confirmed.
+const branchRes = b => b.match_status === "rejected" ? "other" : b.resolution || "other";
+const branchSite = b => branchRes(b) === "branch" || (branchRes(b) === "hosted" && b.match_status === "confirmed");   // listed under its practice as a site
+const branchDupe = b => ["duplicate_branch", "duplicate_practice"].includes(branchRes(b));                           // already held as a practice or site: only noted
+function indexBranches() {
+  branchesByParent = new Map(); branchAlso = new Map();
+  for (const b of branches) {
+    if (!b.practice_code) continue;
+    const m = branchSite(b) ? branchesByParent : branchDupe(b) ? branchAlso : null;
+    if (m) m.set(b.practice_code, [...(m.get(b.practice_code) || []), b]);
+  }
+  if (typeof setBranchBadge === "function") setBranchBadge();
+}
 let networks = [], netKind = "pcn", netShown = 0, netList = [], netFilter = null, fromNetworks = false, cfgTiers = [], cfgSettings = {};
 let sort = { key: "patients", dir: -1 }, revMetric = "arr", drawerCode = null;
 

@@ -21,8 +21,9 @@ async function renderData() {
 let dataSub = "overview";
 function setDataSub(which) {
   dataSub = which;
-  for (const k of ["overview", "sources", "audit", "signals", "pricing"]) $("dp-" + k).classList.toggle("hidden", k !== which);
+  for (const k of ["overview", "sources", "audit", "branches", "signals", "pricing"]) $("dp-" + k).classList.toggle("hidden", k !== which);
   if (which === "audit") renderAudit();
+  if (which === "branches") renderBranchReview();
   $("data-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.d === which ? "bg-white shadow-sm" : "text-slate-500"));
   stateToUrl();
 }

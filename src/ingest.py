@@ -4,7 +4,7 @@ import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
 
-from . import cqc, jobs, maintenance, oscar, software, sources
+from . import branches, cqc, jobs, maintenance, oscar, software, sources
 from .common import Rest, need_env, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
@@ -19,7 +19,7 @@ DATES_RECHECK = timedelta(days=180)
 BRANCH_DAILY_CAP = 2000
 BRANCH_RECHECK = timedelta(days=90)
 BRANCH_MIN = 1000   # ODS holds ~2,500 active branches; a far smaller list means the API misbehaved
-BRANCH_COLS = ["branch_code", "branch_name", "address", "town", "county", "postcode", "phone", "opened", "status", "parent_code", "parent_name", "parent_role", "parent_role_name", "kind", "checked_at"]
+BRANCH_COLS = ["branch_code", "branch_name", "address", "town", "county", "postcode", "phone", "opened", "status", "parent_code", "parent_name", "parent_role", "parent_role_name", "kind", "practice_code", "resolution", "matched_branch_code", "match_status", "match_note", "checked_at"]
 
 
 def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software, pcn_checked=frozenset(), dates=None):
@@ -220,12 +220,18 @@ def branches_step(rest, existing, ods, now, stats):
             elif r.get("parent_code") in names:
                 r["parent_name"] = names[r["parent_code"]]
             r["kind"] = branch_kind(r.get("parent_code"), r.get("parent_role"), held)
+        pool = {c: {"name": p["practice_name"], "postcode": p.get("postcode")} for c, p in existing.items() if p.get("status") == "Active" and not p.get("merged_into")}
+        pool.update({c: {"name": title_case(o["name"]), "postcode": o.get("postcode")} for c, o in ods.items() if o["status"] == "Active" and c not in pool})
+        resolved = branches.resolve(rows, pool, stored)
+        for c, r in rows.items():
+            r.update(resolved[c])
             r["parent_role_name"] = roles.get(r.get("parent_role"), r.get("parent_role"))
             if c not in stored or any(r.get(k) != stored[c].get(k) for k in BRANCH_COLS):
                 changed.append({k: r.get(k) for k in BRANCH_COLS})
         rest.upsert("practice_branches", changed, "branch_code")
         stats.update(branches_active=len(listing), branches_changed=len(changed), branches_not_gp=sum(r["kind"] == "non_gp" for r in rows.values()),
-                     branches_parent_not_held=sum(r["kind"] == "gp_not_held" for r in rows.values()), branches_no_parent=sum(not r.get("parent_code") for r in rows.values()))
+                     branches_parent_not_held=sum(r["kind"] == "gp_not_held" for r in rows.values()), branches_no_parent=sum(not r.get("parent_code") for r in rows.values()),
+                     **{f"branches_{k}": sum(r["resolution"] == k for r in rows.values()) for k in branches.RESOLUTIONS}, branches_to_review=sum(r["match_status"] in ("probable", "review") for r in rows.values()))
     except Exception as e:  # noqa: BLE001  enrichment, not critical
         stats["branches_error"] = str(e)[:200]
 

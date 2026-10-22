@@ -410,3 +410,34 @@ def test_branch_record_and_parent():
     from src import ingest
     assert ingest.branch_kind("B83033", "RO177", {"B83033": {}}) == "gp_practice"
     assert ingest.branch_kind("X99999", "RO177", {}) == "gp_not_held" and ingest.branch_kind("Y06528", "RO98", {}) == "non_gp"
+
+
+def test_branch_resolution_cases():
+    from src import branches
+    pool = {"M85624": {"name": "Perry Park Surgery", "postcode": "B44 0HL"}, "M85026": {"name": "Ashfield Surgery", "postcode": "B76 1QN"}, "B87021": {"name": "Ash Grove", "postcode": "WF11 0JA"},
+            "M85028": {"name": "Lordswood House Group Medical Practice", "postcode": "B17 9DB"}, "Y03035": {"name": "Queenswood Medical Practice", "postcode": "N8 8JD"},
+            "F83033": {"name": "Barnsbury Medical Practice", "postcode": "N1 0AL"}, "Y03103": {"name": "Medicus Select Care", "postcode": "N1 0AL"}}
+    def row(code, name, pc, parent, status="Active"):
+        return {"branch_code": code, "branch_name": name, "postcode": pc, "parent_code": parent, "status": status}
+    rows = {c: r for c, r in [("M85624001", row("M85624001", "Kingsdale Surgery", "B44 0UJ", "M85624")),            # real branch: code = practice code + suffix
+        ("Q8F5U", row("Q8F5U", "Kingsdale Surgery", "B44 0UJ", "Y06528")),                                         # operator listing of that same site
+        ("V5E4B", row("V5E4B", "Ashfield Surgery", "B76 1QN", "Y06528")),                                          # operator listing of a practice, exact name
+        ("Y05959001", row("Y05959001", "Ash Grove Medical Centre", "WF11 0JA", "Y05959")),                         # 9-char but its parent is not a practice we hold
+        ("K6M6K", row("K6M6K", "Lordswood Medical Practice", "B17 9DB", "Y06528")),                                # similar name
+        ("N5N9N", row("N5N9N", "Hornsey Central Neighbourhood Health Centre", "N8 8JD", "Y02785")),               # one practice there, different name
+        ("S3D2F", row("S3D2F", "Bingfield Primary Care Centre", "N1 0AL", "Y02785")),                              # shared building
+        ("T1Z1F", row("T1Z1F", "Moseley Hall Hospital", "B13 8JL", "Y06528"))]}                                    # nothing there
+    r = branches.resolve(rows, pool)
+    assert (r["M85624001"]["resolution"], r["M85624001"]["practice_code"]) == ("branch", "M85624")
+    assert (r["Q8F5U"]["resolution"], r["Q8F5U"]["practice_code"], r["Q8F5U"]["matched_branch_code"], r["Q8F5U"]["match_status"]) == ("duplicate_branch", "M85624", "M85624001", "auto")
+    assert (r["V5E4B"]["resolution"], r["V5E4B"]["practice_code"], r["V5E4B"]["match_status"]) == ("duplicate_practice", "M85026", "auto")
+    assert (r["Y05959001"]["resolution"], r["Y05959001"]["practice_code"], r["Y05959001"]["match_status"]) == ("duplicate_practice", "B87021", "probable")
+    assert (r["K6M6K"]["practice_code"], r["K6M6K"]["match_status"]) == ("M85028", "probable")
+    assert (r["N5N9N"]["resolution"], r["N5N9N"]["practice_code"], r["N5N9N"]["match_status"]) == ("hosted", "Y03035", "review")
+    assert (r["S3D2F"]["resolution"], r["S3D2F"]["practice_code"]) == ("shared", None) and "Barnsbury" in r["S3D2F"]["match_note"]
+    assert (r["T1Z1F"]["resolution"], r["T1Z1F"]["practice_code"]) == ("other", None)
+    # a person's decision stands while the match is unchanged, and lapses when the match changes
+    kept = branches.resolve(rows, pool, {"N5N9N": {"match_status": "confirmed", "resolution": "hosted", "practice_code": "Y03035"}})
+    assert kept["N5N9N"]["match_status"] == "confirmed"
+    gone = branches.resolve(rows, pool, {"N5N9N": {"match_status": "confirmed", "resolution": "hosted", "practice_code": "OTHER1"}})
+    assert gone["N5N9N"]["match_status"] == "review"

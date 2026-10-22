@@ -12,8 +12,8 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.bare{background:transparent;padding:0}.atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}.atlas-chip.bare,.atlas-chip.lg.bare{background:transparent;padding:0}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261022b"></script>
-<link rel="stylesheet" href="assets/tailwind.css?v=20261022b">
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261022c"></script>
+<link rel="stylesheet" href="assets/tailwind.css?v=20261022c">
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
 <body class="bg-lalu-mist text-lalu-navy antialiased">
@@ -210,7 +210,7 @@
     <!-- Data -->
     <section id="view-data" class="hidden">
       <div id="data-sub" class="inline-flex flex-wrap bg-slate-100 rounded-lg p-0.5 text-sm font-semibold mb-4">
-        <button data-d="overview" class="px-3 py-1 rounded-md bg-white shadow-sm">Overview</button><button data-d="sources" class="px-3 py-1 rounded-md text-slate-500">Data sources</button><button data-d="audit" class="px-3 py-1 rounded-md text-slate-500">HubSpot audit</button><button data-d="signals" class="px-3 py-1 rounded-md text-slate-500">Signal settings</button><button data-d="pricing" class="px-3 py-1 rounded-md text-slate-500">Pricing &amp; rate card</button>
+        <button data-d="overview" class="px-3 py-1 rounded-md bg-white shadow-sm">Overview</button><button data-d="sources" class="px-3 py-1 rounded-md text-slate-500">Data sources</button><button data-d="audit" class="px-3 py-1 rounded-md text-slate-500">HubSpot audit</button><button data-d="branches" class="px-3 py-1 rounded-md text-slate-500">Branch sites <span id="br-badge" title="ODS branch matches waiting for a decision" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-d="signals" class="px-3 py-1 rounded-md text-slate-500">Signal settings</button><button data-d="pricing" class="px-3 py-1 rounded-md text-slate-500">Pricing &amp; rate card</button>
       </div>
       <div id="dp-overview" class="grid grid-cols-1 xl:grid-cols-2 gap-4">
       <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
@@ -237,6 +237,7 @@
       </div>
       <div id="d-connections" class="bg-white rounded-xl border border-slate-200 shadow-sm p-4"></div>
       </div>
+      <div id="dp-branches" class="hidden"><div id="d-branches" class="bg-white rounded-xl border border-slate-200 shadow-sm p-4"></div></div>
       <div id="dp-audit" class="hidden"><div id="d-audit" class="bg-white rounded-xl border border-slate-200 shadow-sm p-4"></div></div>
       <div id="dp-signals" class="hidden">
       <div id="sig-types" class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
@@ -275,20 +276,21 @@
     <div id="hs-body" class="flex-1 overflow-y-auto px-5 pb-5 pt-4 text-sm"></div>
   </div>
 </div>
-<script src="js/core.js?v=20261022b"></script>
-<script src="js/data-load.js?v=20261022b"></script>
-<script src="js/practices.js?v=20261022b"></script>
-<script src="js/networks.js?v=20261022b"></script>
-<script src="js/signals.js?v=20261022b"></script>
-<script src="js/mergers.js?v=20261022b"></script>
-<script src="js/data-tab.js?v=20261022b"></script>
-<script src="js/data-connections.js?v=20261022b"></script>
-<script src="js/data-uploads.js?v=20261022b"></script>
-<script src="js/data-audit.js?v=20261022b"></script>
-<script src="js/hubspot.js?v=20261022b"></script>
-<script src="js/hubspot-company.js?v=20261022b"></script>
-<script src="js/hubspot-admin.js?v=20261022b"></script>
-<script src="js/export.js?v=20261022b"></script>
-<script src="js/main.js?v=20261022b"></script>
+<script src="js/core.js?v=20261022c"></script>
+<script src="js/data-load.js?v=20261022c"></script>
+<script src="js/practices.js?v=20261022c"></script>
+<script src="js/networks.js?v=20261022c"></script>
+<script src="js/signals.js?v=20261022c"></script>
+<script src="js/mergers.js?v=20261022c"></script>
+<script src="js/data-tab.js?v=20261022c"></script>
+<script src="js/data-connections.js?v=20261022c"></script>
+<script src="js/data-uploads.js?v=20261022c"></script>
+<script src="js/data-audit.js?v=20261022c"></script>
+<script src="js/data-branches.js?v=20261022c"></script>
+<script src="js/hubspot.js?v=20261022c"></script>
+<script src="js/hubspot-company.js?v=20261022c"></script>
+<script src="js/hubspot-admin.js?v=20261022c"></script>
+<script src="js/export.js?v=20261022c"></script>
+<script src="js/main.js?v=20261022c"></script>
 </body>
 </html>

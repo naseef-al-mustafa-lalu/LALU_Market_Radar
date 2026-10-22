@@ -10,8 +10,8 @@ function applyFilters() {
         cqcf = $("f-cqc").value, icb = $("f-icb").value, ctry = $("f-country").value, sz = $("f-size").value, stf = $("f-status").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
   const bHits = q.length >= 3 ? branches.filter(b => [b.branch_name, b.branch_code, b.postcode, b.town].some(v => (v || "").toLowerCase().includes(q))) : [];
   branchHit = new Map();
-  for (const b of bHits) if (b.kind === "gp_practice") branchHit.set(b.parent_code, [...(branchHit.get(b.parent_code) || []), b.branch_name]);
-  renderBranchHits(bHits.filter(b => b.kind !== "gp_practice"));
+  for (const b of bHits) if (b.practice_code && branchRes(b) !== "other" && branchRes(b) !== "shared" && (branchSite(b) || branchDupe(b))) branchHit.set(b.practice_code, [...(branchHit.get(b.practice_code) || []), b.branch_name]);
+  renderBranchHits(bHits.filter(b => !(b.practice_code && (branchSite(b) || branchDupe(b)))));
   filtered = practices.filter(p =>
     (stf === "all" || (stf === "merged" ? !!p.merged_into : stf === "closed" ? isClosed(p) && !p.merged_into : p.status === "Active" && !p.merged_into && !isClosed(p))) && netMatch(p, netFilter) && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!hs || (hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === hs)) &&
     (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) && (!ctry || (p.country || "England") === ctry) && (!sz || (sz === "yes") === (p.total_patients > 0)) &&
@@ -24,21 +24,23 @@ function applyFilters() {
   $("count").textContent = `${filtered.length.toLocaleString()} practices`;
   stateToUrl();
 }
-// Branch surgeries whose parent is not a practice in Atlas (closed, or not a GP practice): shown above the table so they can still be found
+// Branch records that are not a site or repeat of a practice we hold (hospitals, urgent care, shared buildings, unconfirmed matches): shown above the table so they can still be found
+const BRANCH_WHY = b => ({ shared: "A building shared by several practices", hosted: "May be a building used by a practice (to review in Data > Branch sites)", other: "Not a GP practice site" }[branchRes(b)] || "");
 function renderBranchHits(list) {
   const box = $("branch-hits"), show = list.slice(0, 8);
   box.classList.toggle("hidden", !show.length);
-  box.innerHTML = show.length ? `<div class="font-semibold mb-1">Branch sites with no practice in Atlas${list.length > show.length ? " (first " + show.length + " of " + list.length + ")" : ""}</div>` +
-    show.map(b => `<div>${esc(b.branch_name)} <span class="font-mono text-xs">${esc(b.branch_code)}</span> · ${esc(b.postcode || "")} · belongs to ${esc(b.parent_name || b.parent_code || "an unknown organisation")} <span class="font-mono text-xs">${esc(b.parent_code || "")}</span> ${chip(b.kind === "non_gp" ? "Non-GP: " + (b.parent_role_name || "organisation") : "GP practice not in Atlas", "bg-slate-200 text-slate-700")}</div>`).join("") : "";
+  box.innerHTML = show.length ? `<div class="font-semibold mb-1">Other ODS sites matching this search${list.length > show.length ? " (first " + show.length + " of " + list.length + ")" : ""}</div>` +
+    show.map(b => `<div class="py-0.5">${esc(b.branch_name)} <span class="font-mono text-xs">${esc(b.branch_code)}</span> · ${esc([b.town, b.postcode].filter(Boolean).join(" "))} · run by ${esc(b.parent_name || b.parent_code || "an unknown organisation")} ${chip(BRANCH_WHY(b), "bg-slate-200 text-slate-700", esc(b.match_note || ""))}</div>`).join("") : "";
 }
 // A practice's branch sites (ODS role Branch Surgery): list size, price and HubSpot all stay on the practice
 // A branch site has no profile of its own, so this shows everything we hold for it (profile and network panels)
 const siteDetails = b => `<div class="text-sm py-1"><div class="font-semibold">${esc(b.branch_name)} <span class="font-mono text-xs text-slate-500">${esc(b.branch_code)}</span></div>
   <div class="text-xs text-slate-500">${[b.address, b.town, b.county, b.postcode].filter(Boolean).map(esc).join(", ")}</div>
-  <div class="text-xs text-slate-500">${[b.opened ? "Opened " + esc(fmtDate(b.opened)) : "", b.phone ? esc(b.phone) : ""].filter(Boolean).join(" · ")}</div></div>`;
+  <div class="text-xs text-slate-500">${[b.opened ? "Opened " + esc(fmtDate(b.opened)) : "", b.phone ? esc(b.phone) : "", branchRes(b) === "hosted" ? "Listed by " + esc(b.parent_name || b.parent_code) : ""].filter(Boolean).join(" · ")}${(branchAlso.get(b.practice_code) || []).some(x => x.matched_branch_code === b.branch_code) ? `<div>Also listed by ${[...new Set((branchAlso.get(b.practice_code) || []).filter(x => x.matched_branch_code === b.branch_code).map(x => esc(x.parent_name || x.parent_code)))].join(", ")}</div>` : ""}</div></div>`;
 function branchSection(p) {
-  const list = branchesByParent.get(p.ods_code);
-  return list ? sec("Branch sites", list.map(siteDetails).join("")) : "";
+  const list = branchesByParent.get(p.ods_code), also = branchAlso.get(p.ods_code);
+  const dupes = also ? `<div class="mt-2 text-xs text-slate-500">Also listed in ODS by ${[...new Set(also.map(b => b.parent_name || b.parent_code))].map(esc).join(", ")}${also.some(b => b.match_status === "probable") ? " (some matches are probable, not confirmed)" : ""}. These repeat this practice or one of its sites, so they are not counted again.</div>` : "";
+  return list || also ? sec("Branch sites", (list || []).map(siteDetails).join("") + dupes) : "";
 }
 function renderChips() {
   const box = $("f-chips"); box.innerHTML = "";
