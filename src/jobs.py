@@ -24,7 +24,10 @@ ROLES = [
     ("records / summarising", r"summaris|medical records?|health records?|records? (?:clerk|officer|administrator|manager|assistant)|lloyd george|notes summar"),
     ("workflow / document management", r"workflow|document (?:management|handler|administrator)|correspondence"),
     ("information governance", r"information governance|data protection|\bdpo\b"),
+    ("digital transformation", r"digital (?:transformation|transition|lead|manager|programme|project|officer|innovation|change|health|clinical|systems?|facilitator|champion)|digital (?:and|&) data|data (?:and|&) digital"
+                               r"|transformation (?:lead|manager|programme|project|officer|facilitator)|(?:clinical|health|primary care|practice) (?:systems?|informatics)|informatics|\bit (?:lead|manager|project|facilitator|systems?)|\bgp it\b|systems? (?:lead|manager|administrator)"),
 ]
+DIGITAL_ROLE = "digital transformation"     # raises the same signal with its own next step: the practice is investing in digital change, not hiring for records work
 ROLE_RES = [(label, re.compile(rx, re.I)) for label, rx in ROLES]
 NETWORK_NAME = re.compile(r"\bpcn\b|primary care network|gp federation|federated gps|gp network|gp collaborative|gp alliance|general practice (?:network|federation)", re.I)
 PRIMARY_NAME = re.compile(r"surgery|surgeries|medical (?:centre|center|practice|group|partnership)|health (?:centre|center)|doctors|\bgp\b|family practice|group practice|primary care", re.I)
@@ -209,7 +212,8 @@ def sync(rest, practices, today=None, fetch=fetch_all):
             sig = {"trigger_type": "JOB_REPORT_ROLE", "headline": f"Hiring: {r['title']}",
                    "description": f"{emp[r['employer_code']]['employer_name']} advertised \"{r['title']}\" ({r['matched_role']}) on NHS Jobs"
                                   f"{', closing ' + r['close_date'] if r['close_date'] else ''}.", "url": r["url"],
-                   "action": "The practice is recruiting for work Lalu can take on. Offer to cover reports and records instead of, or while, they hire."}
+                   "action": ("The practice is investing in digital change. A good moment to introduce Lalu's reports and records tooling alongside it." if r["matched_role"] == DIGITAL_ROLE
+                              else "The practice is recruiting for work Lalu can take on. Offer to cover reports and records instead of, or while, they hire.")}
             if r["ods_code"]:
                 sig["ods_code"] = r["ods_code"]
             elif r["org_id"]:

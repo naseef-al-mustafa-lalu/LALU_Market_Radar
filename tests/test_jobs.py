@@ -34,6 +34,9 @@ def test_parse_and_roles():
     assert total == 2 and rows[0]["employer_code"] == "A0095" and rows[0]["post_date"] == "2026-10-14"
     assert jobs.role_of("Medical Secretary / Workflow Administrator") == "medical secretary"
     assert jobs.role_of("SAR Administrator") == "subject access / SAR"
+    assert jobs.role_of("Digital Transformation Lead") == "digital transformation" and jobs.role_of("Primary Care Informatics Manager") == "digital transformation"
+    assert jobs.role_of("Digital & Data Programme Officer") == "digital transformation" and jobs.role_of("IT Project Manager") == "digital transformation"
+    assert jobs.role_of("Medical Records Clerk") == "records / summarising"      # a records role wins over a digital one
     assert jobs.role_of("Healthcare Assistant") is None and jobs.role_of("Receptionist") is None
     assert jobs.is_primary_employer("A0095", "x") and jobs.is_primary_employer("W0001", "Acclaim NHS PCN") and not jobs.is_primary_employer("C9409", "Big Trust")
 
