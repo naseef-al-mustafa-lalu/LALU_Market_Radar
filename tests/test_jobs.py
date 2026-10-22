@@ -130,3 +130,7 @@ def test_scan_guard_skips_a_recent_scan():
     stats = {}
     ingest.jobs_step(rest, {}, {}, {}, stats)
     assert "jobs_skipped" in stats and "jobs_error" not in stats
+    rest.t["kv_state"] = {"jobs_pause": {"key": "jobs_pause", "value": {"until": "2999-01-01T00:00:00+00:00", "why": "blocked"}}}      # a pause stops the scan whatever the last scan time
+    stats = {}
+    ingest.jobs_step(rest, {}, {}, {}, stats)
+    assert stats["jobs_skipped"].startswith("paused until 2999") and "jobs_error" not in stats

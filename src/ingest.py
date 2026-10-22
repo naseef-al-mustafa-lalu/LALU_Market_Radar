@@ -283,6 +283,10 @@ def jobs_step(rest, env, existing, records, stats):
     try:
         if env.get("NHS_JOBS", "1") == "0":
             raise ValueError("NHS_JOBS=0: jobs scan skipped")
+        pause = rest.select_all("kv_state", "key,value", order="key", params={"key": "eq.jobs_pause"})
+        if pause and datetime.now(timezone.utc) < datetime.fromisoformat(pause[0]["value"]["until"]):
+            stats["jobs_skipped"] = f"paused until {pause[0]['value']['until'][:16]}Z: {pause[0]['value'].get('why', '')}"[:200]
+            return
         last = rest.select_all("kv_state", "key,value", order="key", params={"key": "eq.jobs_scan"})
         last_at = datetime.fromisoformat(last[0]["value"]["at"]) if last else None
         if last_at and datetime.now(timezone.utc) - last_at < JOBS_MIN_INTERVAL and env.get("JOBS_FORCE") != "1":
