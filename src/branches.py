@@ -1,9 +1,9 @@
 """Which GP practice does an ODS branch-surgery record (role RO96) belong to?
 
-ODS holds two kinds of branch record, and only one of them is a branch in the sense a practice means it:
-  * a 9-character code is the practice's own code plus a 3-digit suffix (M85624001 belongs to M85624): a real branch;
-  * a 5-character code is a listing made by an operator (South Doc Virtual Services, an urgent-care provider, a PCN): it often repeats
-    a practice or a real branch we already hold, or is a building or a non-GP site.
+ODS records who operates each branch (relationship RE6). When that is a GP practice we hold, the record is a real branch of it: a 9-character code is that
+practice's own code plus a 3-digit suffix (M85624001 belongs to M85624), and a 5-character code can be one too. When the operator is not a GP practice
+we hold (South Doc Virtual Services, an urgent-care provider, a PCN), the record is a listing that often repeats a practice or real branch we already
+hold, or is a building or a non-GP site.
 `resolve` sorts every record into one of: branch, duplicate_branch, duplicate_practice, hosted, shared, other, and says how sure it is.
 Pure functions: no I/O. A person's confirm / reject decision is kept while the situation it was made about is unchanged.
 """
@@ -54,15 +54,15 @@ def resolve(rows, pool, prior=None):
     practices_at = {}
     for ods, p in pool.items():
         practices_at.setdefault(norm_postcode(p.get("postcode")), []).append({"code": ods, "name": p.get("name") or p.get("practice_name") or ""})
-    real = {}                                                   # postcode -> real branches (9-char, parent held)
+    real = {}                                                   # postcode -> real branches (operated by a practice we hold)
     for c, r in rows.items():
-        if len(c) == 9 and c[:6] == r.get("parent_code") and r["parent_code"] in pool and r.get("status", "Active") == "Active":
+        if r.get("parent_code") in pool and r.get("status", "Active") == "Active":
             real.setdefault(norm_postcode(r.get("postcode")), []).append({"code": c, "name": r.get("branch_name") or "", "parent": r["parent_code"]})
     out = {}
     for c, r in rows.items():
         name, post, parent = r.get("branch_name") or "", norm_postcode(r.get("postcode")), r.get("parent_code")
-        if len(c) == 9 and c[:6] == parent and parent in pool:
-            res = _res("branch", parent, None, "auto", "A branch of its practice: the code is the practice code plus a suffix")
+        if parent in pool:
+            res = _res("branch", parent, None, "auto", "A branch of the practice that ODS says operates it")
         else:
             twins = [t for t in real.get(post, []) if t["code"] != c]
             how, hit = best_name(twins, name)

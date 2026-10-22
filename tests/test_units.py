@@ -416,11 +416,12 @@ def test_branch_resolution_cases():
     from src import branches
     pool = {"M85624": {"name": "Perry Park Surgery", "postcode": "B44 0HL"}, "M85026": {"name": "Ashfield Surgery", "postcode": "B76 1QN"}, "B87021": {"name": "Ash Grove", "postcode": "WF11 0JA"},
             "M85028": {"name": "Lordswood House Group Medical Practice", "postcode": "B17 9DB"}, "Y03035": {"name": "Queenswood Medical Practice", "postcode": "N8 8JD"},
-            "F83033": {"name": "Barnsbury Medical Practice", "postcode": "N1 0AL"}, "Y03103": {"name": "Medicus Select Care", "postcode": "N1 0AL"}}
+            "B83033": {"name": "Arg Healthcare", "postcode": "BB6 7QQ"}, "F83033": {"name": "Barnsbury Medical Practice", "postcode": "N1 0AL"}, "Y03103": {"name": "Medicus Select Care", "postcode": "N1 0AL"}}
     def row(code, name, pc, parent, status="Active"):
         return {"branch_code": code, "branch_name": name, "postcode": pc, "parent_code": parent, "status": status}
     rows = {c: r for c, r in [("M85624001", row("M85624001", "Kingsdale Surgery", "B44 0UJ", "M85624")),            # real branch: code = practice code + suffix
         ("Q8F5U", row("Q8F5U", "Kingsdale Surgery", "B44 0UJ", "Y06528")),                                         # operator listing of that same site
+        ("S0O9H", row("S0O9H", "Great Harwood Surgery", "BB6 7PX", "B83033")),                                     # 5-char code, but operated by a practice we hold: a real branch
         ("V5E4B", row("V5E4B", "Ashfield Surgery", "B76 1QN", "Y06528")),                                          # operator listing of a practice, exact name
         ("Y05959001", row("Y05959001", "Ash Grove Medical Centre", "WF11 0JA", "Y05959")),                         # 9-char but its parent is not a practice we hold
         ("K6M6K", row("K6M6K", "Lordswood Medical Practice", "B17 9DB", "Y06528")),                                # similar name
@@ -429,6 +430,7 @@ def test_branch_resolution_cases():
         ("T1Z1F", row("T1Z1F", "Moseley Hall Hospital", "B13 8JL", "Y06528"))]}                                    # nothing there
     r = branches.resolve(rows, pool)
     assert (r["M85624001"]["resolution"], r["M85624001"]["practice_code"]) == ("branch", "M85624")
+    assert (r["S0O9H"]["resolution"], r["S0O9H"]["practice_code"], r["S0O9H"]["match_status"]) == ("branch", "B83033", "auto")      # not judged by address: ODS names its operator
     assert (r["Q8F5U"]["resolution"], r["Q8F5U"]["practice_code"], r["Q8F5U"]["matched_branch_code"], r["Q8F5U"]["match_status"]) == ("duplicate_branch", "M85624", "M85624001", "auto")
     assert (r["V5E4B"]["resolution"], r["V5E4B"]["practice_code"], r["V5E4B"]["match_status"]) == ("duplicate_practice", "M85026", "auto")
     assert (r["Y05959001"]["resolution"], r["Y05959001"]["practice_code"], r["Y05959001"]["match_status"]) == ("duplicate_practice", "B87021", "probable")
