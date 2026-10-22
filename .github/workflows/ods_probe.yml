@@ -1,9 +1,0 @@
-name: ODS probe (temporary)
-on: workflow_dispatch
-jobs:
-  probe:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          B=https://directory.spineservices.nhs.uk/ORD/2-0-0
-          for c in F4A2Q F82022 Y07579; do echo "== $c"; curl -s -H "Accept: application/json" "$B/organisations/$c" | python3 -c "import sys,json;print(json.dumps(json.load(sys.stdin),indent=None)[:3500])"; echo; done
