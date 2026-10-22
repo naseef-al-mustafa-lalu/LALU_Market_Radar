@@ -201,6 +201,10 @@ with sync_playwright() as p:
     pg.fill("#f-search", "zzz"); assert "0 practices" in pg.inner_text("#count")
     # revenue
     pg.click("#tab-revenue"); pg.wait_for_selector("#rev-routes tr, #rev-routes > div")
+    rvt = pg.inner_text("#view-revenue"); assert "aggregate of its linked" not in rvt and "Freemium was discontinued" not in rvt, rvt           # notes sit behind info icons
+    pg.hover("#view-revenue h2 .info-i"); pg.wait_for_selector("#info-pop:not(.hidden)"); assert "aggregate of its linked practices" in pg.inner_text("#info-pop"); pg.keyboard.press("Escape")
+    pg.hover("#rev-bridge-info .info-i"); pg.wait_for_selector("#info-pop:not(.hidden)"); assert "Freemium was discontinued" in pg.inner_text("#info-pop") and "contract at" in pg.inner_text("#info-pop"); pg.keyboard.press("Escape")
+    pg.screenshot(path=SHOTS + "/revenue_icons.png")
     assert "£" in pg.inner_text("#rev-routes") and "£" in pg.inner_text("#rev-matrix")
     base_total = pg.inner_text("#rev-routes tr:first-child")
     pg.click('#rev-scen button[data-s="sar"]'); assert pg.inner_text("#rev-routes tr:first-child") != base_total
@@ -230,6 +234,9 @@ with sync_playwright() as p:
     pg.click("#data-sub button[data-d=sources]"); pg.wait_for_selector("details[data-conn=hsactions] summary"); cn = pg.evaluate("document.querySelector('#d-connections').textContent"); pg.click("details[data-conn=hsactions] summary"); pg.wait_for_selector("#conn-test"); assert "Daily market radar" in cn and "HubSpot sync" in cn and "if it fails" in cn.lower() and "CQC_API_KEY" in cn and "CQC public API" in cn and "NHS Jobs" in cn and "Oscar research file" in cn and "NHS ODS directory" in cn, cn[:400]
     pg.click("#conn-test"); pg.wait_for_function("document.querySelector('#conn-test-out').innerText.includes('Companies (read)')"); co = pg.inner_text("#conn-test-out"); assert "Leads (read)" in co and "Owners (read)" in co and "Line items" in co, co; pg.screenshot(path=SHOTS + "/connections.png", full_page=True)
     pg.click("#data-sub button[data-d=audit]"); pg.wait_for_selector("#au-list [data-au-open]"); au = pg.inner_text("#d-audit"); assert "Dr Jefferies & Partners" in au and "Nowhere Ltd" in au and "Name differs" in au, au
+    assert "Pick a tile" not in au and "a typo, a PCN or hospital code" not in au and pg.locator("#d-audit .info-i").count() >= 10                       # tile help sits behind info icons
+    pg.hover('#d-audit [data-au="unknown_code"] + span .info-i'); pg.wait_for_selector("#info-pop:not(.hidden)"); assert "a typo, a PCN or hospital code" in pg.inner_text("#info-pop"); pg.keyboard.press("Escape")
+    pg.screenshot(path=SHOTS + "/audit_icons.png")
     pg.click('#d-audit [data-au="unknown_code"]'); pg.wait_for_function("!document.querySelector('#au-list').innerText.includes('Jefferies')"); assert "Nowhere Ltd" in pg.inner_text("#au-list")
     pg.click('#d-audit [data-au="pcn_no_code"]'); pg.wait_for_function("document.querySelector('#au-list').innerText.includes('East Health Network')"); assert pg.locator('#au-list a[href*="/record/2-203659326/9"]').count() == 1 and "Probably U00002" in pg.inner_text("#au-list")
     pg.fill("#au-q", "zzz"); assert "Nothing matches" in pg.inner_text("#au-list"); pg.fill("#au-q", "")

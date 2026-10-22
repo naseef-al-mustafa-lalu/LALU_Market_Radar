@@ -131,3 +131,5 @@ const infoIcon = text => `<button type="button" class="info-i ml-1 inline-flex h
   document.addEventListener("keydown", e => { if (e.key === "Escape") hide(); });
   window.addEventListener("scroll", hide, true);
 })();
+// static headings in index.html carry their explanation as <span class="info-slot" data-text="...">; each becomes an info icon
+document.querySelectorAll(".info-slot").forEach(el => { el.innerHTML = infoIcon(el.dataset.text || ""); });
