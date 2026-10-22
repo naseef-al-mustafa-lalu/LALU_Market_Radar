@@ -443,3 +443,11 @@ def test_branch_resolution_cases():
     assert kept["N5N9N"]["match_status"] == "confirmed"
     gone = branches.resolve(rows, pool, {"N5N9N": {"match_status": "confirmed", "resolution": "hosted", "practice_code": "OTHER1"}})
     assert gone["N5N9N"]["match_status"] == "review"
+
+
+def test_branch_listing_by_a_pcn_enhanced_access_service_is_worded_as_such():
+    from src import branches
+    pool = {"F82022": {"name": "The Rosewood Medical Centre", "postcode": "RM12 5NJ"}}
+    row = {"branch_code": "F4A2Q", "branch_name": "Rosewood Medical Centre", "postcode": "RM12 5NJ", "parent_code": "Y07579", "parent_name": "Havering North PCN Eas", "status": "Active"}
+    r = branches.resolve({"F4A2Q": row}, pool)["F4A2Q"]
+    assert r["resolution"] == "duplicate_practice" and r["practice_code"] == "F82022" and "enhanced-access service" in r["match_note"] and "F82022" in r["match_note"]

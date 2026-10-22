@@ -43,6 +43,9 @@ def best_name(cands, name):
     return ("similar", similar[0]) if len(similar) == 1 else (None, None)
 
 
+EAS = re.compile(r"\bpcn\b.*\beas\b|enhanced access", re.I)     # a PCN's Enhanced Access Service listing a site
+
+
 def _res(resolution, practice_code=None, matched=None, status="auto", note=""):
     return {"resolution": resolution, "practice_code": practice_code, "matched_branch_code": matched, "match_status": status, "match_note": note}
 
@@ -81,6 +84,8 @@ def resolve(rows, pool, prior=None):
                     res = _res("shared", None, None, "auto", "A building shared by " + ", ".join(sorted(x["name"] for x in cands)[:4]) + (" and others" if len(cands) > 4 else ""))
                 else:
                     res = _res("other", None, None, "auto", "No GP practice at this address")
+        if EAS.search(r.get("parent_name") or "") and res["resolution"] in ("duplicate_practice", "duplicate_branch", "hosted"):
+            res["match_note"] = f"{r.get('parent_name')} is a PCN enhanced-access service: this is its listing of a site at the address of " + res["match_note"].split(" as ")[-1].replace("Same practice as ", "")
         old = prior.get(c) or {}
         if old.get("match_status") in ("confirmed", "rejected") and old.get("resolution") == res["resolution"] and old.get("practice_code") == res["practice_code"]:
             res["match_status"] = old["match_status"]          # a decision made about this very match stands
