@@ -85,6 +85,10 @@ with sync_playwright() as p:
     # Data > Branch sites: the review list, a confirm that lists the hosted hall under its practice, and the profile notes for repeats
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=branches]"); pg.wait_for_selector("#br-list [data-br-set]")
     rv = pg.inner_text("#d-branches"); assert "Holycroft Hosted Hall" in rv and "Needs a decision" in rv and "Test Surgery 3 (operator listing)" in rv and "Probable" in rv and "Real branch" in rv, rv
+    assert "Certainly a site of that practice" not in rv and "matched by address and name" not in rv, rv                      # the explanations sit behind the info icons, not on the tiles
+    pg.hover("#d-branches .info-i >> nth=0"); pg.wait_for_selector("#info-pop:not(.hidden)"); pg.screenshot(path=SHOTS + "/branches_tab.png")
+    assert "ODS says a GP practice we hold operates it" in pg.inner_text("#info-pop"); pg.keyboard.press("Escape"); assert pg.locator("#info-pop").is_hidden()
+    pg.click("#d-branches .info-i >> nth=2"); assert "matched by address and name" in pg.inner_text("#info-pop"); pg.click("#d-branches h2"); assert pg.locator("#info-pop").is_hidden()
     assert pg.inner_text("#br-badge").strip() == "2", pg.inner_text("#br-badge")
     pg.click("#br-list [data-code=K1H1H][data-br-set=confirmed]"); pg.wait_for_function("document.querySelectorAll('#br-list [data-code=K1H1H]').length === 0")
     assert pg.inner_text("#br-badge").strip() == "1"

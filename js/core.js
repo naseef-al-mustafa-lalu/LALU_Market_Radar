@@ -107,3 +107,27 @@ $("signout").addEventListener("click", async () => {
   closeDrawer(); practices = []; filtered = []; networks = []; signals = [];
   await db.auth.signOut(); showLogin();
 });
+
+/* ---------- info icon: explanatory text lives behind a small "i" so tiles and tables stay uncluttered (hover, tap or focus to read; Escape closes) ---------- */
+const infoIcon = text => `<button type="button" class="info-i ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] font-bold leading-none text-slate-500 hover:border-lalu-teal-700 hover:text-lalu-teal-700 focus:border-lalu-teal-700 focus:outline-none" data-info="${esc(text)}" aria-label="${esc(text)}">i</button>`;
+(function () {
+  let pop = null, pinned = null;
+  const hide = () => { if (pop) pop.classList.add("hidden"); pinned = null; };
+  const show = btn => {
+    if (!pop) { pop = document.createElement("div"); pop.id = "info-pop"; pop.setAttribute("role", "tooltip"); pop.className = "fixed z-[60] hidden max-w-xs rounded-lg bg-lalu-navy px-3 py-2 text-xs leading-snug text-white shadow-lg"; document.body.appendChild(pop); }
+    pop.textContent = btn.dataset.info; pop.classList.remove("hidden");
+    const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8)) + "px";
+    pop.style.top = (r.bottom + 6 + h > window.innerHeight ? r.top - h - 6 : r.bottom + 6) + "px";
+  };
+  document.addEventListener("mouseover", e => { const b = e.target.closest && e.target.closest(".info-i"); if (b && !pinned) show(b); });
+  document.addEventListener("mouseout", e => { if (e.target.closest && e.target.closest(".info-i") && !pinned) hide(); });
+  document.addEventListener("focusin", e => { const b = e.target.closest && e.target.closest(".info-i"); if (b) show(b); });
+  document.addEventListener("focusout", e => { if (e.target.closest && e.target.closest(".info-i")) hide(); });
+  document.addEventListener("click", e => {
+    const b = e.target.closest && e.target.closest(".info-i");
+    if (b) { if (pinned === b) hide(); else { pinned = b; show(b); } e.preventDefault(); e.stopPropagation(); } else if (pinned) hide();
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") hide(); });
+  window.addEventListener("scroll", hide, true);
+})();
