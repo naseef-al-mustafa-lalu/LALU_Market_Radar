@@ -15,7 +15,11 @@ class FakeRest:
 
     def select_all(self, table, columns="*", order="id", params=None, page=1000):
         v = self.t[table]
-        return [dict(r) for r in (v.values() if isinstance(v, dict) else v)]
+        rows = [dict(r) for r in (v.values() if isinstance(v, dict) else v)]
+        if params and "key" in params:                       # kv_state lookups filter on the key (PostgREST eq.<key>)
+            want = params["key"].split(".", 1)[-1]
+            rows = [r for r in rows if r.get("key") == want]
+        return rows
 
     def upsert(self, table, rows, key, batch=500):
         for r in rows:
