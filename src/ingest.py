@@ -16,6 +16,10 @@ SOFTWARE_DAILY_CAP = 400
 SOFTWARE_RECHECK = timedelta(days=90)
 DATES_DAILY_CAP = 2500
 DATES_RECHECK = timedelta(days=180)
+BRANCH_DAILY_CAP = 2000
+BRANCH_RECHECK = timedelta(days=90)
+BRANCH_MIN = 1000   # ODS holds ~2,500 active branches; a far smaller list means the API misbehaved
+BRANCH_COLS = ["branch_code", "branch_name", "address", "town", "county", "postcode", "phone", "opened", "status", "parent_code", "parent_name", "parent_role", "parent_role_name", "kind", "checked_at"]
 
 
 def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software, pcn_checked=frozenset(), dates=None):
@@ -176,6 +180,56 @@ def dates_step(ods, existing, now, stats):
         return {}
 
 
+def branch_kind(parent_code, parent_role, existing):
+    return "gp_practice" if parent_code in existing else "gp_not_held" if parent_role == "RO177" else "non_gp"
+
+
+def branches_due(listing, stored, now):
+    """Branches never fetched first, then those last fetched more than BRANCH_RECHECK ago (capped per run)."""
+    never = [c for c in sorted(listing) if not (stored.get(c) or {}).get("checked_at")]
+    stale = [c for c in sorted(listing) if (stored.get(c) or {}).get("checked_at")
+             and datetime.fromisoformat(stored[c]["checked_at"].replace("Z", "+00:00")) < now - BRANCH_RECHECK]
+    return (never + stale)[:BRANCH_DAILY_CAP]
+
+
+def branches_step(rest, existing, ods, now, stats):
+    """Branch surgeries (ODS RO96) with their parent. Parents we do not hold as practices are looked up so the branch still says what it belongs to."""
+    try:
+        held = {**existing, **{c: {"practice_name": title_case(o["name"])} for c, o in ods.items() if c not in existing}}   # today's ODS practices count too, so a brand-new parent is not reported as missing
+        listing = sources.load_active_branches()
+        if len(listing) < BRANCH_MIN:
+            raise ValueError(f"ODS returned only {len(listing)} active branches; skipping")
+        stored = {r["branch_code"]: r for r in rest.select_all("practice_branches", ",".join(BRANCH_COLS), order="branch_code")}
+        rows = {c: dict(r) for c, r in stored.items()}
+        for c, rec in sources.fetch_branch_details(branches_due(listing, stored, now)).items():
+            rows[c] = {**{k: None for k in BRANCH_COLS}, **rows.get(c, {}), **rec, "status": "Active", "checked_at": now.isoformat()}
+        for c, r in rows.items():
+            if c not in listing:
+                r["status"] = "Closed"
+        missing = {r["parent_code"] for r in rows.values() if r.get("parent_code") and r["parent_code"] not in held and not r.get("parent_name")}
+        names = sources.fetch_parent_info(sorted(missing)) if missing else {}
+        roles = {}
+        try:
+            roles = sources.role_names()
+        except Exception:  # noqa: BLE001  the role id is stored as-is
+            pass
+        changed = []
+        for c, r in rows.items():
+            if r.get("parent_code") in held:
+                r["parent_name"] = held[r["parent_code"]]["practice_name"]
+            elif r.get("parent_code") in names:
+                r["parent_name"] = names[r["parent_code"]]
+            r["kind"] = branch_kind(r.get("parent_code"), r.get("parent_role"), held)
+            r["parent_role_name"] = roles.get(r.get("parent_role"), r.get("parent_role"))
+            if c not in stored or any(r.get(k) != stored[c].get(k) for k in BRANCH_COLS):
+                changed.append({k: r.get(k) for k in BRANCH_COLS})
+        rest.upsert("practice_branches", changed, "branch_code")
+        stats.update(branches_active=len(listing), branches_changed=len(changed), branches_not_gp=sum(r["kind"] == "non_gp" for r in rows.values()),
+                     branches_parent_not_held=sum(r["kind"] == "gp_not_held" for r in rows.values()), branches_no_parent=sum(not r.get("parent_code") for r in rows.values()))
+    except Exception as e:  # noqa: BLE001  enrichment, not critical
+        stats["branches_error"] = str(e)[:200]
+
+
 def oscar_step(env, active, stats, rejects):
     try:
         if not env.get("OSCAR_API_URL"):
@@ -265,6 +319,7 @@ def sync(rest, run_id):
         contacts_step(rest, contacts, existing, records, stats, rejects)
     jobs_step(rest, env, existing, records, stats)
     graph_step(rest, stats)
+    branches_step(rest, existing, ods, now, stats)
 
     if rejects:
         stats["rejects"] = len(rejects)

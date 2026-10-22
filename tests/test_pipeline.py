@@ -7,7 +7,7 @@ from tests.conftest import make_oscar, make_patients
 
 class FakeRest:
     def __init__(self):
-        self.t = {"gp_practices": {}, "contacts": {}, "patient_counts": {}, "kv_state": {}, "ingest_runs": [], "ingest_rejects": []}
+        self.t = {"gp_practices": {}, "contacts": {}, "patient_counts": {}, "kv_state": {}, "ingest_runs": [], "ingest_rejects": [], "practice_branches": {}}
 
     def select_all(self, table, columns="*", order="id", params=None, page=1000):
         rows = self.t[table]
@@ -51,6 +51,11 @@ def patch_sources(monkeypatch, oscar_bytes, n=5200, with_counts=True, rest=None)
     monkeypatch.setattr(sources, "fetch_pcn_codes", lambda codes: {c: ("U11111" if c == "A10000" else "") for c in codes})
     monkeypatch.setattr(sources, "fetch_ods_dates", lambda codes: {c: ("2013-04-01", None) for c in codes})
     monkeypatch.setattr(ingest, "DATES_DAILY_CAP", 10**6)
+    monkeypatch.setattr(sources, "load_active_branches", lambda: {"J4Q3U": {"name": "BRANCH", "postcode": "AB1 2CD"}, "J4Q3V": {"name": "OTHER", "postcode": "AB1 2CD"}})
+    monkeypatch.setattr(ingest, "BRANCH_MIN", 1)
+    monkeypatch.setattr(sources, "fetch_branch_details", lambda codes: {c: {"branch_code": c, "branch_name": "Branch " + c, "parent_code": "A10000" if c == "J4Q3U" else "Y06528", "parent_role": "RO177" if c == "J4Q3U" else "RO98"} for c in codes})
+    monkeypatch.setattr(sources, "fetch_parent_info", lambda codes: {c: "Some CCG" for c in codes})
+    monkeypatch.setattr(sources, "role_names", lambda: {"RO177": "Prescribing Cost Centre", "RO98": "Clinical Commissioning Group"})
     monkeypatch.setattr(ingest.software, "check_many", lambda d: {k: "Unknown" for k in d})
     monkeypatch.setenv("OSCAR_API_URL", "http://oscar")
     if rest is not None and with_counts:
@@ -68,6 +73,9 @@ def test_full_run_then_idempotent(monkeypatch, oscar_rows):
     assert db["A10000"]["manager_name"] == "Casper Fons" and db["A10000"]["pcn_code"] == "U11111" and db["A10000"]["pcn_name"] == "PCN One"
     assert db["A10000"]["icb_name"] == "NHS Test ICB" and db["A10001"]["pcn_name"] == "Unallocated PCN"
     assert db["A10001"]["manager_email_opt_out"] is True and len(rest.t["contacts"]) == 3
+    b = rest.t["practice_branches"]
+    assert b["J4Q3U"]["kind"] == "gp_practice" and b["J4Q3U"]["parent_name"] == "Test Surgery 0" and b["J4Q3U"]["parent_role_name"] == "Prescribing Cost Centre"
+    assert b["J4Q3V"]["kind"] == "non_gp" and b["J4Q3V"]["parent_name"] == "Some CCG" and stats["branches_not_gp"] == 1
     assert stats["oscar_suppressed"] == 1 and len(rest.t["ingest_rejects"]) == 2 and stats["pcn_mapped"] == 1
     # second run: nothing changed except lookups already recorded -> no practice writes
     stats2 = ingest.sync(rest, 2)

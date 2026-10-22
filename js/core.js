@@ -6,6 +6,7 @@ const $ = id => document.getElementById(id);
 const PAGE = 100;
 let practices = [], byOds = new Map(), filtered = [], shown = 0, signals = [], sigShown = 0, sigList = [], channel = null, lastRunDate = null;
 let signalCodes = new Set(), signalCounts = new Map();
+let branches = [], branchesByParent = new Map(), branchHit = new Map();   // ODS branch surgeries: sites of a parent practice, found through search
 let networks = [], netKind = "pcn", netShown = 0, netList = [], netFilter = null, fromNetworks = false, cfgTiers = [], cfgSettings = {};
 let sort = { key: "patients", dir: -1 }, revMetric = "arr", drawerCode = null;
 

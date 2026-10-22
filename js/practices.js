@@ -8,17 +8,34 @@ const SORTERS = {
 function applyFilters() {
   const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, hs = $("f-hs").value,
         cqcf = $("f-cqc").value, icb = $("f-icb").value, ctry = $("f-country").value, sz = $("f-size").value, stf = $("f-status").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
+  const bHits = q.length >= 3 ? branches.filter(b => [b.branch_name, b.branch_code, b.postcode, b.town].some(v => (v || "").toLowerCase().includes(q))) : [];
+  branchHit = new Map();
+  for (const b of bHits) if (b.kind === "gp_practice") branchHit.set(b.parent_code, [...(branchHit.get(b.parent_code) || []), b.branch_name]);
+  renderBranchHits(bHits.filter(b => b.kind !== "gp_practice"));
   filtered = practices.filter(p =>
     (stf === "all" || (stf === "merged" ? !!p.merged_into : stf === "closed" ? isClosed(p) && !p.merged_into : p.status === "Active" && !p.merged_into && !isClosed(p))) && netMatch(p, netFilter) && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!hs || (hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === hs)) &&
     (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) && (!ctry || (p.country || "England") === ctry) && (!sz || (sz === "yes") === (p.total_patients > 0)) &&
     (!sig || signalCodes.has(p.ods_code)) && (!grp || p.group_size > 1) &&
-    (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(q))));
+    (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(q)) || branchHit.has(p.ods_code)));
   const f = SORTERS[sort.key], by = (a, b) => { const x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || b.total_patients - a.total_patients; };
   filtered.sort(by);
   renderChips(); renderSortHeaders();
   shown = 0; $("rows").innerHTML = ""; renderMore();
   $("count").textContent = `${filtered.length.toLocaleString()} practices`;
   stateToUrl();
+}
+// Branch surgeries whose parent is not a practice in Atlas (closed, or not a GP practice): shown above the table so they can still be found
+function renderBranchHits(list) {
+  const box = $("branch-hits"), show = list.slice(0, 8);
+  box.classList.toggle("hidden", !show.length);
+  box.innerHTML = show.length ? `<div class="font-semibold mb-1">Branch sites with no practice in Atlas${list.length > show.length ? " (first " + show.length + " of " + list.length + ")" : ""}</div>` +
+    show.map(b => `<div>${esc(b.branch_name)} <span class="font-mono text-xs">${esc(b.branch_code)}</span> · ${esc(b.postcode || "")} · belongs to ${esc(b.parent_name || b.parent_code || "an unknown organisation")} <span class="font-mono text-xs">${esc(b.parent_code || "")}</span> ${chip(b.kind === "non_gp" ? "Non-GP: " + (b.parent_role_name || "organisation") : "GP practice not in Atlas", "bg-slate-200 text-slate-700")}</div>`).join("") : "";
+}
+// A practice's branch sites (ODS role Branch Surgery): list size, price and HubSpot all stay on the practice
+function branchSection(p) {
+  const list = branchesByParent.get(p.ods_code);
+  return list ? sec("Branch sites", list.map(b => `<div class="text-sm py-1"><div class="font-semibold">${esc(b.branch_name)} <span class="font-mono text-xs text-slate-500">${esc(b.branch_code)}</span></div>
+    <div class="text-xs text-slate-500">${[b.address, b.town, b.postcode].filter(Boolean).map(esc).join(", ")}${b.opened ? " · opened " + esc(fmtDate(b.opened)) : ""}${b.phone ? " · " + esc(b.phone) : ""}</div></div>`).join("")) : "";
 }
 function renderChips() {
   const box = $("f-chips"); box.innerHTML = "";
@@ -91,7 +108,7 @@ function renderMore() {
     tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer" + (p.ods_code === drawerCode ? " bg-lalu-teal-50" : "");
     const sig = signalCounts.get(p.ods_code), hasN = p.total_patients > 0;
     tr.innerHTML = `
-      <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}${p.merged_into ? " " + chip("Merged → " + ((byOds.get(p.merged_into) || {}).practice_name || p.merged_into), "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : mergeSugg.has(p.ods_code) || closureCands.has(p.ods_code) ? " " + chip("May have closed or merged", "bg-amber-100 text-amber-800", "Review in Signals > Closures and mergers") : ""}</div>
+      <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${branchHit.has(p.ods_code) ? " " + chip("Branch: " + branchHit.get(p.ods_code)[0] + (branchHit.get(p.ods_code).length > 1 ? " +" + (branchHit.get(p.ods_code).length - 1) : ""), "bg-sky-100 text-sky-800", "A branch surgery of this practice matched your search") : ""}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}${p.merged_into ? " " + chip("Merged → " + ((byOds.get(p.merged_into) || {}).practice_name || p.merged_into), "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : mergeSugg.has(p.ods_code) || closureCands.has(p.ods_code) ? " " + chip("May have closed or merged", "bg-amber-100 text-amber-800", "Review in Signals > Closures and mergers") : ""}</div>
         <div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}</div></td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-xs text-slate-500 underline decoration-dotted cursor-help" title="${esc(noSizeReason(p))}">${p.merged_into ? "Merged" : isClosed(p) ? "Closed" : "No list size"}</span>`}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold text-emerald-700" title="£${rate3(Number(p.base_price))} per patient per month">${gbpFull(p.est_arr)}</span>` : '<span class="text-slate-300">–</span>'}</td>
@@ -241,6 +258,7 @@ async function openDrawer(p) {
     sec("Practice details", kv("Address", addr) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Region", esc(p.region)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : '<span class="text-slate-500">Not identified</span>') +
       kv("Operational", opPeriod(p)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
       kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)) + kv("Categories", esc(p.oscar_categories))) +
+    branchSection(p) +
     sec("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + " practices)", "group", p.cqc_provider_id) : "") +
       kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") + kv("ICB", p.icb_name && p.icb_name !== "Unallocated ICB" ? link(p.icb_name, "icb", p.icb_name.toLowerCase()) : "")) +
     (isPaying(p) ? contractSection(p) : "") +

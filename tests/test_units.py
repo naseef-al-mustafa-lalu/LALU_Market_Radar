@@ -396,3 +396,17 @@ def test_ods_operational_dates():
     existing = {"A": {"status": "Closed"}, "B": {"status": "Active"}, "C": {"status": "Active", "ods_dates_checked_at": "2026-10-01T00:00:00+00:00"},
                 "D": {"status": "Active", "ods_dates_checked_at": "2025-01-01T00:00:00+00:00"}}
     assert ingest.dates_due(existing, existing, now) == ["A", "B", "D"]   # closed without an end date first, then never fetched, then stale; C is fresh
+
+
+def test_branch_record_and_parent():
+    from src import sources
+    d = {"Organisation": {"Name": "HOLYCROFT SURGERY", "Date": [{"Type": "Operational", "Start": "2022-04-01"}], "GeoLoc": {"Location": {"AddrLn1": "OAKWORTH ROAD", "Town": "KEIGHLEY", "PostCode": "bd21 1sa"}},
+                         "Rels": {"Rel": [{"id": "RE6", "Status": "Inactive", "Target": {"OrgId": {"extension": "OLD01"}, "PrimaryRoleId": {"id": "RO177"}}},
+                                          {"id": "RE6", "Status": "Active", "Target": {"OrgId": {"extension": "Y06528"}, "PrimaryRoleId": {"id": "RO98"}}},
+                                          {"id": "RE6", "Status": "Active", "Target": {"OrgId": {"extension": "B83033"}, "PrimaryRoleId": {"id": "RO177"}}}]}}}
+    r = sources.branch_record("J4Q3U", d)
+    assert r["parent_code"] == "B83033" and r["parent_role"] == "RO177"      # an active GP practice parent wins over another active target; inactive links are ignored
+    assert r["branch_name"] == "Holycroft Surgery" and r["postcode"] == "BD21 1SA" and r["opened"] == "2022-04-01" and r["phone"] is None
+    from src import ingest
+    assert ingest.branch_kind("B83033", "RO177", {"B83033": {}}) == "gp_practice"
+    assert ingest.branch_kind("X99999", "RO177", {}) == "gp_not_held" and ingest.branch_kind("Y06528", "RO98", {}) == "non_gp"

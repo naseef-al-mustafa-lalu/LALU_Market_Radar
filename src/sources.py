@@ -9,7 +9,7 @@ from datetime import date
 import pandas as pd
 import requests
 
-from .common import norm_ods
+from .common import norm_ods, title_case
 
 GP_REG_PAGE = "https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice"
 UA = {"User-Agent": "LaluMarketRadar/1.0 (+https://lalu.co.uk)"}
@@ -203,6 +203,67 @@ def fetch_ods_dates(codes, getj=get_json, workers=12):
             return code, None
     with ThreadPoolExecutor(workers) as ex:
         return {c: v for c, v in ex.map(one, codes) if v is not None}
+
+
+def load_active_branches(getj=get_json, page=500):
+    """All active branch surgeries (ODS role RO96): {code: {name, postcode}}. Paged like load_active_gp_practices."""
+    out, offset = {}, 0
+    while True:
+        params = {"PrimaryRoleId": "RO96", "Status": "Active", "Limit": page}
+        if offset:
+            params["Offset"] = offset
+        orgs = getj(f"{ODS_API}/organisations", params).get("Organisations", [])
+        before = len(out)
+        for o in orgs:
+            code = str(o.get("OrgId") or "").strip().upper()
+            if code:
+                out[code] = {"name": o.get("Name", ""), "postcode": o.get("PostCode", "")}
+        if len(orgs) < page or len(out) == before:
+            break
+        offset = len(out)
+    return out
+
+
+def branch_record(code, detail):
+    """One branch's row from its ODS record. The parent is the active 'is operated by' (RE6) target, a GP practice (RO177) when there is one."""
+    o = (detail or {}).get("Organisation") or {}
+    loc = (o.get("GeoLoc") or {}).get("Location") or {}
+    rels = [r for r in (o.get("Rels") or {}).get("Rel", []) if r.get("id") == "RE6" and r.get("Status") == "Active"]
+    rels.sort(key=lambda r: r.get("Target", {}).get("PrimaryRoleId", {}).get("id") != "RO177")
+    tgt = (rels[0].get("Target") if rels else None) or {}
+    tel = next((c.get("value") for c in (o.get("Contacts") or {}).get("Contact", []) if c.get("type") == "tel"), "")
+    return {"branch_code": code, "branch_name": title_case(o.get("Name")), "address": ", ".join(title_case(loc.get(k)) for k in ("AddrLn1", "AddrLn2", "AddrLn3") if loc.get(k)) or None,
+            "town": title_case(loc.get("Town")) or None, "county": title_case(loc.get("County")) or None, "postcode": str(loc.get("PostCode") or "").strip().upper() or None,
+            "phone": re.sub(r"[^0-9+ ]", "", str(tel or "")) if len(re.sub(r"\D", "", str(tel or ""))) >= 8 else None,
+            "opened": operational_dates(detail)[0], "parent_code": str((tgt.get("OrgId") or {}).get("extension") or "").upper() or None,
+            "parent_role": (tgt.get("PrimaryRoleId") or {}).get("id")}
+
+
+def fetch_branch_details(codes, getj=get_json, workers=12):
+    """{code: branch row} for each branch looked up; failed lookups are omitted and retried on a later run."""
+    def one(code):
+        try:
+            return code, branch_record(code, getj(f"{ODS_API}/organisations/{code}"))
+        except Exception:  # noqa: BLE001
+            return code, None
+    with ThreadPoolExecutor(workers) as ex:
+        return {c: v for c, v in ex.map(one, codes) if v}
+
+
+def fetch_parent_info(codes, getj=get_json, workers=12):
+    """{code: parent organisation name} for parents we do not hold as practices."""
+    def one(code):
+        try:
+            return code, title_case(((getj(f"{ODS_API}/organisations/{code}") or {}).get("Organisation") or {}).get("Name")) or None
+        except Exception:  # noqa: BLE001
+            return code, None
+    with ThreadPoolExecutor(workers) as ex:
+        return {c: v for c, v in ex.map(one, codes) if v}
+
+
+def role_names(getj=get_json):
+    """{role id: display name} from the ODS roles list."""
+    return {r["id"]: str(r.get("displayName") or "").title() for r in getj(f"{ODS_API}/roles").get("Roles", []) if r.get("id")}
 
 
 def fetch_pcn_codes(codes, getj=get_json, workers=12):

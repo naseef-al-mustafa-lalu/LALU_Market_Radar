@@ -23,8 +23,11 @@ const PRACTICE_COLS = "ods_code,hubspot_company_id,operational_start_date,operat
 const PRICING_COLS = "ods_code,price_tier,tier_label,base_price,year1_price,est_arr,est_arr_year1,base_price_sar,est_arr_sar";
 const HS_COLS = "ods_code,hs_contacts,hs_imported,hs_primary_imported,hs_last_imported_at,hs_primary_imported_at";
 const NET_COLS = "id,kind,name,source_key,practices,patients,tier1,tier2,tier3,tier4,tier5,emis,systmone,cqc_concern,engaged,customers,hs_imported,arr_single,arr_customers,arr_single_sar,arr_customers_sar,arr_network_sar,confirmed,network_tier,network_tier_label,network_base_price,arr_network";
+const BRANCH_COLS = "branch_code,branch_name,address,town,county,postcode,phone,opened,status,parent_code,parent_name,parent_role_name,kind";
 async function loadPractices() {
-  const [base, pp, hs] = await Promise.all([fetchAll("gp_practices", PRACTICE_COLS, "ods_code", "exact"), fetchAll("practice_pricing", PRICING_COLS, "ods_code"), fetchAll("practice_hubspot", HS_COLS, "ods_code")]);
+  const [base, pp, hs, br] = await Promise.all([fetchAll("gp_practices", PRACTICE_COLS, "ods_code", "exact"), fetchAll("practice_pricing", PRICING_COLS, "ods_code"), fetchAll("practice_hubspot", HS_COLS, "ods_code"), fetchAll("practice_branches", BRANCH_COLS, "branch_code").catch(() => [])]);
+  branches = br.filter(b => b.status === "Active"); branchesByParent = new Map();
+  for (const b of branches) if (b.parent_code) branchesByParent.set(b.parent_code, [...(branchesByParent.get(b.parent_code) || []), b]);
   const m = new Map(pp.map(r => [r.ods_code, r])), h = new Map(hs.map(r => [r.ods_code, r]));
   practices = base.map(p => ({ ...p, ...(m.get(p.ods_code) || {}), ...(h.get(p.ods_code) || {}) }));
   byOds = new Map(practices.map(p => [p.ods_code, p]));
