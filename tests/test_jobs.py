@@ -98,3 +98,35 @@ def test_signal_batch_rows_share_the_same_keys():
     jobs.sync(rest, PRACT, today=date(2026, 10, 16), fetch=lambda: (ads + [extra], len(ads) + 1))
     rows = [r for batch in inserted for r in batch]
     assert len(rows) >= 2 and len({tuple(sorted(r)) for r in rows}) == 1
+
+
+class _R:
+    def __init__(self, status, text=""):
+        self.status_code, self.text = status, text
+
+
+def test_blocked_feed_falls_back_without_retrying_the_block(monkeypatch):
+    monkeypatch.setattr(jobs, "MIN_EXPECTED", 1)
+    monkeypatch.setattr(jobs.time, "sleep", lambda s: None)
+    empty = "<results><totalResults>1</totalResults></results>"
+    direct = []
+    def blocked(url, **kw):
+        direct.append(kw["params"]["page"]); return _R(403, "blocked")
+    proxied = []
+    def via_proxy(url, **kw):
+        proxied.append(kw["params"]["page"]); return _R(200, XML if kw["params"]["page"] == 1 else empty)
+    adverts, _ = jobs.fetch_all(get=blocked, fallback=via_proxy)
+    assert len(direct) == 1 and proxied == [1, 2] and jobs.SCAN["via"] == "supabase" and adverts      # one direct try (a 403 is not retried), then every page via the fallback
+    import pytest
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        jobs.fetch_all(get=blocked)                                                                     # no fallback: fails, naming the status
+
+
+def test_scan_guard_skips_a_recent_scan():
+    from datetime import datetime, timezone
+    from src import ingest
+    rest = FakeRest()
+    rest.t.setdefault("kv_state", {})["jobs_scan"] = {"key": "jobs_scan", "value": {"at": datetime.now(timezone.utc).isoformat()}}
+    stats = {}
+    ingest.jobs_step(rest, {}, {}, {}, stats)
+    assert "jobs_skipped" in stats and "jobs_error" not in stats

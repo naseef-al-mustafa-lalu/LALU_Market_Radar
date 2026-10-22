@@ -77,10 +77,23 @@ def parse_page(xml_text):
     return total, out
 
 
-def fetch_all(get=requests.get, pause=0.5, max_pages=400):
-    """Every live advert, newest first. Raises if the scan looks incomplete."""
+SCAN = {"via": None}     # how the last scan read the feed: "direct" or "supabase"
+
+
+def proxy_get(supabase_url, key):
+    """A requests.get-shaped reader that fetches each feed page through the jobs-feed edge function (Supabase's network, not GitHub's)."""
+    def get(url, params=None, headers=None, timeout=90):
+        return requests.post(f"{supabase_url.rstrip('/')}/functions/v1/jobs-feed", json={"page": params["page"], "limit": params.get("limit", 100), "sort": params.get("sort")},
+                             headers={"Authorization": f"Bearer {key}"}, timeout=timeout)
+    return get
+
+
+def fetch_all(get=requests.get, pause=0.5, max_pages=400, fallback=None):
+    """Every live advert, newest first. Raises if the scan looks incomplete. A 403 is a block, not a blip: it is not retried, and with a
+    fallback reader the scan carries on through that instead."""
     adverts, seen = [], set()
     total = None
+    SCAN["via"] = "direct"
     for page in range(1, max_pages + 1):
         r = None
         for attempt in range(3):
@@ -88,11 +101,23 @@ def fetch_all(get=requests.get, pause=0.5, max_pages=400):
                 r = get(FEED, params={"limit": 100, "page": page, "sort": "publicationDateDesc"}, headers=HEADERS, timeout=90)
                 if r.status_code == 200:
                     break
+                if r.status_code == 403:
+                    break
             except requests.RequestException:
                 r = None
             time.sleep(2 * (attempt + 1))
+        if r is not None and r.status_code == 403 and fallback is not None and get is not fallback:
+            get, SCAN["via"] = fallback, "supabase"          # blocked: read this and every later page through the edge function
+            for attempt in range(3):
+                try:
+                    r = get(FEED, params={"limit": 100, "page": page, "sort": "publicationDateDesc"}, headers=HEADERS, timeout=90)
+                    if r.status_code == 200:
+                        break
+                except requests.RequestException:
+                    r = None
+                time.sleep(2 * (attempt + 1))
         if r is None or r.status_code != 200:
-            raise RuntimeError(f"NHS Jobs feed failed on page {page}")
+            raise RuntimeError(f"NHS Jobs feed failed on page {page}" + (f" (HTTP {r.status_code}{', also via Supabase' if SCAN['via'] == 'supabase' else ''})" if r is not None else ""))
         t, rows = parse_page(r.text)
         total = total or t
         if not rows:
@@ -228,4 +253,4 @@ def sync(rest, practices, today=None, fetch=fetch_all):
         keys = {k for s in signals for k in s}      # PostgREST rejects a batch whose rows have different keys (PGRST102), so every row carries every key
         rest.insert("sales_triggers", [{k: s.get(k) for k in keys} for s in signals])
     return {"jobs_scanned": len(adverts), "jobs_feed_total": total, "job_employers": len(emp_rows), "job_employer_status": counts,
-            "job_role_adverts": len(rows), "job_signals": len(signals)}
+            "job_role_adverts": len(rows), "job_signals": len(signals), **({"jobs_via": SCAN["via"]} if SCAN["via"] else {})}

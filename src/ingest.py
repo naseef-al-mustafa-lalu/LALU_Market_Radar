@@ -276,13 +276,24 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
     stats.update(contacts_changed=len(changed), contacts_removed=len(stale))
 
 
+JOBS_MIN_INTERVAL = timedelta(hours=18)   # the feed is ~125 requests: never rescan within a day, however often the pipeline is run (JOBS_FORCE=1 overrides)
+
+
 def jobs_step(rest, env, existing, records, stats):
     try:
         if env.get("NHS_JOBS", "1") == "0":
             raise ValueError("NHS_JOBS=0: jobs scan skipped")
-        stats.update(jobs.sync(rest, list(merged_view(existing, records).values())))
+        last = rest.select_all("kv_state", "key,value", order="key", params={"key": "eq.jobs_scan"})
+        last_at = datetime.fromisoformat(last[0]["value"]["at"]) if last else None
+        if last_at and datetime.now(timezone.utc) - last_at < JOBS_MIN_INTERVAL and env.get("JOBS_FORCE") != "1":
+            stats["jobs_skipped"] = f"scanned {last_at.isoformat()[:16]}Z, within {int(JOBS_MIN_INTERVAL.total_seconds() // 3600)}h"
+            return
+        fallback = jobs.proxy_get(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]) if env.get("SUPABASE_URL") and env.get("SUPABASE_SERVICE_ROLE_KEY") else None
+        stats.update(jobs.sync(rest, list(merged_view(existing, records).values()), fetch=lambda: jobs.fetch_all(fallback=fallback)))
+        rest.upsert("kv_state", [{"key": "jobs_scan", "value": {"at": datetime.now(timezone.utc).isoformat(), "via": jobs.SCAN["via"]}}], "key")
     except Exception as e:  # noqa: BLE001  the jobs feed is enrichment: never block the main load
         stats["jobs_error"] = str(e)[:300]
+        send_alert("Lalu Atlas: NHS Jobs scan failed", f"{e}\n\nThe scan reads the feed directly, then through the jobs-feed edge function if NHS Jobs blocks GitHub. No job signals are raised until it works.")
 
 
 def graph_step(rest, stats):
