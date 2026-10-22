@@ -85,3 +85,16 @@ def test_pcn_employer_links_to_exact_network_name():
 def test_old_adverts_load_silently():
     rest = FakeRest()
     assert run(rest, today=date(2026, 12, 1))["job_signals"] == 0 and rest.t["job_adverts"]["1"]["signalled"] is True
+
+
+def test_signal_batch_rows_share_the_same_keys():
+    """One run with a linked and an unlinked advert must insert rows with identical keys (PostgREST rejects mixed keys)."""
+    rest = FakeRest()
+    inserted = []
+    orig = rest.insert
+    rest.insert = lambda table, rows, **kw: (inserted.append(rows) if table == "sales_triggers" else None) or orig(table, rows, **kw)
+    ads = jobs.parse_page(XML)[1]
+    extra = dict(ads[0], advert_id="99", reference="A7777-26-0001", employer_code="A7777", employer="Nowhere Surgery", title="Digital Transformation Lead", post_date="2026-10-15", url="https://x/99", locations=[])
+    jobs.sync(rest, PRACT, today=date(2026, 10, 16), fetch=lambda: (ads + [extra], len(ads) + 1))
+    rows = [r for batch in inserted for r in batch]
+    assert len(rows) >= 2 and len({tuple(sorted(r)) for r in rows}) == 1

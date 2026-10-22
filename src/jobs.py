@@ -225,6 +225,7 @@ def sync(rest, practices, today=None, fetch=fetch_all):
         r["signalled"] = True     # older adverts load silently
     rest.upsert("job_adverts", rows, "advert_id")
     if signals:
-        rest.insert("sales_triggers", signals)
+        keys = {k for s in signals for k in s}      # PostgREST rejects a batch whose rows have different keys (PGRST102), so every row carries every key
+        rest.insert("sales_triggers", [{k: s.get(k) for k in keys} for s in signals])
     return {"jobs_scanned": len(adverts), "jobs_feed_total": total, "job_employers": len(emp_rows), "job_employer_status": counts,
             "job_role_adverts": len(rows), "job_signals": len(signals)}
