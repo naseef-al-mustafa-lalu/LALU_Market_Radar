@@ -9,7 +9,7 @@ const refTiers = () => cfgTiers.filter(t => t.route === "practice").sort((a, b) 
 const refTierFor = n => refTiers().find(t => n >= t.threshold) || null;
 const refN = n => Math.round(n).toLocaleString("en-GB");
 
-// The practices in the lead's PCN that could sign (largest first); customers stay in the list but start unticked.
+// The practices in the lead's PCN that could sign (largest first); customers stay in the list but cannot be added (they already pay).
 function refCandidates(lead) {
   return practices.filter(x => x.ods_code !== lead.ods_code && lead.pcn_code && x.pcn_code === lead.pcn_code && x.status === "Active" && !x.merged_into && x.total_patients > 0)
     .sort((a, b) => b.total_patients - a.total_patients).map(x => ({ code: x.ods_code, name: x.practice_name, patients: x.total_patients, customer: !!x.hubspot_customer, pcn: x.pcn_name }));
@@ -58,7 +58,7 @@ function referralPanel(lead, id) {
   const row = c => {
     const on = s.sel.has(c.code), after = on ? total : total + c.patients, tier = refTierFor(after);
     const go = c.customer && !on ? `<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">Customer</span>` : on ? `<span class="text-xs font-bold text-emerald-700">Included</span>` : `<span class="text-xs tabular-nums text-slate-500">→ ${refN(after)} · <b class="text-lalu-teal-700">${pct(Number(tier.size_discount))}</b></span>`;
-    return `<label class="grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-2.5 border-t border-slate-100 px-3 py-2 first:border-0 hover:bg-lalu-teal-50/60 ${c.customer && !on ? "opacity-70" : ""}"><input type="checkbox" class="rg-chk h-4 w-4 accent-lalu-teal-700" data-lead="${esc(lead.ods_code)}" data-code="${esc(c.code)}" ${on ? "checked" : ""}>
+    return `<label class="grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-2.5 border-t border-slate-100 px-3 py-2 first:border-0 hover:bg-lalu-teal-50/60 ${c.customer ? "opacity-60 cursor-not-allowed" : ""}"><input type="checkbox" class="rg-chk h-4 w-4 accent-lalu-teal-700" data-lead="${esc(lead.ods_code)}" data-code="${esc(c.code)}" ${on ? "checked" : ""} ${c.customer ? "disabled" : ""}>
       <span class="min-w-0"><span class="block text-sm font-semibold leading-tight">${esc(c.name)}</span><span class="block text-[11.5px] tabular-nums text-slate-500"><span class="font-mono">${esc(c.code)}</span> · ${refN(c.patients)} patients</span></span><span class="text-right">${go}</span></label>`;
   };
   const extras = s.extra.filter(e => !cands.some(c => c.code === e.code));
@@ -118,8 +118,8 @@ document.addEventListener("input", e => {
   const q = e.target.closest(".rg-q"); if (!q) return; const lead = refLead(q), box = q.parentElement.querySelector(".rg-results"), term = q.value.trim().toLowerCase();
   if (!lead || term.length < 2) { box.classList.add("hidden"); return; }
   const taken = new Set([lead.ods_code, ...refCandidates(lead).map(c => c.code), ...refState(lead).extra.map(c => c.code)]);
-  const hits = practices.filter(p => !taken.has(p.ods_code) && p.status === "Active" && !p.merged_into && p.total_patients > 0 && [p.practice_name, p.ods_code, p.postcode].some(v => (v || "").toLowerCase().includes(term))).sort((a, b) => b.total_patients - a.total_patients).slice(0, 6);
+  const hits = practices.filter(p => !taken.has(p.ods_code) && p.status === "Active" && !p.merged_into && !p.hubspot_customer && p.total_patients > 0 && [p.practice_name, p.ods_code, p.postcode].some(v => (v || "").toLowerCase().includes(term))).sort((a, b) => b.total_patients - a.total_patients).slice(0, 6);
   box.innerHTML = hits.length ? hits.map(p => `<button type="button" class="rg-add flex w-full justify-between gap-3 border-t border-slate-100 px-3 py-2 text-left text-sm first:border-0 hover:bg-lalu-teal-50" data-lead="${esc(lead.ods_code)}" data-code="${esc(p.ods_code)}"><span><span class="font-semibold">${esc(p.practice_name)}</span><br><span class="text-[11.5px] text-slate-500"><span class="font-mono">${esc(p.ods_code)}</span> · ${esc(p.pcn_name || "no PCN")}${p.hubspot_customer ? " · customer" : ""}</span></span><span class="tabular-nums text-slate-600">${refN(p.total_patients)}</span></button>`).join("")
-    : '<div class="px-3 py-2 text-xs text-slate-500">No match. Try the code or postcode, or enter patients manually.</div>';
+    : '<div class="px-3 py-2 text-xs text-slate-500">No match (existing customers cannot be added). Try the code or postcode, or enter patients manually.</div>';
   box.classList.remove("hidden");
 });
