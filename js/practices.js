@@ -40,7 +40,9 @@ const siteDetails = b => `<div class="text-sm py-1"><div class="font-semibold">$
 function branchSection(p) {
   const list = branchesByParent.get(p.ods_code), also = branchAlso.get(p.ods_code);
   const dupes = also ? `<div class="mt-2 text-xs text-slate-500">Also listed in ODS by ${[...new Set(also.map(b => b.parent_name || b.parent_code))].map(esc).join(", ")}${also.some(b => b.match_status === "probable") ? " (some matches are probable, not confirmed)" : ""}. These repeat this practice or one of its sites, so they are not counted again.</div>` : "";
-  return list || also ? sec("Branch sites", (list || []).map(siteDetails).join("") + dupes) : "";
+  if (!list && !also) return "";
+  const n = (list || []).length;
+  return `<details class="branch-card group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Branch sites</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${n || "0"} ${n === 1 ? "site" : "sites"}</span></summary><div class="mt-2">${(list || []).map(siteDetails).join("") + dupes}</div></details>`;
 }
 function renderChips() {
   const box = $("f-chips"); box.innerHTML = "";
