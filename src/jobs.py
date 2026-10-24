@@ -2,8 +2,8 @@
 
 The public search_xml feed lists every live NHS Jobs advert (limit=100 per page). Employers are identified by their NHS Jobs
 employer code (the prefix of the advert reference, e.g. A0095-26-0006). We keep primary-care employers, link each employer code to
-a practice ONCE (exact postcode + exact normalised name, otherwise it waits in a review list), and raise a signal for adverts whose
-TITLE matches a report / records role. Nothing is guessed at run time.
+a practice or network ONCE (by postcode and name, see candidates_for and matching.py: exact, or similar with a single candidate; otherwise it waits in a
+review list), and raise a signal for adverts whose TITLE matches a role we sell into. Anything uncertain is left for a person.
 """
 import re
 import time
@@ -11,6 +11,8 @@ from datetime import date, timedelta
 from xml.etree import ElementTree as ET
 
 import requests
+
+from . import matching
 
 FEED = "https://www.jobs.nhs.uk/api/v1/search_xml"
 HEADERS = {"User-Agent": "LaluMarketRadar/1.0 (+daily read of the public NHS Jobs feed)"}
@@ -133,8 +135,6 @@ def fetch_all(get=requests.get, pause=0.5, max_pages=400, fallback=None):
     return adverts, total
 
 
-GENERIC = {"surgery", "medical", "centre", "center", "practice", "health", "group", "clinic", "care", "partnership", "and", "gp", "doctors", "dr", "drs", "street", "road"}
-
 
 def build_pool(practices):
     """Active practices indexed by normalised name and by postcode area, so an employer whose own postcode matches nothing can still be offered likely candidates."""
@@ -154,17 +154,33 @@ def name_candidates(name, postcodes, pool, limit=6):
     found = {}
     for p in pool["by_name"].get(norm_name(name), []):
         found[p["ods_code"]] = p
-    words = set(norm_name(name).split()) - GENERIC
+    words = set(norm_name(name).split()) - matching.GENERIC
     for pc in postcodes:
         for p in pool["by_area"].get(pc[:-3][:4], []):
-            if words & (set(norm_name(p["practice_name"]).split()) - GENERIC):
+            if words & (set(norm_name(p["practice_name"]).split()) - matching.GENERIC):
                 found.setdefault(p["ods_code"], p)
     return [{"ods_code": p["ods_code"], "name": p["practice_name"], "postcode": p.get("postcode"), "reason": "similar name"} for p in list(found.values())[:limit]]
 
 
+def network_by_membership(name, cands, networks):
+    """The one PCN the employer is (a PCN's services company, e.g. 'Armley PCN Services Limited' for 'Armley PCN'): its distinctive name words equal the PCN's
+    and every practice at the employer's postcodes is in that PCN (the PCN's ODS code is the part after 'ods:' in its source_key)."""
+    if not cands:
+        return None
+    extra = matching.NETWORK_WORDS
+    mine = matching.distinct(name, extra)
+    hits = [n for n in networks if n.get("kind") == "pcn" and mine and matching.distinct(n["name"], extra) == mine]
+    if len(hits) != 1:
+        return None
+    code = str(hits[0].get("source_key") or "").removeprefix("ods:")
+    return hits[0] if code and all(p.get("pcn_code") == code for p in cands.values()) else None
+
+
 def candidates_for(name, postcodes, by_postcode, networks=None, pool=None):
     """Practices at the employer's postcodes. Returns (status, ods_code or None, candidate list, org_id or None).
-    A PCN / federation employer is linked only when exactly one network has the same normalised name."""
+    A practice employer is linked when exactly one practice there has the same name, or a similar one (matching.best_name).
+    A PCN / federation employer is linked when exactly one network has the same normalised name, or, for a PCN, when its distinctive words equal one PCN's
+    and every practice at its postcodes is in that PCN. Anything less certain waits in the review list."""
     cands = {p["ods_code"]: p for pc in postcodes for p in by_postcode.get(pc, [])}
     cand_list = [{"ods_code": p["ods_code"], "name": p["practice_name"], "postcode": p.get("postcode")} for p in cands.values()]
     exact = [p for p in cands.values() if norm_name(p["practice_name"]) == norm_name(name)]
@@ -174,7 +190,13 @@ def candidates_for(name, postcodes, by_postcode, networks=None, pool=None):
         same = [n for n in (networks or []) if norm_network(n["name"]) == norm_network(name)]
         if len(same) == 1:
             return "auto", None, cand_list, same[0]["id"]
+        member = network_by_membership(name, cands, networks or [])
+        if member:
+            return "auto", None, cand_list, member["id"]
         return "network", None, cand_list, None
+    how, hit = matching.best_name([{"name": p["practice_name"], "code": p["ods_code"]} for p in cands.values()], name)
+    if hit:
+        return "auto", hit["code"], cand_list, None
     if pool and not cand_list:
         cand_list = name_candidates(name, postcodes, pool)
     return "review", None, cand_list, None
@@ -198,7 +220,7 @@ def sync(rest, practices, today=None, fetch=fetch_all):
             continue
         e = emp.setdefault(a["employer_code"], {"employer_code": a["employer_code"], "employer_name": a["employer"], "postcodes": set()})
         e["postcodes"].update(filter(None, (norm_postcode(l) for l in a["locations"])))
-    networks = [n for n in rest.select_all("organisations", "id,kind,name", order="name") if n["kind"] in ("pcn", "federation", "group")]
+    networks = [n for n in rest.select_all("organisations", "id,kind,name,source_key", order="name") if n["kind"] in ("pcn", "federation", "group")]
     existing = {r["employer_code"]: r for r in rest.select_all("job_employers", order="employer_code")}
     now_iso = today.isoformat()
     emp_rows, counts = [], {"auto": 0, "confirmed": 0, "review": 0, "network": 0, "rejected": 0}
@@ -214,6 +236,10 @@ def sync(rest, practices, today=None, fetch=fetch_all):
         counts[row["match_status"]] += 1
         emp_rows.append(row)
     rest.upsert("job_employers", emp_rows, "employer_code")
+    for r in emp_rows:      # an employer that has just become linked by the matcher: file the signals it already raised (a person's confirm does this in link_job_employer)
+        if r["match_status"] == "auto" and (existing.get(r["employer_code"]) or {}).get("match_status") not in ("auto", "confirmed"):
+            rest.patch("sales_triggers", {"employer_code": f"eq.{r['employer_code']}", "ods_code": "is.null", "org_id": "is.null"},
+                       {k: r[k] for k in ("ods_code", "org_id") if r.get(k)})
     linked = lambda r: r["match_status"] in ("auto", "confirmed")
     ods_of = {r["employer_code"]: (r["ods_code"] if linked(r) else None) for r in emp_rows}
     org_of = {r["employer_code"]: (r.get("org_id") if linked(r) else None) for r in emp_rows}

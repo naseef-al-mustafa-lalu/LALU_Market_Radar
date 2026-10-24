@@ -25,6 +25,12 @@ class FakeRest:
         for r in rows:
             self.t[table].setdefault(r[key], {}).update(r)
 
+    def patch(self, table, filters, values):
+        code = filters["employer_code"].split(".", 1)[1]
+        for r in self.t[table]:
+            if r.get("employer_code") == code and not r.get("ods_code") and not r.get("org_id"):
+                r.update(values)
+
     def insert(self, table, rows, returning=False):
         self.t[table].extend(rows)
 
@@ -61,7 +67,7 @@ def test_exact_match_signals_once_and_trust_ignored():
 
 def test_unlinked_employer_still_signals_and_decisions_survive():
     rest = FakeRest()
-    p = [dict(PRACT[0], practice_name="Little Common Practice")]
+    p = [dict(PRACT[0], practice_name="Seaview Practice")]      # a different name at the same postcode: offered, never assumed (a similar name would link)
     jobs_sync = lambda: jobs.sync(rest, p, today=date(2026, 10, 16), fetch=lambda: (jobs.parse_page(XML)[1], 2))
     s = jobs_sync()
     assert s["job_employer_status"]["review"] == 1 and s["job_signals"] == 1
@@ -138,3 +144,27 @@ def test_scan_guard_skips_a_recent_scan():
     stats = {}
     ingest.jobs_step(rest, {}, {}, {}, stats)
     assert stats["jobs_skipped"].startswith("paused until 2999") and "jobs_error" not in stats
+
+
+def test_similar_name_and_network_membership_link_automatically():
+    by_pc = {"B421BT": [{"ods_code": "M85019", "practice_name": "Tower Hill Partnership", "postcode": "B42 1BT", "pcn_code": "U1"}],
+             "LS121HU": [{"ods_code": "B86024", "practice_name": "Priory View Medical Centre", "postcode": "LS12 1HU", "pcn_code": "U92581"}],
+             "LS121JE": [{"ods_code": "B86060", "practice_name": "Thornton Medical Centre", "postcode": "LS12 1JE", "pcn_code": "U92581"}],
+             "LS123HD": [{"ods_code": "B86003", "practice_name": "Dr G Lees & Partners", "postcode": "LS12 3HD", "pcn_code": "OTHER"}],
+             "SH1": [{"ods_code": "A1", "practice_name": "Hill Surgery", "postcode": "SH1", "pcn_code": "U2"}, {"ods_code": "A2", "practice_name": "Hill Medical Practice", "postcode": "SH1", "pcn_code": "U2"}]}
+    nets = [{"id": "org-armley", "kind": "pcn", "name": "Armley PCN", "source_key": "ods:U92581"}, {"id": "org-other", "kind": "pcn", "name": "Other PCN", "source_key": "ods:U9"}]
+    f = jobs.candidates_for
+    assert f("Tower Hill Partnership Medical Practice", ["B421BT"], by_pc)[:2] == ("auto", "M85019")               # similar name, the one practice there
+    assert f("Hill Practice", ["SH1"], by_pc)[0] == "review"                                                          # two practices fit: a person decides
+    assert f("Armley PCN Services Limited", ["LS121HU", "LS121JE"], by_pc, nets)[0::3] == ("auto", "org-armley")      # distinctive words equal, every practice there is in that PCN
+    assert f("Armley PCN Services Limited", ["LS121HU", "LS123HD"], by_pc, nets)[0] == "network"                      # one practice there is in another PCN: not linked
+    assert f("Armley PCN Services Limited", [], by_pc, nets)[0] == "network"                                          # no practices to check against: not linked
+
+
+def test_signals_already_raised_are_filed_when_an_employer_becomes_linked():
+    rest = FakeRest()
+    rest.t["sales_triggers"].append({"trigger_type": "JOB_REPORT_ROLE", "employer_code": "A0095", "headline": "Hiring: x"})     # raised while the employer was unlinked
+    rest.t["job_employers"]["A0095"] = {"employer_code": "A0095", "match_status": "review", "ods_code": None}
+    run(rest)
+    assert rest.t["job_employers"]["A0095"]["match_status"] == "auto"
+    assert rest.t["sales_triggers"][0]["ods_code"] == "G83053"

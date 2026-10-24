@@ -9,38 +9,13 @@ Pure functions: no I/O. A person's confirm / reject decision is kept while the s
 """
 import re
 
-GENERIC = {"the", "and", "of", "medical", "centre", "center", "practice", "surgery", "health", "group", "clinic", "care", "partnership", "gp", "general",
-           "primary", "centres", "house", "services", "service", "limited", "ltd", "dr", "drs", "doctors", "family", "branch", "site"}
+from .matching import best_name
+
 RESOLUTIONS = ("branch", "duplicate_branch", "duplicate_practice", "hosted", "shared", "other")
-
-
-def _words(s):
-    return re.findall(r"[a-z0-9]+", str(s or "").lower().replace("&", " and ").replace("'", "").replace("’", ""))
-
-
-def norm_name(s):
-    return "".join(_words(s))
-
-
-def distinct(s):
-    return {w for w in _words(s) if w not in GENERIC}
 
 
 def norm_postcode(s):
     return re.sub(r"\s+", "", str(s or "").upper())
-
-
-def best_name(cands, name):
-    """The one candidate whose name matches `name`: ('exact'|'similar', candidate), or (None, None) when none or several do.
-    similar = the distinctive words of one name (generic words like Medical Centre ignored) are all in the other's, e.g. Ash Grove Medical Centre / Ash Grove."""
-    exact = [c for c in cands if norm_name(c["name"]) == norm_name(name)]
-    if len(exact) == 1:
-        return "exact", exact[0]
-    if exact:
-        return None, None
-    mine = distinct(name)
-    similar = [c for c in cands if mine and distinct(c["name"]) and (mine <= distinct(c["name"]) or distinct(c["name"]) <= mine)]
-    return ("similar", similar[0]) if len(similar) == 1 else (None, None)
 
 
 EAS = re.compile(r"\bpcn\b.*\beas\b|enhanced access", re.I)     # a PCN's Enhanced Access Service listing a site
