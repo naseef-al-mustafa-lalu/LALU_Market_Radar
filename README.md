@@ -117,7 +117,7 @@ The dashboard shows them as the practice table's **HubSpot** column (Customer / 
 `gp_practices` holds one row per practice with everything collected about it. `organisations` + `org_relationships` form a graph
 (practice -> PCN / ICB / provider group / federation) where every link records its source (ods, cqc, oscar), a confidence and whether
 it is confirmed. `refresh_org_graph()` rebuilds the links after each daily load; the view `org_summary` feeds the dashboard's **Networks**
-tab. Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Oscar adds contacts, federation and notes.
+tab. Other tables the tool owns: `practice_branches` (branch sites), `hubspot_links` (practice to deal), `referral_groups` (referral groups priced in the tool), and `gp_practices.hubspot_contract_terms` (the latest won deal's discounts, from the HubSpot sync). Oscar data is optional: PCN, ICB and groups come from NHS ODS and CQC; Oscar adds contacts, federation and notes.
 
 ## Operating notes
 - NHS patient numbers are **monthly**, so list-size/closure signals move monthly; Oscar contact changes are picked up daily.
@@ -175,7 +175,8 @@ Data > Pricing > "Update rates from the pricing spreadsheet". Download the `Pric
 On a practice profile, **Push to HubSpot…** (Pricing section) sends the selected product, billing, term and speed options to the practice's HubSpot deal.
 1. First time: search is pre-filled with the practice name and ODS code. Pick the company, then its deal. The link is saved in `hubspot_links` after the first successful write.
 2. Preview: shows the deal's Size Discount %, Speed Discount %, Term Length Discount % and Term Length (Years) that will be written, and warns when the company list size, deal Size Tier or Value per Patient differ from the tool. Ticked fields are updated on write.
-3. After the write the tool waits (up to 20 seconds) for HubSpot to recalculate **Total Discount %** and **Actual Value per Patient (Calculated)** and compares both with the tool.
+3. A selected referral group adds a Referral Discount row, a note on the deal and labelled deal links (see "Referral group in HubSpot" below).
+4. After the write the tool waits (up to 20 seconds) for HubSpot to recalculate **Total Discount %** and **Actual Value per Patient (Calculated)** and compares both with the tool.
 
 Setup: create a HubSpot private app with companies and deals read/write scopes and add its token as the Supabase edge function secret `HUBSPOT_TOKEN`. The function `hubspot-push` only accepts signed-in allowlisted users and can only write the fields listed in its source. HubSpot stores the discounts as fractions (0.05 for 5%), which its Actual Value per Patient formula requires; `HS_PCT` in `js/hubspot.js` is 1.
 
