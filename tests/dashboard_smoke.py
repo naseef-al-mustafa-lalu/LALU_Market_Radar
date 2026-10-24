@@ -135,7 +135,8 @@ with sync_playwright() as p:
     pg.fill("#dr-body .rg-q", "Test Surgery 4"); pg.wait_for_selector("#dr-body .rg-results:not(.hidden)"); assert pg.locator("#dr-body .rg-add").count() == 0 and "cannot be added" in pg.inner_text("#dr-body .rg-results")      # customers cannot be added
     pg.fill("#dr-body .rg-q", "Test Surgery 6"); pg.wait_for_selector("#dr-body .rg-add"); pg.click("#dr-body .rg-add"); rg = pg.inner_text("#dr-body")
     assert "Referral group discount" in rg and "Conditional on 1 practice signing within 90 days" in rg and "£8,160" in rg and "£8,640" in rg and "Saves the lead £480" in rg and "−5%" in rg, rg      # 10k alone 5% -> 25k group 10%: +5% on top
-    assert "referral group is not pushed yet" in pg.inner_text("#dr-hs"), pg.inner_text("#dr-hs")
+    w = pg.evaluate("(() => { const p = practices.find(x => x.ods_code === 'A10001'), d = hsDesired(p); return { r: d.referral, t: d.total, g: d.group, c: hsChanges(p, d, {}, { referral_discount: '0' }, {}).writes.length }; })()")      # the push carries the referral discount, the group and a referral write
+    assert abs(w["r"] - 0.05) < 1e-9 and w["g"]["members"][0]["ods"] == "A10006" and w["g"]["members"][0]["patients"] == 15000 and w["c"] == 5, w
     pg.screenshot(path=SHOTS + "/referral_panel.png")
     pg.click("#dr-body .rg-rm"); assert "Referral group discount" not in pg.inner_text("#dr-body"); pg.click("#dr-body .rg-toggle")
     assert "estimated annual revenue" in body.lower() and "size discount" in body.lower() and "List price" in body and "speed discount" in body.lower() and "SAR only" in body and "Contract term" in body and "Other ways to sign this practice" in body, body

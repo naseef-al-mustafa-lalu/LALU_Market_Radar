@@ -128,7 +128,7 @@ async function hsDealForm(company) {
     const pt = (k, v, sub = "") => `<div class="rounded-lg bg-white px-2.5 py-1.5"><div class="text-[11px] uppercase tracking-wider text-slate-500">${k}</div><div class="font-mono font-semibold">${v}</div>${sub ? `<div class="text-[11px] text-slate-500">${sub}</div>` : ""}</div>`;
     const pricing = `<div class="mb-3 rounded-xl bg-slate-50 p-3"><div class="mb-2 flex items-center justify-between"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Pricing to be sent with this deal</h4><span class="text-xs text-slate-500">from the price card: ${esc(want.label)}</span></div>
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Patients", p.total_patients.toLocaleString(), esc(want.tier))}${pt("List price", "£" + rate3(want.list) + " /mo", "per patient")}
-        ${pt("Total discount", pct(want.total), `size ${pct(want.size)} · term ${pct(want.term)} · speed ${pct(want.speed)}`)}${pt("Net price", "£" + rate3(want.rate) + " /mo", "per patient")}</div>
+        ${pt("Total discount", pct(want.total), `size ${pct(want.size)} · term ${pct(want.term)} · speed ${pct(want.speed)}${want.referral > 0 ? " · referral " + pct(want.referral) : ""}`)}${pt("Net price", "£" + rate3(want.rate) + " /mo", "per patient")}</div>
       <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Annual revenue", gbpFull(annual), "becomes the deal Amount")}${pt("Line item", esc(w.productName), mo ? "billed monthly" : "billed annually")}
         ${pt("Unit discount", "£" + rate3(Math.max(0, w.listUnit - w.netUnit)), "off £" + rate3(w.listUnit) + (mo ? " /mo" : " /yr"))}${pt("Term", w.termMonths + " month" + (w.termMonths > 1 ? "s" : ""), mo ? "auto-renews" : w.payments + " payment" + (w.payments > 1 ? "s" : ""))}</div></div>`;
     box.innerHTML = `${pricing}<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New deal on ${esc(company.name)}</h4>
@@ -217,9 +217,11 @@ function hsPreview() {
   const badge = n => n ? `<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">${n} change${n > 1 ? "s" : ""}</span>` : '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">no changes</span>';
   const chg = (label, now, next, same) => `<div class="flex items-baseline justify-between gap-3 border-t border-slate-100 py-1.5 first:border-0"><span class="text-slate-700">${label}</span>${same
     ? `<span class="font-mono text-slate-400">${now} <span class="text-[11px]">unchanged</span></span>` : `<span class="font-mono"><span class="text-slate-500">${now}</span> <span class="text-slate-400">→</span> <b class="text-emerald-700">${next}</b></span>`}</div>`;
-  const discRows = [["Size discount", deal.size_discount, hsPct(want.size), want.size], ["Speed discount", deal.speed_discount, hsPct(want.speed), want.speed], ["Term length discount", deal.term_length_discount, hsPct(want.term), want.term]]
+  const refShown = want.referral > 0 || hsNum(deal.referral_discount) > 0;
+  const discRows = [["Size discount", deal.size_discount, hsPct(want.size), want.size], ["Speed discount", deal.speed_discount, hsPct(want.speed), want.speed], ["Term length discount", deal.term_length_discount, hsPct(want.term), want.term],
+    ...(refShown ? [["Referral group discount", deal.referral_discount || 0, hsPct(want.referral), want.referral]] : [])]
     .map(([l, nowV, hv, tv]) => chg(l, pctShow(hsNum(nowV)), pct(tv), sameNum(nowV, hv))).join("") + chg("Term length (years)", esc(deal.term_length_years || "not set"), String(want.termYears), String(deal.term_length_years) === String(want.termYears));
-  const nDeal = [sameNum(deal.size_discount, hsPct(want.size)), sameNum(deal.speed_discount, hsPct(want.speed)), sameNum(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears)].filter(x => !x).length;
+  const nDeal = [sameNum(deal.size_discount, hsPct(want.size)), sameNum(deal.speed_discount, hsPct(want.speed)), sameNum(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), !refShown || sameNum(deal.referral_discount || 0, hsPct(want.referral))].filter(x => !x).length;
   const tile = (k, v, changed, sub = "") => `<div class="rounded-lg ${changed ? "bg-emerald-50 ring-1 ring-emerald-200" : "bg-slate-50"} px-3 py-2"><div class="text-[11px] uppercase tracking-wider text-slate-500">${k}</div><div class="font-mono font-semibold">${v}</div>${sub ? `<div class="text-[11px] text-slate-500">${sub}</div>` : ""}</div>`;
   const cur = line.cur, unitNow = cur ? line.unit : w.listUnit, discNew = Math.max(0, unitNow - w.netUnit);
   const lineCard = line.unreadable ? '<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Line items cannot be read with the current HubSpot token. Add the <b>crm.objects.line_items.read / write</b> scopes (and e-commerce) to include the line item in this push.</div>'
@@ -231,12 +233,17 @@ function hsPreview() {
         ${tile("Term", w.termMonths + " month" + (w.termMonths > 1 ? "s" : ""), !cur || cur.hs_recurring_billing_period !== `P${w.termMonths}M`, cur ? "now " + esc(cur.hs_recurring_billing_period || "not set") : "")}
         ${tile("Billing", w.frequency === "monthly" ? "Monthly" : "Annually", false, w.frequency === "monthly" ? "auto-renews" : w.payments + " payment" + (w.payments > 1 ? "s" : ""))}</div>`;
   const nLine = line.unreadable || line.same ? 0 : 1;
+  const g = want.group, removing = !g && hsNum(deal.referral_discount) > 0;
+  const groupCard = g ? sectionCard("Referral group", '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Conditional</span>', `<div class="text-sm text-slate-700">${g.members.map(m => esc(m.name) + " · " + m.patients.toLocaleString()).join("<br>")}</div>
+      <p class="mt-2 text-xs text-slate-500">Combined list size ${g.combined.toLocaleString()}. This push writes Referral Discount ${pct(g.extra)}, adds a note to the deal listing the group and the 90-day condition, saves the group in the tool, and labels this deal against each member's linked deal ("Referral group lead" / "Referral group member"). Members without a linked deal yet are linked when you push again later.</p>`)
+    : removing ? sectionCard("Referral group", '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">Removing</span>', '<p class="text-xs text-slate-600">No referral group is selected in the profile, so Referral Discount goes back to 0, the line item is repriced for this practice alone, and the group is closed with a note on the deal.</p>') : "";
   hsRender(`<div class="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><div class="min-w-0"><div class="truncate font-semibold">${hsLink("0-2", company.id, company.name)}</div><div class="text-xs text-slate-500">ODS ${esc(company.partner_organisation_code || "not set")}</div></div>
       <div class="min-w-0 text-right"><div class="truncate font-semibold">${hsLink("0-3", deal.id, deal.dealname)}</div><div class="text-xs text-slate-500">${esc(deal.dealstage || "")} · ${hs.linked ? "saved link" : "link saved after the write"}</div></div></div>
     ${hs.auto ? '<div class="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-sm text-emerald-900">Deal created. Writing the pricing and checking it against HubSpot…</div>' : ""}
     <div class="mt-1 flex items-center justify-between text-xs"><span class="font-semibold text-slate-600">Selected in the profile: ${esc(want.label)}</span>${hs.linked ? '<button id="hs-relink" class="text-lalu-teal-700 hover:underline">Choose a different deal</button>' : '<button id="hs-back" class="text-lalu-teal-700 hover:underline">Choose a different deal</button>'}</div>
     ${warn}
     ${sectionCard("Deal pricing fields", badge(nDeal), discRows)}
+    ${groupCard}
     ${sectionCard("Line item", badge(nLine), lineCard)}
     ${sectionCard("HubSpot recalculates, then we check", "", `<div class="grid grid-cols-2 gap-2">${tile("Total discount", pctShow(hsNum(deal.total_discount)) + ' <span class="text-slate-400">→</span> ' + pct(want.total), false, "expected after the write")}
       ${tile("Actual value per patient", (deal.actual_value_per_patient_calculated ? "£" + rate3(deal.actual_value_per_patient_calculated) : "not set") + ' <span class="text-slate-400">→</span> £' + rate3(want.rate), false, "per month, expected")}</div>`)}
@@ -253,15 +260,17 @@ async function hsWrite(checks) {
   const { p, want, company, deal } = hs, msg = $("hs-msg"), fixIds = new Set(checks.filter(c => !c.same).map(c => c.id)), ticked = id => !!$("hs-fix-all")?.checked && fixIds.has(id);
   const dealProps = { size_discount: hsPct(want.size), speed_discount: hsPct(want.speed), term_length_discount: hsPct(want.term), term_length_years: String(want.termYears) };
   const companyProps = {};
+  if (want.referral > 0 || hsNum(deal.referral_discount) > 0) dealProps.referral_discount = hsPct(want.referral);
+  const referral = want.group ? want.group : hsNum(deal.referral_discount) > 0 ? { revert: true } : undefined;
   if (ticked("tier")) dealProps.size_tier = want.tier;
   if (ticked("cm")) dealProps.commercial_model = want.model;
   if (ticked("vpp")) dealProps.value_per_patient = want.vpp;
   if (ticked("ls")) companyProps.patient_list_size = p.total_patients;
   $("hs-write").disabled = true; $("hs-write").textContent = "Writing…"; msg.innerHTML = "";
   try {
-    const w = want.line, wr = await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps,
+    const w = want.line, wr = await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps, referral,
       lineItem: hs.lineItems == null ? undefined : { productId: w.productId, quantity: w.quantity, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
-    hs.lineItems = wr.lineItems ?? hs.lineItems;
+    hs.lineItems = wr.lineItems ?? hs.lineItems; hs.warnings = wr.warnings || [];
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
     await hsValidate(6);
     hsSetLink(p, { company_id: company.id, deal_id: deal.id });   // the bar on the price card now reflects the saved link and the new values
@@ -295,6 +304,7 @@ async function hsValidate(tries) {
       ${line(okV, "Actual Value per Patient (Calculated)", blankV ? "not set" : "£" + rate3(last.actual_value_per_patient_calculated), "£" + rate3(want.rate))}
       ${lineNow || hs.lineItems != null ? line(okL, "Line item net unit price", lineNow ? "£" + rate3(lineNet) + (lw.frequency === "monthly" ? " /mo" : " /yr") : "none", "£" + rate3(lw.netUnit) + (lw.frequency === "monthly" ? " /mo" : " /yr")) : ""}</div>
       <p class="mt-2 text-xs text-slate-500">${done ? "HubSpot matches the tool. The link is saved for next time." : okT && okV === null ? "Total Discount % matches. HubSpot has not filled in Actual Value per Patient (Calculated) yet, so it could not be compared. The link is saved." : "HubSpot's calculated fields do not match the tool yet. Re-check in a moment, or check the deal's workflow and whether the price floor applies in the tool but not in HubSpot."}</p>
+      ${(hs.warnings || []).map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
       ${done ? "" : '<div class="mt-2 text-right"><button id="hs-recheck" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Re-check HubSpot</button></div>'}`;
     const rc = $("hs-recheck"); if (rc) rc.onclick = () => { rc.disabled = true; hsValidate(3); };
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p><div class="mt-2 text-right"><button id="hs-recheck" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold">Re-check HubSpot</button></div>`; $("hs-recheck").onclick = () => hsValidate(3); }

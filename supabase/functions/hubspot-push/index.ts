@@ -19,9 +19,9 @@ const COMPANY_STATUS = new Set(["Prospective Customer"]);   // the only status a
 const NETWORK_TYPES = new Set(["p145802630_pcns", "p145802630_icbs"]);
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const DEAL_READ = ["dealname", "dealstage", "amount", "size_tier", "size_discount", "speed_discount", "term_length_discount", "term_length_years",
-  "total_discount", "value_per_patient", "actual_value_per_patient_calculated", "patient_list_size", "commercial_model"];
+  "total_discount", "referral_discount", "value_per_patient", "actual_value_per_patient_calculated", "patient_list_size", "commercial_model"];
 const COMPANY_WRITE = new Set(["patient_list_size"]);
-const DEAL_WRITE = new Set(["size_tier", "size_discount", "speed_discount", "term_length_discount", "term_length_years", "value_per_patient", "commercial_model"]);
+const DEAL_WRITE = new Set(["size_tier", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "term_length_years", "value_per_patient", "commercial_model"]);
 const COMMERCIAL_MODEL = new Set(["Subscription", "eMR+ SAR Only"]);   // ReportSure - MS - All Reports / ReportSure - MS - SAR Only
 const VALUE_PER_PATIENT = new Set(["£0.05", "£0.06", "£0.07", "£0.08", "£0.10"]);
 
@@ -37,6 +37,8 @@ const LEAD_PIPELINE = "1654501563", LEAD_STAGE_NEW = "2248591599";   // Prospect
 const LEAD_TO_PRIMARY_CONTACT = 578;   // HubSpot-defined association type: lead -> primary contact
 const LEAD_TYPES = new Set(["NEW_BUSINESS", "RE_ATTEMPTING"]);
 const LEAD_CAMPAIGNS = new Set(["PCN Prospecting", "ICB April 26", "Field Based Lead", "ICB Prospecting", "Atlas"]);
+const NOTE_TO_DEAL = 214;   // HubSpot-defined association type: note -> deal
+const REF_MEMBER = "Referral group member", REF_LEAD = "Referral group lead";   // labels on the deal-to-deal association
 const LINE_TO_DEAL = 20;   // HubSpot-defined association type: line item -> deal
 
 // Pipelines and owners change rarely: keep them for five minutes inside a warm function instance.
@@ -132,6 +134,54 @@ async function readPair(companyId: string, dealId: string) {
   return { company: { id: company.id, ...company.properties }, deal: { id: deal.id, ...deal.properties }, lineItems };
 }
 
+// The deal-to-deal association labels for a referral group; created once (needs the crm.schemas.deals.write scope), then reused.
+async function referralLabelId(): Promise<number> {
+  const find = (r: any) => (r?.results ?? []).find((x: any) => x.label === REF_MEMBER);
+  let hit = find(await hs(`/crm/v4/associations/deals/deals/labels`));
+  if (!hit) { await hs(`/crm/v4/associations/deals/deals/labels`, { method: "POST", body: JSON.stringify({ label: REF_MEMBER, inverseLabel: REF_LEAD, name: "referral_group_member" }) });
+    hit = find(await hs(`/crm/v4/associations/deals/deals/labels`)); }
+  if (!hit) throw new Fail("Could not create the referral group association labels");
+  return Number(hit.typeId);
+}
+
+// After a pricing write: record the group (or its revert) in our table, put a note on the deal and label the lead's deal against each member's deal. Each step only warns on failure.
+async function referralFollowUp(admin: any, who: string, ods: string, dealId: string, dealName: string, r: any, warnings: string[]) {
+  const now = new Date().toISOString();
+  if (r.revert) {
+    const { data } = await admin.from("referral_groups").update({ status: "reverted", reverted_at: now, reverted_by: who }).eq("lead_ods", ods).eq("status", "active").select("id");
+    if (!data?.length) return { reverted: false };
+    await note(dealId, `Referral group discount removed by ${who} on ${now.slice(0, 10)}: the deal is priced for this practice alone again.`, warnings);
+    return { reverted: true };
+  }
+  const members = (Array.isArray(r.members) ? r.members : []).slice(0, 40).map((m: any) => ({ ods: String(m.ods ?? "").toUpperCase().slice(0, 12), name: String(m.name ?? "").slice(0, 120), patients: Number(m.patients) || 0 }));
+  if (!members.length) return null;
+  const expires = new Date(Date.now() + 90 * 864e5).toISOString();
+  await admin.from("referral_groups").update({ status: "reverted", reverted_at: now, reverted_by: who }).eq("lead_ods", ods).eq("status", "active");
+  const ins = await admin.from("referral_groups").insert({ lead_ods: ods, lead_deal_id: dealId, members, combined_patients: Number(r.combined) || null, extra_discount: Number(r.extra) || null, created_by: who, expires_at: expires }).select("id").single();
+  if (ins.error) warnings.push(`Could not record the group: ${ins.error.message}`);
+  const list = members.map((m: any) => `${m.name} (${m.ods}, ${m.patients.toLocaleString()} patients)`).join("; ");
+  await note(dealId, `Referral group discount of ${(Number(r.extra) * 100).toFixed(1)}% applied by ${who} on ${now.slice(0, 10)}. Conditional on these practices signing within 90 days (by ${expires.slice(0, 10)}): ${list}. Combined list size ${Number(r.combined).toLocaleString()}. If they do not sign, set Referral Discount back to 0.`, warnings);
+  const linked: string[] = [];
+  try {
+    const typeId = await referralLabelId();
+    const { data: links } = await admin.from("hubspot_links").select("ods_code,deal_id").in("ods_code", members.map((m: any) => m.ods));
+    for (const l of links ?? []) {
+      if (!l.deal_id || String(l.deal_id) === dealId) continue;
+      try { await hs(`/crm/v4/objects/deals/${dealId}/associations/deals/${idOf(l.deal_id)}`, { method: "PUT", body: JSON.stringify([{ associationCategory: "USER_DEFINED", associationTypeId: typeId }]) }); linked.push(l.ods_code); }
+      catch (e) { warnings.push(`Could not link ${l.ods_code}'s deal: ${(e as Error).message}`); }
+    }
+    const missing = members.filter((m: any) => !linked.includes(m.ods)).length;
+    if (missing) warnings.push(`${missing} member practice(s) have no linked deal yet: link them later by pushing the group again once their deals exist`);
+  } catch (e) { warnings.push(`Deal links: ${(e as Error).message}`); }
+  return { members: members.length, linked, expires };
+}
+
+async function note(dealId: string, body: string, warnings: string[]) {
+  try { await hs(`/crm/v3/objects/notes`, { method: "POST", body: JSON.stringify({ properties: { hs_timestamp: new Date().toISOString(), hs_note_body: body },
+    associations: [{ to: { id: dealId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: NOTE_TO_DEAL }] }] }) }); }
+  catch (e) { warnings.push(`Note not added: ${(e as Error).message}`); }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -163,7 +213,7 @@ Deno.serve(async (req) => {
       const dealProps: Record<string, unknown> = {}, companyProps: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(b.deal ?? {})) { if (!DEAL_WRITE.has(k)) throw new Fail(`Not allowed to write deal property ${k}`); dealProps[k] = v; }
       for (const [k, v] of Object.entries(b.company ?? {})) { if (!COMPANY_WRITE.has(k)) throw new Fail(`Not allowed to write company property ${k}`); companyProps[k] = v; }
-      for (const k of ["size_discount", "speed_discount", "term_length_discount"]) if (k in dealProps && !(Number(dealProps[k]) >= 0 && Number(dealProps[k]) <= 1)) throw new Fail(`${k} out of range`);
+      for (const k of ["size_discount", "speed_discount", "term_length_discount", "referral_discount"]) if (k in dealProps && !(Number(dealProps[k]) >= 0 && Number(dealProps[k]) <= 1)) throw new Fail(`${k} out of range`);
       if ("value_per_patient" in dealProps && !VALUE_PER_PATIENT.has(String(dealProps.value_per_patient))) throw new Fail("Unsupported Value per Patient option");
       if ("commercial_model" in dealProps && !COMMERCIAL_MODEL.has(String(dealProps.commercial_model))) throw new Fail("Unsupported Commercial Model option");
       if ("term_length_years" in dealProps && !["1", "2", "3"].includes(String(dealProps.term_length_years))) throw new Fail("Term length must be 1, 2 or 3");
@@ -212,7 +262,9 @@ Deno.serve(async (req) => {
       await log({ actor: who, kind: "push", ods_code: ods, target: before.deal.dealname ?? before.company.name ?? null, hubspot_type: "deal", hubspot_id: dealId,
         summary: `Pushed pricing to ${before.deal.dealname ?? "deal"}: ${Object.keys(dealProps).length} deal field(s)${Object.keys(companyProps).length ? ", company list size" : ""}${lineResult ? `, line item ${lineResult.action}` : ""}`,
         detail: { companyId, dealId, before: { company: before.company, deal: before.deal, lineItems: before.lineItems }, written: { company: companyProps, deal: dealProps, lineItem: li, lineResult } } });
-      return reply({ ok: true, ...(await readPair(companyId, dealId)) });
+      const warnings: string[] = [];
+      const referral = b.referral ? await referralFollowUp(admin, who, ods, dealId, String(before.deal.dealname ?? "deal"), b.referral, warnings).catch((e) => { warnings.push(`Referral group: ${(e as Error).message}`); return null; }) : null;
+      return reply({ ok: true, ...(await readPair(companyId, dealId)), referral, warnings });
     }
     if (b.action === "create_company" || b.action === "link_company") {
       const ods = String(b.ods ?? "").trim().toUpperCase();

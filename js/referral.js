@@ -2,7 +2,7 @@
 /* The lead and every practice they bring are priced on the combined list size, using the single-practice size-discount table. The extra discount over each
    practice's own size discount is the REFERRAL DISCOUNT, conditional on the others signing. Speed, term and product come from the price card, never from here. */
 const REFERRAL_DAYS = 90;
-const HS_REFERRAL_WRITES = false;   // flip to true once HubSpot's Total Discount % formula includes referral_discount (README, Referral group); until then the calculator shows the group price but pushes the practice's own price
+const HS_REFERRAL_WRITES = true;   // HubSpot's Total Discount % formula includes referral_discount (confirmed 24 Oct 2026)
 const referralState = new Map();    // lead ODS -> { open, sel: Set of codes, extra: [{ code, name, patients }], manual: bool }
 const refState = lead => { let s = referralState.get(lead.ods_code); if (!s) referralState.set(lead.ods_code, s = { open: false, sel: new Set(), extra: [], manual: false }); return s; };
 const refTiers = () => cfgTiers.filter(t => t.route === "practice").sort((a, b) => b.threshold - a.threshold);   // largest threshold first
@@ -26,6 +26,8 @@ function referralFor(lead) {
   return { picked, n: picked.length, combined, ownTier: own, groupTier: grp, ownSize, groupSize, extra: Math.max(0, groupSize - ownSize) };
 }
 const referralExtraFor = lead => (lead && lead.total_patients > 0 && billing !== "monthly" ? (referralFor(lead) || { extra: 0 }).extra : 0);
+// What the push sends alongside the discount: who was counted, for the note, the tracking table and the deal links.
+const referralPayload = lead => { const r = referralFor(lead); return r && r.extra > 0 ? { extra: r.extra, combined: r.combined, members: r.picked.map(c => ({ ods: /^manual/.test(c.code) ? "" : c.code, name: c.name, patients: c.patients })) } : null; };
 const referralActive = lead => referralExtraFor(lead) > 0;
 
 // Ladder: the distinct size-discount steps of the single-practice table (equal discounts merged), the first step drawn twice as wide.
