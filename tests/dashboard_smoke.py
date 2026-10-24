@@ -133,6 +133,9 @@ with sync_playwright() as p:
     assert pg.locator("#dr-body .rg-toggle").count() == 1 and "Referral group discount" not in pg.inner_text("#dr-body")
     pg.click("#dr-body .rg-toggle"); assert "not in a PCN" in pg.inner_text("#dr-body")
     pg.fill("#dr-body .rg-q", "Test Surgery 6"); pg.wait_for_selector("#dr-body .rg-add"); pg.click("#dr-body .rg-add"); rg = pg.inner_text("#dr-body")
+    pg.fill("#dr-body .rg-q", "Test Surgery 4"); pg.wait_for_selector("#dr-body .rg-add"); assert "customer" in pg.inner_text("#dr-body .rg-results"); pg.click("#dr-body .rg-add")      # customers can be searched for and added
+    assert "Test Surgery 4" in pg.inner_text("#dr-body") and "2 practices" in pg.inner_text("#dr-body"), pg.inner_text("#dr-body")
+    pg.click("#dr-body .rg-rm[data-code=A10004]"); rg = pg.inner_text("#dr-body")
     assert "Referral group discount" in rg and "Conditional on 1 practice signing within 90 days" in rg and "£8,160" in rg and "£8,640" in rg and "Saves the lead £480" in rg and "−5%" in rg, rg      # 10k alone 5% -> 25k group 10%: +5% on top
     assert "referral group is not pushed yet" in pg.inner_text("#dr-hs"), pg.inner_text("#dr-hs")
     pg.screenshot(path=SHOTS + "/referral_panel.png")
