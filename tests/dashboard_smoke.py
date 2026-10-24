@@ -201,6 +201,8 @@ with sync_playwright() as p:
     prof = pg.inner_text("#dr-body")
     assert "pricing" in prof.lower() and "size discount" in prof.lower() and "estimated annual revenue" in prof.lower() and "signed separately" in prof and "Network discount" in prof and "Test Surgery 0" in prof, prof
     pg.wait_for_timeout(500); pg.screenshot(path=SHOTS + "/netprofile.png")
+    lp = pg.locator("#dr-body details:has-text('Linked practices')").first; assert lp.get_attribute("open") is not None and lp.locator("summary").inner_text().strip().endswith("3") and "Customer" in lp.inner_text()      # collapsible, customers tagged
+    lp.locator("summary").click(); assert lp.get_attribute("open") is None; lp.locator("summary").click()
     assert "+2 branch sites" in prof and "+1 site" in prof and pg.locator("#dr-body tr.np-sub").first.is_hidden(), prof     # branch sites: counted on the tile, collapsed under their practice
     pg.click("#dr-body .np-sites"); assert pg.locator("#dr-body tr.np-sub").first.is_visible()
     pg.screenshot(path=SHOTS + "/netprofile_sites.png")
