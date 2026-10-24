@@ -108,7 +108,7 @@ with sync_playwright() as p:
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector("#dr-body", state="visible"); ct = pg.inner_text("#dr-body")
-    assert "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
+    assert "Patient list size" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     bc = pg.locator("#dr-body details.branch-card"); assert bc.count() == 1 and bc.get_attribute("open") is None and "1 site" in bc.locator("summary").inner_text(), bc.locator("summary").inner_text()      # branch sites: collapsed, count beside the header
     bc.locator("summary").click(); assert bc.get_attribute("open") is not None

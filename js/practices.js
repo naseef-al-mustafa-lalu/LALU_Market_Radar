@@ -110,7 +110,7 @@ function termsBlock(p) {
 function contractSection(p) {
   const c = Number(p.hubspot_contracted_arr), est = Number(p.est_arr), end = p.hubspot_contract_end, days = end ? Math.round((new Date(end) - Date.now()) / 864e5) : null;
   const renew = end ? esc(fmtDate(end)) + " " + (days < 0 ? chip("Past renewal date", "bg-red-100 text-red-800") : days <= 90 ? chip("Renews in " + days + " days", "bg-amber-100 text-amber-800") : "") : "";
-  return sec("Contract", kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
+  return sec("Contract", kv("Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
     kv("Contract start", p.hubspot_contract_start ? esc(fmtDate(p.hubspot_contract_start)) : "") + kv("Renewal date", renew) +
     termsBlock(p) + (est > 0 ? `<div class="text-xs text-slate-500 mt-1">List-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.</div>` : ""));
 }
