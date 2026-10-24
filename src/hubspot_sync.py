@@ -112,6 +112,23 @@ def _date(v):
     return None
 
 
+TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "total_discount", "term_length_years", "value_per_patient", "actual_value_per_patient_calculated"]
+
+
+def contract_terms(deal_ids, deals):
+    """Pricing of the latest closed-won deal (discount fractions and £ per patient per month), for the practice's Contract section."""
+    won = [deals[d] for d in deal_ids if d in deals and deals[d].get("hs_is_closed_won") == "true" and deals[d].get("pipeline") in PIPELINE_WON]
+    if not won:
+        return None
+    d = max(won, key=lambda x: _date(x.get("closedate")) or "")
+    out = {"deal": d.get("dealname"), "closed": _date(d.get("closedate")), "amount": _num(d.get("amount")), "years": _num(d.get("term_length_years")),
+           "list_rate": _num(d.get("value_per_patient")), "net_rate": _num(d.get("actual_value_per_patient_calculated"))}
+    for k in ("size", "speed", "term_length", "referral"):
+        out[k] = _num(d.get(f"{k}_discount"))
+    out["total"] = _num(d.get("total_discount"))
+    return out if any(v is not None for k, v in out.items() if k not in ("deal", "closed", "amount")) else None
+
+
 def revenue_fields(deal_ids, deals, service_ids, services, customer, model):
     """Contracted ARR (live Service ACV, else closed-won deal amounts flagged 'deal') and the open deal pipeline for one practice."""
     live = [services[s] for s in service_ids if services.get(s, {}).get("hs_pipeline_stage") in LIVE_SERVICE_STAGES]
@@ -124,7 +141,8 @@ def revenue_fields(deal_ids, deals, service_ids, services, customer, model):
             "hubspot_contract_start": min(starts) if starts and src == "service" else None, "hubspot_contract_end": min(ends) if ends and src == "service" else None,
             "hubspot_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_SALES) or None,
             "hubspot_conversion_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_CONVERSION) or None,
-            "hubspot_renewal_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_RENEWALS) or None}
+            "hubspot_renewal_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_RENEWALS) or None,
+            "hubspot_contract_terms": contract_terms(deal_ids, deals) if src else None}
 
 
 PCN_OBJECT, ICB_OBJECT = "p145802630_pcns", "p145802630_icbs"
@@ -460,7 +478,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     cids = [str(c["id"]) for cs in by_ods.values() for c in cs]
     to_contacts, to_deals = associations(hub, "contacts", cids), associations(hub, "deals", cids)
     contacts = read_objects(hub, "contacts", [i for v in to_contacts.values() for i in v], ["lifecyclestage", "email", "createdate"])
-    deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won", "hs_is_closed", "amount", "pipeline"])
+    deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won", "hs_is_closed", "amount", "pipeline", *TERM_PROPS])
     to_services, services, service_error = {}, {}, None
     try:   # Service ACV is the contracted-ARR source; if the token cannot read Services, fall back to deals and say so in the run summary
         to_services = associations(hub, SERVICE_OBJECT, cids)
@@ -483,7 +501,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
-                         "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
+                         "hubspot_contract_terms": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     audit_all = audit_rows(raw, practices, now)
     conflicts = []

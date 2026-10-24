@@ -91,12 +91,28 @@ function cqcCell(p) {
 }
 // A paying customer with a real contract value: the profile leads with the contract, not the list-price estimate. Freemium and customers with no value yet keep the pricing section.
 const isPaying = p => p.hubspot_customer && p.hubspot_commercial_model !== "Freemium" && Number(p.hubspot_contracted_arr) > 0;
+// The deal's price build-up for a paying customer: list rate, each discount as % and annual £, and the resulting price. Discounts are fractions in HubSpot (tolerate whole percents).
+function termsBlock(p) {
+  const t = p.hubspot_contract_terms, pat = Number(p.total_patients);
+  if (!t) return "";
+  const fr = v => v == null ? null : (Math.abs(v) > 1 ? v / 100 : v), list = Number(t.list_rate) || 0.08, a = pat * list * 12;
+  const rows = [["Size", t.size], ["Speed to sign", t.speed], ["Term length" + (t.years ? " (" + t.years + " yr)" : ""), t.term_length], ["Referral group", t.referral]].map(([l, v]) => [l, fr(v)]).filter(([, v]) => v);
+  const tot = fr(t.total) ?? rows.reduce((x, [, v]) => x + v, 0), net = Number(t.net_rate) || list * (1 - tot);
+  const line = (l, r, c = "") => `<div class="flex justify-between gap-3 py-0.5 ${c}"><span>${l}</span><span class="font-mono">${r}</span></div>`;
+  return `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-700">` +
+    `<div class="font-semibold text-slate-600 mb-1">Price build-up${t.closed ? ` <span class="font-normal text-slate-400">· deal closed ${esc(fmtDate(t.closed))}</span>` : ""}</div>` +
+    line(`List price <span class="text-slate-400">${"£" + list.toFixed(3)} per patient per month × ${pat.toLocaleString()} patients</span>`, gbpFull(a)) +
+    rows.map(([l, v]) => line(`${l} discount <span class="text-slate-400">−${Math.round(v * 1000) / 10}%</span>`, "−" + gbpFull(a * v), "text-amber-700")).join("") +
+    line(`<b>Total discount</b> <span class="text-slate-400">−${Math.round(tot * 1000) / 10}%</span>`, "−" + gbpFull(a * tot), "border-t border-slate-200 mt-1 pt-1 text-amber-700") +
+    line(`<b>Price</b> <span class="text-slate-400">${"£" + net.toFixed(3)} per patient per month</span>`, `<b class="text-teal-700">${gbpFull(a * (1 - tot))}</b>`) +
+    `<div class="text-[11px] text-slate-400 mt-1">At today's list size${t.amount ? `; the deal amount is ${gbpFull(t.amount)}` : ""}. Contracted ARR above is the figure to rely on.</div></div>`;
+}
 function contractSection(p) {
   const c = Number(p.hubspot_contracted_arr), est = Number(p.est_arr), end = p.hubspot_contract_end, days = end ? Math.round((new Date(end) - Date.now()) / 864e5) : null;
   const renew = end ? esc(fmtDate(end)) + " " + (days < 0 ? chip("Past renewal date", "bg-red-100 text-red-800") : days <= 90 ? chip("Renews in " + days + " days", "bg-amber-100 text-amber-800") : "") : "";
   return sec("Contract", kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
     kv("Contract start", p.hubspot_contract_start ? esc(fmtDate(p.hubspot_contract_start)) : "") + kv("Renewal date", renew) +
-    (est > 0 ? `<div class="text-xs text-slate-500 mt-1">List-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.</div>` : ""));
+    termsBlock(p) + (est > 0 ? `<div class="text-xs text-slate-500 mt-1">List-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.</div>` : ""));
 }
 // Operational period from the ODS API: opened date, and the closed date once it has one
 const opPeriod = p => p.operational_start_date || p.operational_end_date ? esc((p.operational_start_date ? "Opened " + fmtDate(p.operational_start_date) : "") + (p.operational_end_date ? (p.operational_start_date ? " · " : "") + "Closed " + fmtDate(p.operational_end_date) : "")) : "";

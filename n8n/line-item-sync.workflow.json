@@ -1,0 +1,242 @@
+{
+ "name": "Lalu Atlas - keep line items in step with deal discounts",
+ "nodes": [
+  {
+   "id": "n1",
+   "name": "Every 15 minutes",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "minutes",
+       "minutesInterval": 15
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "n2",
+   "name": "Deals changed lately",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    220,
+    0
+   ],
+   "parameters": {
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "method": "POST",
+    "url": "https://api.hubapi.com/crm/v3/objects/deals/search",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: String(Date.now() - 20*60*1000) }, { propertyName: 'pipeline', operator: 'IN', values: ['default','2298660077'] }] }], properties: ['size_discount','speed_discount','term_length_discount','referral_discount','amount'], limit: 100 }) }}"
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "",
+     "name": "HubSpot private app (Bearer)"
+    }
+   }
+  },
+  {
+   "id": "n3",
+   "name": "One item per deal",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    440,
+    0
+   ],
+   "parameters": {
+    "jsCode": "return ($input.first().json.results || []).map(d => ({ json: { dealId: d.id, deal: d.properties } }));"
+   }
+  },
+  {
+   "id": "n4",
+   "name": "Deal line items",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    660,
+    0
+   ],
+   "parameters": {
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "url": "=https://api.hubapi.com/crm/v4/objects/deals/{{ $json.dealId }}/associations/line_items"
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "",
+     "name": "HubSpot private app (Bearer)"
+    }
+   }
+  },
+  {
+   "id": "n5",
+   "name": "Collect line item ids",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    880,
+    0
+   ],
+   "parameters": {
+    "jsCode": "const deals = $('One item per deal').all();\nreturn $input.all().map((it, i) => ({ json: { dealId: deals[i].json.dealId, deal: deals[i].json.deal, ids: (it.json.results || []).map(r => String(r.toObjectId)) } })).filter(x => x.json.ids.length);"
+   }
+  },
+  {
+   "id": "n6",
+   "name": "Read line items",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1100,
+    0
+   ],
+   "parameters": {
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "method": "POST",
+    "url": "https://api.hubapi.com/crm/v3/objects/line_items/batch/read",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ properties: ['hs_product_id','price','discount','quantity'], inputs: $json.ids.map(id => ({ id })) }) }}"
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "",
+     "name": "HubSpot private app (Bearer)"
+    }
+   }
+  },
+  {
+   "id": "n7",
+   "name": "Work out discount",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1320,
+    0
+   ],
+   "parameters": {
+    "jsCode": "// Expected unit discount for a deal's Lalu Care line item, mirroring the dashboard's dealRate (js/practices.js) and the hubspot-push edge function.\n// Deal discounts are fractions (a whole percent such as 5 is tolerated). Monthly plans pay list; the 0.052 per patient per month floor protects All reports only.\nconst FLOOR_PM = 0.052;\nconst PRODUCTS = { \"440423339237\": \"all\", \"440425147578\": \"all\", \"440434162881\": \"sar\", \"440498134244\": \"sar\" };\nconst MONTHLY = new Set([\"440425147578\", \"440498134244\"]);\nconst fr = v => { const n = Number(v); return !isFinite(n) || n <= 0 ? 0 : n > 1 ? n / 100 : n; };\nfunction expectedDiscount(deal, line) {\n  const id = String(line.hs_product_id);\n  if (!(id in PRODUCTS)) return null;\n  const price = Number(line.price) || 0;\n  if (MONTHLY.has(id) || price <= 0) return 0;\n  let total = fr(deal.size_discount) + fr(deal.speed_discount) + fr(deal.term_length_discount) + fr(deal.referral_discount);\n  if (PRODUCTS[id] === \"all\") total = Math.min(total, 1 - (FLOOR_PM * 12) / price);\n  return Math.round(Math.max(0, Math.min(1, total)) * price * 10000) / 10000;\n}\n\nconst deals = $('Collect line item ids').all();\nconst out = [];\n$input.all().forEach((it, i) => { for (const l of it.json.results || []) { const want = expectedDiscount(deals[i].json.deal, l.properties); if (want !== null && Math.abs((Number(l.properties.discount) || 0) - want) >= 0.0006) out.push({ json: { lineId: l.id, discount: want } }); } });\nreturn out;"
+   }
+  },
+  {
+   "id": "n8",
+   "name": "Set line item discount",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1540,
+    0
+   ],
+   "parameters": {
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "method": "PATCH",
+    "url": "=https://api.hubapi.com/crm/v3/objects/line_items/{{ $json.lineId }}",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ properties: { discount: String($json.discount), hs_discount_percentage: '' } }) }}"
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "",
+     "name": "HubSpot private app (Bearer)"
+    }
+   }
+  }
+ ],
+ "connections": {
+  "Every 15 minutes": {
+   "main": [
+    [
+     {
+      "node": "Deals changed lately",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Deals changed lately": {
+   "main": [
+    [
+     {
+      "node": "One item per deal",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "One item per deal": {
+   "main": [
+    [
+     {
+      "node": "Deal line items",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Deal line items": {
+   "main": [
+    [
+     {
+      "node": "Collect line item ids",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Collect line item ids": {
+   "main": [
+    [
+     {
+      "node": "Read line items",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read line items": {
+   "main": [
+    [
+     {
+      "node": "Work out discount",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Work out discount": {
+   "main": [
+    [
+     {
+      "node": "Set line item discount",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ }
+}
