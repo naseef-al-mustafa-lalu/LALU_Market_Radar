@@ -1,0 +1,31 @@
+name: HubSpot probe (temporary, read-only)
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          T = os.environ["HUBSPOT_TOKEN"]
+          def call(method, path, body=None):
+              req = urllib.request.Request("https://api.hubapi.com" + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                           headers={"Authorization": "Bearer " + T, "Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.load(r)
+              except urllib.error.HTTPError as e: return e.code, (e.read().decode()[:300])
+          s, d = call("POST", "/oauth/v2/private-apps/get/access-token-info", {"tokenKey": T})
+          print("SCOPES", s, sorted(d.get("scopes", [])) if isinstance(d, dict) else d)
+          s, d = call("GET", "/crm/v4/associations/deals/deals/labels")
+          print("DEAL-DEAL LABELS", s, json.dumps(d)[:900])
+          for obj, names in (("deals", ["total_discount", "actual_value_per_patient_calculated", "size_discount", "referral_code_given", "amount"]), ("line_items", ["discount", "hs_discount_percentage", "price", "quantity"])):
+              for n in names:
+                  s, d = call("GET", f"/crm/v3/properties/{obj}/{n}")
+                  if isinstance(d, dict):
+                      print("PROP", obj, n, s, {k: d.get(k) for k in ("type", "fieldType", "calculated", "calculationFormula", "hubspotDefined", "formField")}, "formula:", str(d.get("calculationFormula"))[:300])
+                  else: print("PROP", obj, n, s, d)
+          s, d = call("GET", "/crm/v3/objects/notes?limit=1")
+          print("NOTES READ", s)
+          PY
