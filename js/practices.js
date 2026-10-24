@@ -157,20 +157,22 @@ document.addEventListener("click", e => {
   else if (pr) { product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
 });
 document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
-function priceCardBody({ patients, tierRow, route, who }, id) {
+function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const monthly = billing === "monthly", sar = product === "sar", list = baseRate(), prodName = sar ? "SAR only" : "All reports";
   if (!tierRow || !patients) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
   const size = monthly ? 0 : Number(tierRow.size_discount), speed = monthly ? 0 : Number(tierRow.speed_discount), term = monthly ? 0 : termDiscount(termYrs), floor = setting("price_floor_per_patient");
   const useSpeed = speedOn && speed > 0;
+  const refGrp = route === "practice" && lead && !monthly ? referralFor(lead) : null, ref = refGrp ? refGrp.extra : 0, sizeAll = size + ref;   // a referral group adds its extra size discount (conditional on the others signing)
   // The speed discount applies to every year of the term and ends at renewal.
-  const termRate = dealRate(size, term, useSpeed ? speed : 0), renewal = dealRate(size, term, 0);
-  const sum = size + term + (useSpeed ? speed : 0), floored = !sar && !monthly && list * (1 - sum) < floor - 1e-9;
+  const termRate = dealRate(sizeAll, term, useSpeed ? speed : 0), renewal = dealRate(sizeAll, term, 0);
+  const sum = sizeAll + term + (useSpeed ? speed : 0), floored = !sar && !monthly && list * (1 - sum) < floor - 1e-9;
   const sub = t => `<div class="text-xs text-slate-500 font-normal leading-snug">${t}</div>`, amt = x => "−£" + rate3(x);
   const line = (label, detail, pctText, value, cls = "") => `<tr class="border-t border-emerald-100 ${cls}"><td class="py-1.5 pr-3 align-top"><div class="font-medium leading-snug">${label}</div>${detail ? sub(detail) : ""}</td><td class="py-1.5 px-2 text-right align-top whitespace-nowrap text-slate-600">${pctText}</td><td class="py-1.5 pl-2 text-right align-top whitespace-nowrap font-mono">${value}</td></tr>`;
   const adj = termRate - list * (1 - sum);
   const rowsHtml = [
     line("List price", `${prodName} · ` + (monthly ? "monthly plan, rolling, no discounts" : `annual plan, ${termYrs}-year commitment`), "", `£${rate3(list)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
     monthly ? "" : line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
+    ref > 0 ? line("Referral group discount", `${refGrp.n} other practice${refGrp.n > 1 ? "s" : ""}, ${refGrp.combined.toLocaleString()} patients combined (${pct(refGrp.groupSize)} size discount, own ${pct(refGrp.ownSize)}) ${chip("Conditional", "bg-amber-100 text-amber-800")}`, "−" + pct(ref), amt(list * ref)) : "",
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
     useSpeed ? line("Speed discount", termYrs > 1 ? "Every year of the term, not guaranteed" : "Term year, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
     adj > 1e-9 ? line("Price floor", `Never below £${rate3(floor)} per month`, "", "+£" + rate3(adj)) : "",
@@ -187,17 +189,18 @@ function priceCardBody({ patients, tierRow, route, who }, id) {
   const yearTable = yrRows.length ? `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-0.5">Price by year</div><table class="w-full text-sm tabular-nums"><caption class="sr-only">Discount, price per patient and total for each year of the contract</caption><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr>${th("Period", "text-left pr-3")}${th("Discount", "text-right px-2")}${th("Per patient", "text-right px-2")}${th("Total", "text-right pl-2")}</tr></thead><tbody>${yrRows.join("")}</tbody></table>${useSpeed ? '<p class="mt-0.5 text-xs text-slate-500">The speed discount applies for the whole term and ends at renewal.</p>' : ""}</div>` : "";
   const steps = `<table class="mt-3 w-full text-sm tabular-nums"><caption class="sr-only">How the price is built</caption><thead class="sr-only"><tr><th>Step</th><th>Discount</th><th>Per patient</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
   const opts = [1, 2, 3].map(y => `<button type="button" class="term-opt flex-1 rounded-md border px-2 py-1.5 text-left ${y === termYrs ? "border-emerald-600 bg-white ring-1 ring-emerald-600" : "border-slate-300 bg-white/60 hover:bg-white"}" data-yrs="${y}" aria-pressed="${y === termYrs}">
-      <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm">${gbpFull(yearly(patients, dealRate(size, termDiscount(y), useSpeed ? speed : 0)))}<span class="text-xs text-slate-500"> /yr</span></div></button>`).join("");
+      <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm">${gbpFull(yearly(patients, dealRate(sizeAll, termDiscount(y), useSpeed ? speed : 0)))}<span class="text-xs text-slate-500"> /yr</span></div></button>`).join("");
   const seg = (label, cls, key, cur, items) => `<div class="inline-flex rounded-lg bg-white/70 border border-slate-300 p-0.5 text-xs font-semibold" role="group" aria-label="${label}">${items.map(([k, l]) => `<button type="button" class="${cls} rounded-md px-3 py-1 ${cur === k ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"}" data-${key}="${k}" aria-pressed="${cur === k}">${l}</button>`).join("")}</div>`;
   return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
     <div class="flex items-end justify-between gap-3">
-      <div><div class="text-xs uppercase tracking-wider text-slate-500">Estimated annual revenue · ${prodName}${monthly ? " · monthly plan" : termYrs > 1 ? ` · ${termYrs}-year term` : ""}</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(tT)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
+      <div><div class="text-xs uppercase tracking-wider text-slate-500">Estimated annual revenue · ${prodName}${monthly ? " · monthly plan" : termYrs > 1 ? ` · ${termYrs}-year term` : ""}${ref > 0 ? ' · <span class="text-amber-700 normal-case">with referral group</span>' : ""}</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(tT)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
       ${useSpeed ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">On renewal</div><div class="text-lg font-semibold leading-tight">${gbpFull(rT)}</div><div class="text-xs text-slate-500">speed discount ends</div></div>` : ""}</div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div class="flex flex-wrap items-center gap-2">${seg("Product", "prod-opt", "p", product, [["all", "All reports"], ["sar", "SAR only"]])}${seg("Billing", "bill-opt", "b", billing, [["annual", "Annual"], ["monthly", "Monthly"]])}</div>
       ${!monthly && Number(tierRow.speed_discount) > 0 ? `<div class="flex items-center gap-2 text-xs text-slate-600"><span id="spd-l-${id}">${pct(Number(tierRow.speed_discount))} speed discount <span class="text-slate-400">(not guaranteed)</span></span><button type="button" role="switch" aria-checked="${speedOn}" aria-labelledby="spd-l-${id}" class="speed-toggle relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${speedOn ? "bg-emerald-600" : "bg-slate-300"}"><span class="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${speedOn ? "translate-x-4" : "translate-x-0.5"}"></span></button></div>` : ""}</div>
     ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
       `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
+    ${route === "practice" && lead && !monthly && lead.total_patients > 0 ? referralPanel(lead, id) : ""}
     ${steps}${yearTable}
     </div>`;
 }
@@ -267,7 +270,7 @@ async function openDrawer(p) {
     sec("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + " practices)", "group", p.cqc_provider_id) : "") +
       kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") + kv("ICB", p.icb_name && p.icb_name !== "Unallocated ICB" ? link(p.icb_name, "icb", p.icb_name.toLowerCase()) : "")) +
     (isPaying(p) ? contractSection(p) : "") +
-    (isPaying(p) ? "" : sec("Pricing", p.total_patients > 0 ? priceCard({ patients: p.total_patients, tierRow: cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), route: "practice", arr: p.est_arr }) +
+    (isPaying(p) ? "" : sec("Pricing", p.total_patients > 0 ? priceCard({ patients: p.total_patients, tierRow: cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), route: "practice", arr: p.est_arr, lead: p }) +
       `<div class="text-xs text-slate-500 mt-1">List size ${p.data_month ? "from " + esc(p.data_month) : ""}.</div>` + routeComparison(p) : `<p class="text-sm text-slate-600">No list size, so no price. ${esc(p.merged_into ? "Its patients are counted under the practice it merged into." : isClosed(p) ? "This practice has closed." : noSizeReason(p))}</p>`)) +
     sec("Quality and system", kv("CQC rating", p.cqc_rating ? (CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : esc(p.cqc_rating)) : p.cqc_location_id ? '<span class="text-slate-500">Not rated yet</span>' : '<span class="text-slate-500" title="No CQC location could be matched to this practice by postcode and ODS code, so there is no rating, registration status or inspection date.">Not matched to a CQC location</span>') + kv("Registration", esc(p.cqc_status)) + kv("Last inspection", esc(p.cqc_last_inspection)) +
       kv("Manager absent since", esc(p.cqc_manager_absent_date)))  +

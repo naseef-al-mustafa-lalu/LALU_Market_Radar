@@ -47,8 +47,9 @@ function hsLineStatus(want, pair) {
 function hsDesired(p) {
   const row = cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), monthly = billing === "monthly";
   const size = monthly ? 0 : Number(row.size_discount), term = monthly ? 0 : termDiscount(termYrs), speed = monthly || !speedOn ? 0 : Number(row.speed_discount);
-  return { size, term, speed, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size, term, speed), list: baseRate(),
-    total: size + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
+  const referral = HS_REFERRAL_WRITES ? referralExtraFor(p) : 0;   // the conditional referral-group discount; not pushed until HubSpot's Total Discount % formula includes it
+  return { size, term, speed, referral, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral, term, speed), list: baseRate(),
+    total: size + referral + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size + referral, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }
 // The HubSpot section of the profile now holds facts only (status, links, lifecycle); the one action lives beside the price controls (hsBarHtml).
 function hsSection(p, st) {
@@ -86,6 +87,7 @@ function hsBarHtml(p) {
     if (count) { dot = "bg-amber-400"; text = `${name}: ${count} change${count > 1 ? "s" : ""} to push`; right = act("push", `Push pricing <span class="ml-1 rounded-full bg-white/25 px-1.5">${count}</span>`); }
     else { dot = "bg-emerald-500"; text = `${name}: in sync`; right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", i.pair.deal.id, "Open deal")}${act("manage", "Manage in HubSpot")}</div>`; }
   }
+  if (!HS_REFERRAL_WRITES && referralActive(p) && text) text += " · referral group is not pushed yet";
   return `<div class="hs-bar flex items-center justify-between gap-3" data-ods="${esc(p.ods_code)}">
     <div class="flex min-w-0 items-center gap-2"><span class="h-2 w-2 shrink-0 rounded-full ${dot}"></span><div class="min-w-0"><div class="text-xs font-semibold text-slate-700">HubSpot</div><div class="truncate text-xs text-slate-500">${text}</div></div></div>${right}</div>`;
 }
