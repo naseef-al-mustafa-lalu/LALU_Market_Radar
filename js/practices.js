@@ -94,7 +94,15 @@ const isPaying = p => p.hubspot_customer && p.hubspot_commercial_model !== "Free
 // The deal's price build-up for a paying customer: list rate, each discount as % and annual £, and the resulting price. Discounts are fractions in HubSpot (tolerate whole percents).
 function termsBlock(p) {
   const t = p.hubspot_contract_terms, pat = Number(p.total_patients);
-  if (!t) return "";
+  if (!t) {   // most older deals carry no discount properties: show what the contract value implies against list instead
+    const arr = Number(p.hubspot_contracted_arr), list = setting("list_price_per_patient");
+    if (!(pat > 0) || !(arr > 0) || !(list > 0)) return "";
+    const eff = arr / pat / 12, off = 1 - eff / list;
+    return `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-700"><div class="font-semibold text-slate-600 mb-1">Effective price</div>
+      <div class="flex justify-between gap-3 py-0.5"><span>Contracted ARR ÷ ${pat.toLocaleString()} patients ÷ 12</span><span class="font-mono">£${eff.toFixed(3)} per patient per month</span></div>
+      <div class="flex justify-between gap-3 py-0.5"><span>Against the £${list.toFixed(2)} list price</span><span class="font-mono ${off > 0.0005 ? "text-amber-700" : ""}">${off > 0.0005 ? "−" + Math.round(off * 1000) / 10 + "%" : off < -0.0005 ? "+" + Math.round(-off * 1000) / 10 + "%" : "list"}</span></div>
+      <div class="text-[11px] text-slate-400 mt-1">Worked out from the contract value. The HubSpot deal has no discount breakdown (size, speed, term), so it cannot be itemised.</div></div>`;
+  }
   const fr = v => v == null ? null : (Math.abs(v) > 1 ? v / 100 : v), list = Number(t.list_rate) || 0.08, a = pat * list * 12;
   const rows = [["Size", t.size], ["Speed to sign", t.speed], ["Term length" + (t.years ? " (" + t.years + " yr)" : ""), t.term_length], ["Referral group", t.referral]].map(([l, v]) => [l, fr(v)]).filter(([, v]) => v);
   const tot = fr(t.total) ?? rows.reduce((x, [, v]) => x + v, 0), net = Number(t.net_rate) || list * (1 - tot);

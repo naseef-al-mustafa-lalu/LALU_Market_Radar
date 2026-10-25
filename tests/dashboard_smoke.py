@@ -20,6 +20,7 @@ PR[3]["gp_federation"] = "Fed One"
 for p_ in PR:
     p_.update(hubspot_customer=False, hubspot_engaged=False, hubspot_stage=None)
 PR[2].update(hubspot_customer=True, hubspot_stage="customer"); PR[1].update(hubspot_engaged=True, hubspot_stage="opportunity")
+PR[7].update(hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=13056, hubspot_contracted_src="service")
 PR[4].update(hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=9000, hubspot_contracted_src="service", hubspot_contract_terms=dict(deal="Test Surgery 4", closed="2025-03-04", amount=9000, years=2, list_rate=0.08, net_rate=0.0684, size=0.05, speed=0.05, term_length=0.025, referral=0.02, total=0.145))
 HS = [dict(ods_code=p_["ods_code"], hs_contacts=1, hs_imported=1 if i < 3 else 0, hs_primary_imported=i < 3, hs_last_imported_at="2026-10-12T09:00:00Z", hs_primary_imported_at="2026-10-12T09:00:00Z" if i < 3 else None) for i, p_ in enumerate(PR)]
 PP = [dict(ods_code=p["ods_code"], price_tier=3, tier_label="Tier 3 (Medium-Large)", base_price=0.076, year1_price=0.072, est_arr=round(p["total_patients"] * 0.076 * 12), est_arr_year1=round(p["total_patients"] * 0.072 * 12), base_price_sar=0.0475, est_arr_sar=round(p["total_patients"] * 0.0475 * 12)) for p in PR]
@@ -123,6 +124,9 @@ with sync_playwright() as p:
     assert [x["action"] for x in gw] == ["create_company", "create_deal", "write"] and gw[0]["ods"] == "A10005" and abs(gw[2]["deal"]["referral_discount"] - 0.05) < 1e-9 and gw[1]["deal"]["dealname"] == "Test Surgery 5", gw
     pg.click("#hs-cancel"); pg.keyboard.press("Escape")
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
+    pg.keyboard.press("Escape"); pg.wait_for_selector("#drawer.translate-x-full", state="attached"); pg.click("#rows tr:has-text('Test Surgery 7')"); pg.wait_for_selector("#drawer:not(.translate-x-full)"); pg.wait_for_function("document.querySelector('#dr-body').innerText.includes('Effective price')")
+    ep = pg.inner_text("#dr-body"); assert "£0.068 per patient per month" in ep and "−15%" in ep and "no discount breakdown" in ep, ep       # a customer with no deal discounts still shows what the contract implies
+    pg.keyboard.press("Escape"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     bc = pg.locator("#dr-body details.branch-card"); assert bc.count() == 1 and bc.get_attribute("open") is None and "1 site" in bc.locator("summary").inner_text(), bc.locator("summary").inner_text()      # branch sites: collapsed, count beside the header
     bc.locator("summary").click(); assert bc.get_attribute("open") is not None
     assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "false"  # the speed discount is not guaranteed, so it is off by default
