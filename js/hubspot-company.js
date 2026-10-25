@@ -235,7 +235,7 @@ function hsPreview() {
   const nLine = line.unreadable || line.same ? 0 : 1;
   const g = want.group, removing = !g && hsNum(deal.referral_discount) > 0;
   const groupCard = g ? sectionCard("Referral group", '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Conditional</span>', `<div class="text-sm text-slate-700">${g.members.map(m => esc(m.name) + " · " + m.patients.toLocaleString()).join("<br>")}</div>
-      <p class="mt-2 text-xs text-slate-500">Combined list size ${g.combined.toLocaleString()}. This push writes Referral Discount ${pct(g.extra)}, adds a note to the deal listing the group and the 90-day condition, saves the group in the tool, and labels this deal against each member's linked deal ("Referral group lead" / "Referral group member"). Members without a linked deal yet are linked when you push again later.</p>`)
+      <p class="mt-2 text-xs text-slate-500">Combined list size ${g.combined.toLocaleString()}. This push writes Referral Discount ${pct(g.extra)}, adds a note to the deal listing the group and the 90-day condition, saves the group in the tool, and labels this deal against each member's linked deal ("Referral group lead" / "Referral group member"). A member's deal is linked automatically when it is created or pushed in the tool.</p><div id="hs-rg-status" class="mt-2"></div>`)
     : removing ? sectionCard("Referral group", '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">Removing</span>', '<p class="text-xs text-slate-600">No referral group is selected in the profile, so Referral Discount goes back to 0, the line item is repriced for this practice alone, and the group is closed with a note on the deal.</p>') : "";
   hsRender(`<div class="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><div class="min-w-0"><div class="truncate font-semibold">${hsLink("0-2", company.id, company.name)}</div><div class="text-xs text-slate-500">ODS ${esc(company.partner_organisation_code || "not set")}</div></div>
       <div class="min-w-0 text-right"><div class="truncate font-semibold">${hsLink("0-3", deal.id, deal.dealname)}</div><div class="text-xs text-slate-500">${esc(deal.dealstage || "")} · ${hs.linked ? "saved link" : "link saved after the write"}</div></div></div>
@@ -250,6 +250,7 @@ function hsPreview() {
     <div id="hs-msg" class="mt-3" role="status"></div>
     <div class="sticky bottom-0 mt-4 flex justify-end gap-2 border-t border-slate-200 bg-white pt-3"><button id="hs-cancel" class="rounded-lg border border-slate-300 px-3 py-2 font-semibold">Cancel</button><button id="hs-write" class="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700">Push pricing</button></div>`);
   $("hs-cancel").onclick = hsClose;
+  if (g && $("hs-rg-status")) refLinkedSet(g.members).then(set => { const el = $("hs-rg-status"); if (el) el.innerHTML = refStatusLines(g.members, set); }).catch(() => {});
   const re = $("hs-relink") || $("hs-back"); if (re) re.onclick = () => { hs.linked = false; hsRender(hsFind()); hsBindFind(); };
   $("hs-write").onclick = () => hsWrite(checks);
   if (hs.auto) { hs.auto = false; hsWrite(checks); }   // a deal made here already shows its pricing in the form: write it without a second confirmation
@@ -271,6 +272,7 @@ async function hsWrite(checks) {
     const w = want.line, wr = await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps, referral,
       lineItem: hs.lineItems == null ? undefined : { productId: w.productId, quantity: w.quantity, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
     hs.lineItems = wr.lineItems ?? hs.lineItems; hs.warnings = wr.warnings || [];
+    refSaved.delete(p.ods_code); repaintPriceCards();   // the saved group strip reloads
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
     await hsValidate(6);
     hsSetLink(p, { company_id: company.id, deal_id: deal.id });   // the bar on the price card now reflects the saved link and the new values

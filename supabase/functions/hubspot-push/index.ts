@@ -170,10 +170,28 @@ async function referralFollowUp(admin: any, who: string, ods: string, dealId: st
       try { await hs(`/crm/v4/objects/deals/${dealId}/associations/deals/${idOf(l.deal_id)}`, { method: "PUT", body: JSON.stringify([{ associationCategory: "USER_DEFINED", associationTypeId: typeId }]) }); linked.push(l.ods_code); }
       catch (e) { warnings.push(`Could not link ${l.ods_code}'s deal: ${(e as Error).message}`); }
     }
-    const missing = members.filter((m: any) => !linked.includes(m.ods)).length;
-    if (missing) warnings.push(`${missing} member practice(s) have no linked deal yet: link them later by pushing the group again once their deals exist`);
+    const withDeals = members.map((m: any) => ({ ...m, deal_id: (links ?? []).find((l: any) => l.ods_code === m.ods && linked.includes(l.ods_code))?.deal_id ?? null }));
+    if (ins.data?.id) await admin.from("referral_groups").update({ members: withDeals }).eq("id", ins.data.id);
   } catch (e) { warnings.push(`Deal links: ${(e as Error).message}`); }
   return { members: members.length, linked, expires };
+}
+
+// A deal for a practice that belongs to an active referral group (created or pushed later) is labelled against the lead's deal and gets a short note.
+async function linkIntoGroup(admin: any, ods: string, dealId: string, warnings: string[]) {
+  const { data: groups } = await admin.from("referral_groups").select("id,lead_ods,lead_deal_id,members,extra_discount,expires_at").eq("status", "active").contains("members", [{ ods }]);
+  const done: string[] = [];
+  for (const g of groups ?? []) {
+    if (!g.lead_deal_id || g.lead_ods === ods || String(g.lead_deal_id) === dealId) continue;
+    const mem = (g.members ?? []).find((m: any) => m.ods === ods);
+    if (mem?.deal_id && String(mem.deal_id) === dealId) continue;   // already linked
+    try {
+      await hs(`/crm/v4/objects/deals/${idOf(g.lead_deal_id)}/associations/deals/${dealId}`, { method: "PUT", body: JSON.stringify([{ associationCategory: "USER_DEFINED", associationTypeId: await referralLabelId() }]) });
+      await admin.from("referral_groups").update({ members: (g.members ?? []).map((m: any) => m.ods === ods ? { ...m, deal_id: dealId } : m) }).eq("id", g.id);
+      await note(dealId, `Part of a referral group led by practice ${g.lead_ods} (deal ${g.lead_deal_id}). The group's referral discount of ${(Number(g.extra_discount) * 100).toFixed(1)}% on the lead's deal depends on this practice signing by ${String(g.expires_at ?? "").slice(0, 10)}.`, warnings);
+      done.push(g.lead_ods);
+    } catch (e) { warnings.push(`Referral group link for ${g.lead_ods}: ${(e as Error).message}`); }
+  }
+  return done;
 }
 
 async function note(dealId: string, body: string, warnings: string[]) {
@@ -263,8 +281,9 @@ Deno.serve(async (req) => {
         summary: `Pushed pricing to ${before.deal.dealname ?? "deal"}: ${Object.keys(dealProps).length} deal field(s)${Object.keys(companyProps).length ? ", company list size" : ""}${lineResult ? `, line item ${lineResult.action}` : ""}`,
         detail: { companyId, dealId, before: { company: before.company, deal: before.deal, lineItems: before.lineItems }, written: { company: companyProps, deal: dealProps, lineItem: li, lineResult } } });
       const warnings: string[] = [];
+      const grouped = b.referral ? [] : await linkIntoGroup(admin, ods, dealId, warnings).catch(() => []);
       const referral = b.referral ? await referralFollowUp(admin, who, ods, dealId, String(before.deal.dealname ?? "deal"), b.referral, warnings).catch((e) => { warnings.push(`Referral group: ${(e as Error).message}`); return null; }) : null;
-      return reply({ ok: true, ...(await readPair(companyId, dealId)), referral, warnings });
+      return reply({ ok: true, ...(await readPair(companyId, dealId)), referral, grouped, warnings });
     }
     if (b.action === "create_company" || b.action === "link_company") {
       const ods = String(b.ods ?? "").trim().toUpperCase();
@@ -356,7 +375,9 @@ Deno.serve(async (req) => {
         ...contactIds.map((id: string) => ({ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ASSOC_DEAL_TO_CONTACT }] }))] }) });
       await log({ actor: who, kind: "create_deal", ods_code: ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
         summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s)`, detail: { companyId, properties: props, contactIds } });
-      return reply({ ok: true, dealId: String(d.id) });
+      const warnings: string[] = [];
+      const grouped = await linkIntoGroup(admin, ods, String(d.id), warnings).catch(() => []);
+      return reply({ ok: true, dealId: String(d.id), grouped, warnings });
     }
     if (b.action === "create_lead") {       // a Prospecting-pipeline lead at New, before any deal; warns when the contact already has an open lead
       const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), contactId = idOf(b.contactId);

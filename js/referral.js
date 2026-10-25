@@ -76,7 +76,7 @@ function referralPanel(lead, id) {
     ${ref ? referralResult(lead, ref) : `<p class="text-xs text-slate-500">Tick the practices they can sign. The group price, the saving and what happens if they do not sign appear here. Speed discount, term and product follow the choices above.</p>`}</div>`;
   return `<div class="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white" data-rg="${esc(lead.ods_code)}">
     <button type="button" class="rg-toggle flex w-full items-center justify-between gap-3 bg-lalu-teal-50 px-3 py-2.5 text-left text-sm" data-lead="${esc(lead.ods_code)}" aria-expanded="${open}" aria-controls="rg-${id}"><span><span class="mr-1.5 inline-block transition-transform ${open ? "rotate-90" : ""}">▸</span><b>Referral group</b></span><span class="text-right text-xs font-semibold text-lalu-teal-700">${summary}</span></button>
-    <div id="rg-${id}">${body}</div></div>`;
+    ${refSavedHtml(lead)}<div id="rg-${id}">${body}</div></div>`;
 }
 
 // Alone against the group price, using the card's current product, term and speed choices.
@@ -103,6 +103,32 @@ function referralSummaryText(lead) {
 /* ---------- interactions (delegated; the price card repaints on every change, the search box only refreshes its own results) ---------- */
 const refLead = el => byOds.get(el.dataset.lead);
 document.addEventListener("change", e => { const c = e.target.closest(".rg-chk"); if (!c) return; const lead = refLead(c), s = lead && refState(lead); if (!s) return; c.checked ? s.sel.add(c.dataset.code) : s.sel.delete(c.dataset.code); repaintPriceCards(); hsRefreshBars(); });
+/* ---------- the saved group: which members have a deal yet, and whether the 90 days have run out (flag only; nothing is changed automatically) ---------- */
+const refSaved = new Map();   // lead ODS -> { row, linked: Set of member ODS with a deal, loading }
+async function refLinkedSet(members) {
+  const codes = members.map(m => m.ods).filter(Boolean), linked = new Set(members.filter(m => m.deal_id).map(m => m.ods));
+  if (codes.length) { const { data } = await db.from("hubspot_links").select("ods_code,deal_id").in("ods_code", codes); (data || []).forEach(l => { if (l.deal_id) linked.add(l.ods_code); }); }
+  return linked;
+}
+async function refLoadSaved(lead) {
+  try {
+    const { data } = await db.from("referral_groups").select("*").eq("lead_ods", lead.ods_code).eq("status", "active").limit(1), row = (data || [])[0] || null;
+    refSaved.set(lead.ods_code, { row, linked: row ? await refLinkedSet(row.members || []) : new Set() }); repaintPriceCards();
+  } catch (e) { refSaved.set(lead.ods_code, { row: null, linked: new Set() }); }
+}
+const refMemberState = (m, linked) => linked.has(m.ods) ? ["Deal linked", "text-emerald-700"] : byOds.get(m.ods)?.hubspot_company_id ? ["Waiting for a deal", "text-amber-700"] : ["Not in HubSpot", "text-slate-500"];
+const refStatusLines = (members, linked) => members.map(m => { const [t, c] = refMemberState(m, linked); return `<div class="flex justify-between gap-3 border-t border-slate-100 py-1 text-xs first:border-0"><span class="truncate">${esc(m.name)}</span><span class="shrink-0 font-semibold ${c}">${t}</span></div>`; }).join("");
+// A strip under the "Referral group" header once a group has been pushed for this lead.
+function refSavedHtml(lead) {
+  let c = refSaved.get(lead.ods_code); if (!c) { refSaved.set(lead.ods_code, c = { row: null, linked: new Set() }); refLoadSaved(lead); }
+  const g = c.row; if (!g) return "";
+  const members = g.members || [], done = members.filter(m => c.linked.has(m.ods)).length, complete = done >= members.length, expired = !complete && g.expires_at && new Date(g.expires_at) < Date.now();
+  const pill = complete ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">Complete</span>'
+    : expired ? '<span class="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-800">Expired: check the discount</span>'
+    : `<span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Active · expires ${esc(fmtDate(g.expires_at))}</span>`;
+  return `<div class="border-t border-slate-200 bg-white px-3 py-2"><div class="mb-1 flex items-center justify-between gap-2 text-xs"><span class="font-semibold text-slate-600">Pushed group · ${done} of ${members.length} deals linked</span>${pill}</div>${refStatusLines(members, c.linked)}${expired ? '<p class="mt-1 text-[11px] text-rose-700">The 90 days have passed with members still unsigned. Untick them and push to reprice the lead.</p>' : ""}</div>`;
+}
+
 document.addEventListener("click", e => {
   const t = e.target.closest(".rg-toggle, .rg-all, .rg-rm, .rg-manual, .rg-madd, .rg-add, .rg-copy"); if (!t) { document.querySelectorAll(".rg-results").forEach(r => r.classList.add("hidden")); return; }
   const lead = refLead(t) || (t.closest("[data-rg]") && byOds.get(t.closest("[data-rg]").dataset.rg)); if (!lead) return; const s = refState(lead);
