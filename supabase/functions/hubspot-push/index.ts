@@ -82,10 +82,10 @@ async function lineItemsOf(dealId: string) {
 }
 
 async function contactsOf(companyId: string) {
-  const a = await hs(`/crm/v4/objects/companies/${companyId}/associations/contacts?limit=20`);
+  const a = await hs(`/crm/v4/objects/companies/${companyId}/associations/contacts?limit=50`);
   const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId));
   if (!ids.length) return [];
-  const d = await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["firstname", "lastname", "jobtitle", "email", "lifecyclestage"], inputs: ids.map((id: string) => ({ id })) }) });
+  const d = await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["firstname", "lastname", "jobtitle", "email", "lifecyclestage", "hs_email_optout", "hs_email_bad_address"], inputs: ids.map((id: string) => ({ id })) }) });
   return (d?.results ?? []).map((x: any) => ({ id: x.id, ...x.properties }));
 }
 
@@ -326,6 +326,7 @@ Deno.serve(async (req) => {
         hs(`/crm/v3/objects/companies/${companyId}?properties=${COMPANY_READ.join(",")}`), contactsOf(companyId), dealsOf(companyId), leadsOf(companyId).catch(() => null)]);
       return reply({ company: { id: company.id, ...company.properties }, contacts, deals, leads });   // leads is null when the token cannot read them
     }
+    if (b.action === "contacts") return reply({ contacts: await contactsOf(idOf(b.companyId)) });   // a company's contacts with their email status, for the Audiences review
     if (b.action === "add_contacts") {
       const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), warnings: string[] = [];
       if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");

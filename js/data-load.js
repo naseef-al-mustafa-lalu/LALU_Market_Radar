@@ -125,12 +125,13 @@ function stateFromUrl() {
 window.addEventListener("popstate", () => { if (!$("app").classList.contains("hidden")) { const open = stateFromUrl(); applyFilters(); renderNetworks(); showTab(currentTab, true); if (open && byOds.get(open)) openDrawer(byOds.get(open)); else closeDrawer(); } });
 
 /* ---------- tabs ---------- */
-const TABS = ["practices", "networks", "revenue", "signals", "data"]; let currentTab = "practices";
+const TABS = ["practices", "networks", "revenue", "signals", "audiences", "data"]; let currentTab = "practices";
 function showTab(which, fromUrl) {
   if (which === "data" && currentTab !== "data") setDataSub("overview");
   const changed = currentTab !== which; currentTab = which;
   for (const t of TABS) { $("view-" + t).classList.toggle("hidden", t !== which); $("tab-" + t).className = "px-3 py-1 rounded-md " + (t === which ? "bg-white text-lalu-navy shadow-sm" : "text-slate-300 hover:text-white hover:bg-white/10"); }
   if (which === "revenue") renderRevenue();
+  if (which === "audiences") loadAudiences();
   if (which === "data") renderData();
   if (which !== "practices") closeDrawer();
   if (!fromUrl) stateToUrl(changed);
