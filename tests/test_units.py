@@ -468,3 +468,37 @@ def test_n8n_line_item_discount():
          "console.log(JSON.stringify([e(d,{hs_product_id:'440423339237',price:'0.96'}),e({...d,referral_discount:'0'},{hs_product_id:'440423339237',price:'0.96'}),e(d,{hs_product_id:'440425147578',price:'0.1'}),e({size_discount:'0.5',speed_discount:'0.5'},{hs_product_id:'440423339237',price:'0.96'}),e({size_discount:'0.5',speed_discount:'0.5'},{hs_product_id:'440434162881',price:'0.6'}),e(d,{hs_product_id:'1',price:'1'})]))"
     out = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
     assert out == [0.1392, 0.12, 0, 0.336, 0.6, None], out
+
+
+def test_other_uk_records_and_step():
+    from src import ingest, sources
+    z1 = {"Organisation": {"Name": "DR. HOEY & PARTNERS", "Status": "Active", "GeoLoc": {"Location": {"AddrLn1": "HARLAND MEDICAL PRACTICE", "AddrLn2": "HOLYWOOD ARCHES HEALTH CENTRE", "AddrLn3": "WESTMINSTER AVENUE",
+          "Town": "BELFAST", "County": "COUNTY DOWN", "PostCode": "BT4 1NS", "Country": "NORTHERN IRELAND"}}}}
+    r = sources.other_uk_record("Z00001", z1, "Northern Ireland")
+    assert r["code"] == "Z00001" and r["postcode"] == "BT4 1NS" and r["town"] == "Belfast" and r["country"] == "Northern Ireland" and r["address"].startswith("Harland Medical Practice"), r
+    assert sources.other_uk_record("Z00002", {"Organisation": {"Name": "X", "Status": "Inactive"}}, "Northern Ireland") is None and sources.other_uk_record("Z00003", {}, "Northern Ireland") is None
+
+    def getj(url, params=None):
+        if url.endswith("/organisations"):
+            return {"Organisations": [{"OrgId": f"Z{i:05d}", "Name": f"N{i}", "PostCode": "BT1 1AA"} for i in range(1, 121)]}
+        return z1
+    assert len(sources.load_ni_gp_practices(getj=getj)) == 120
+    try:
+        sources.load_ni_gp_practices(getj=lambda u, p=None: {"Organisations": []})
+        raise AssertionError("an empty ODS answer must be refused")
+    except ValueError:
+        pass
+
+    calls, stats = [], {}
+
+    class Rest:
+        def rpc(self, name, args=None):
+            calls.append((name, len(args["p_rows"]))); return {"new": len(args["p_rows"])}
+    orig_ni, orig_fetch = sources.load_ni_gp_practices, sources.fetch_other_uk
+    try:
+        sources.load_ni_gp_practices = lambda: {f"Z{i:05d}": {} for i in range(1, 121)}
+        sources.fetch_other_uk = lambda codes, country: {c: {"code": c, "country": country} for c in codes}
+        ingest.other_uk_step(Rest(), {"Z00001": {}, "Y00001": {}}, stats)
+    finally:
+        sources.load_ni_gp_practices, sources.fetch_other_uk = orig_ni, orig_fetch
+    assert calls == [("ingest_other_uk", 119 + 11)] and stats["other_uk_new"] == 130 and "other_uk_error" not in stats, (calls, stats)

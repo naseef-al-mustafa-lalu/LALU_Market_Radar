@@ -56,8 +56,25 @@ const SCOT_HB = { S08000015: "NHS Ayrshire and Arran", S08000016: "NHS Borders",
   S08000030: "NHS Tayside", S08000031: "NHS Greater Glasgow and Clyde", S08000032: "NHS Lanarkshire" };
 const titleCase = t => (t || "").trim().toLowerCase().replace(/(^|[\s(\-/])([a-z])/g, (m, a, b) => a + b.toUpperCase());
 const slug = t => (t || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+// Isle of Man: the health service's registrations return ("figures on which payments to doctors are based"). Practice names map to ODS codes; the last column is the total after age re-assessment.
+const IOM_PRACTICES = { KENSINGTON: ["Y00005", "Kensington Group Practice"], PALATINE: ["Y00007", "Palatine Group Practice"], SNAEFELL: ["Y00011", "Snaefell Surgery"], HAILWOOD: ["Y00008", "Hailwood Medical Practice"],
+  "FINCH HILL": ["Y00944", "Finch Hill Health Centre"], RAMSEY: ["Y00003", "Ramsey Group Practice"], "LAXEY/ONCHAN": ["Y00010", "Laxey & Village Walk Health Centres"], CASTLETOWN: ["Y00001", "Castletown Medical Centre"],
+  SOUTHERN: ["Y00004", "Southern Group Practice"], BALLASALLA: ["Y00009", "Ballasalla Group Practice"], PEEL: ["Y00002", "Peel Group Practice"], "RAMSEY WEST": ["Y02419", "Ramsey West Practice"] };
+function readIsleOfMan(rows) {
+  const flat = rows.slice(0, 6).map(r => r.join(" ")).join(" "), dm = /(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(20\d{2})/.exec(flat), out = [], skipped = [];
+  const month = dm && MONTHS[dm[2].toLowerCase()] ? `${dm[3]}-${String(MONTHS[dm[2].toLowerCase()]).padStart(2, "0")}` : null;
+  for (const x of rows) {
+    const name = (x[0] || "").trim().toUpperCase(), n = parseInt(String(x[x.length - 1] || "").replace(/[, ]/g, ""), 10);
+    if (!name || name === "PRACTICE" || !Number.isFinite(n) || x.length < 8 || /^(KEY|TOTAL)/.test(name)) continue;
+    const hit = IOM_PRACTICES[name]; if (!hit) { skipped.push(name); continue; }
+    out.push({ code: hit[0], name: hit[1], postcode: "", town: "", patients: n, net_code: null, net_name: null, icb: null });
+  }
+  if (out.length < 8) throw new Error(`Only ${out.length} Isle of Man practices recognised: wrong file?`);
+  return { kind: "iom", country: "Isle of Man", rows: out, month, skipped };
+}
 function readDevolvedFile(text, fileName) {
   const rows = parseCsv(text.replace(/^\uFEFF/, "")), head = (rows[0] || []).map(h => h.trim().toLowerCase());
+  if (/ISLE OF MAN/i.test(text.slice(0, 800)) && /\bPRACTICE\b/i.test(text)) return readIsleOfMan(rows);
   const ix = n => head.indexOf(n.toLowerCase()), out = [], seen = new Set();
   const cell = (x, i) => i >= 0 && x[i] != null ? x[i].trim() : "";
   if (ix("PracticeCode") >= 0 && ix("GPPracticeName") >= 0) {
@@ -113,7 +130,7 @@ function readDevolved(text, name, expect) {
    parse(text, fileName) -> { count, month, payload }   throws a readable Error if the file is the wrong one
    load(payload, month, say) -> summary text            say(text) shows progress
    status() -> text shown under the box (what is currently in the database) */
-const UPLOAD_KIND = { scotland: "Scotland practices", "wales-clusters": "Wales practices and clusters", "wales-sizes": "Wales patient numbers (StatsWales)" };
+const UPLOAD_KIND = { iom: "Isle of Man list sizes", scotland: "Scotland practices", "wales-clusters": "Wales practices and clusters", "wales-sizes": "Wales patient numbers (StatsWales)" };
 const latestMonth = list => list.map(p => p.data_month).filter(Boolean).sort().pop() || "?";
 async function loadDevolvedRows(country, rows, month, say, create = true) {
   let stored = 0, added = 0;
@@ -143,6 +160,11 @@ const UPLOADS = [
     parse: (t, n) => { const r = readDevolved(t, n, "scotland"); return { count: r.rows.length, month: r.month, payload: r }; },
     load: (r, month, say) => loadDevolvedRows("Scotland", r.rows, month, say),
     status: () => { const l = practices.filter(p => p.country === "Scotland"); return l.length ? `${l.length.toLocaleString()} Scottish practices loaded (data month ${latestMonth(l)})` : "Nothing loaded yet"; } },
+  { id: "iom", title: "Isle of Man: list sizes", gives: "List sizes for the island's GP practices (the practices themselves come from ODS each day), so they get tiers and ARR", file: "practice-registrations-….csv (the health service's quarterly registrations return)", cadence: "annual",
+    links: [["https://www.gov.im/about-the-government/government/open-data/health-and-social-care/", "Isle of Man government open data: health and social care"]],
+    parse: (t, n) => { const r = readDevolved(t, n, "iom"); return { count: r.rows.length, month: r.month, label: r.skipped.length ? `list sizes (not recognised and skipped: ${r.skipped.join(", ")})` : "list sizes", payload: r }; },
+    load: (r, month, say) => loadDevolvedRows("Isle of Man", r.rows, month, say, false),   // the practices already exist from ODS; this only sets list sizes
+    status: () => { const l = practices.filter(p => p.country === "Isle of Man"); return l.length ? `${l.length.toLocaleString()} Isle of Man practices, ${l.filter(p => p.total_patients > 0).length.toLocaleString()} with list sizes (data month ${latestMonth(l)})` : "Nothing loaded yet"; } },
   { id: "wal", title: "Wales: practices, clusters, list sizes", multiple: true, gives: "Two files, loaded together or separately: the cluster file gives each practice's cluster (PCN equivalent); the StatsWales patients file gives list sizes and health boards",
     file: "Wales_practice_data_….csv (PracticeId, ClusterID)  +  patients-registered-to-general-practices-in-wales-…-by-practice-and-country-of-residence-….csv", cadence: "quarterly",
     links: [["https://nwssp.nhs.wales/ourservices/primary-care-services/general-information/data-and-publications/gp-practice-analysis/", "NWSSP: GP practice analysis (clusters)"],

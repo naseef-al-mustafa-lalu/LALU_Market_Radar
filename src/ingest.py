@@ -306,6 +306,21 @@ def jobs_step(rest, env, existing, records, stats):
         send_alert("Lalu Atlas: NHS Jobs scan failed", f"{e}\n\nThe scan reads the feed directly, then through the jobs-feed edge function if NHS Jobs blocks GitHub. No job signals are raised until it works.")
 
 
+def other_uk_step(rest, existing, stats):
+    """Northern Ireland (ODS role RO315) and the Isle of Man's practices: added and kept current from ODS. List sizes come from uploads (Data > Data sources)."""
+    try:
+        ni = sources.load_ni_gp_practices()
+        todo = [(c, "Northern Ireland") for c in sorted(ni) if c not in existing] + [(c, "Isle of Man") for c in sources.IOM_CODES if c not in existing]
+        rows = []
+        for country in ("Northern Ireland", "Isle of Man"):
+            rows += list(sources.fetch_other_uk([c for c, k in todo if k == country], country).values())
+        for i in range(0, len(rows), 500):
+            stats["other_uk_new"] = stats.get("other_uk_new", 0) + rest.rpc("ingest_other_uk", {"p_rows": rows[i:i + 500]}).get("new", 0)
+        stats.update(other_uk_ni_active=len(ni), other_uk_pending=len(todo) - len(rows))
+    except Exception as e:  # noqa: BLE001  enrichment, not critical
+        stats["other_uk_error"] = str(e)[:200]
+
+
 def graph_step(rest, stats):
     """Housekeeping plus the derived organisation graph. Never fails the run."""
     try:
@@ -339,6 +354,7 @@ def sync(rest, run_id):
     if oscar_info is not None:
         contacts_step(rest, contacts, existing, records, stats, rejects)
     jobs_step(rest, env, existing, records, stats)
+    other_uk_step(rest, existing, stats)
     graph_step(rest, stats)
     branches_step(rest, existing, ods, now, stats)
 

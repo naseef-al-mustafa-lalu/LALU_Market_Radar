@@ -279,3 +279,51 @@ def fetch_pcn_codes(codes, getj=get_json, workers=12):
 
 def today_iso():
     return date.today().isoformat()
+
+
+# Northern Ireland GP practices carry their own ODS role (RO315, Z codes); the Isle of Man's are ordinary GP practices (RO177, Y codes) that the England-style query leaves out,
+# so its handful of practice codes are listed here (the island's non-GP Y records, such as the hospice, are not practices).
+IOM_CODES = ("Y00001", "Y00002", "Y00003", "Y00004", "Y00005", "Y00007", "Y00008", "Y00009", "Y00010", "Y00011", "Y00944", "Y02419")
+
+
+def load_ni_gp_practices(getj=get_json, page=500, minimum=100):
+    """Active Northern Ireland GP practices (ODS role RO315): {code: {name, postcode}}. Paged like load_active_gp_practices."""
+    out, offset = {}, 0
+    while True:
+        params = {"PrimaryRoleId": "RO315", "Status": "Active", "Limit": page}
+        if offset:
+            params["Offset"] = offset
+        orgs = getj(f"{ODS_API}/organisations", params).get("Organisations", [])
+        before = len(out)
+        for o in orgs:
+            code = norm_ods(o.get("OrgId"))
+            if code:
+                out[code] = {"name": o.get("Name", ""), "postcode": o.get("PostCode", "")}
+        if len(orgs) < page or len(out) == before:
+            break
+        offset = len(out)
+    if len(out) < minimum:
+        raise ValueError(f"ODS returned only {len(out)} Northern Ireland practices; refusing to continue")
+    return out
+
+
+def other_uk_record(code, detail, country):
+    """One gp_practices row (for ingest_other_uk) from an ODS organisation record; None when the record is missing or no longer active."""
+    org = (detail or {}).get("Organisation") or {}
+    if not org or org.get("Status") != "Active":
+        return None
+    loc = (org.get("GeoLoc") or {}).get("Location") or {}
+    lines = [title_case(loc.get(k)) for k in ("AddrLn1", "AddrLn2", "AddrLn3") if loc.get(k)]
+    return {"code": code, "name": title_case(org.get("Name")), "postcode": loc.get("PostCode"), "address": ", ".join(lines) or None,
+            "town": title_case(loc.get("Town")) or None, "county": title_case(loc.get("County")) or None, "country": country}
+
+
+def fetch_other_uk(codes, country, getj=get_json, workers=12):
+    """{code: row} for each code looked up; failed lookups are omitted and retried on a later run."""
+    def one(code):
+        try:
+            return code, other_uk_record(code, getj(f"{ODS_API}/organisations/{code}"), country)
+        except Exception:  # noqa: BLE001
+            return code, None
+    with ThreadPoolExecutor(workers) as ex:
+        return {c: v for c, v in ex.map(one, codes) if v is not None}

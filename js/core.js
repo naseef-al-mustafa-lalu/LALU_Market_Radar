@@ -42,6 +42,8 @@ const tier = p => p.price_tier ? "Tier " + p.price_tier : "";
 const noSizeReason = p => p.merged_into ? "Merged into another practice: its patients are counted in that practice's list."
   : p.country === "Wales" ? "No list size yet: load the StatsWales patients file (Data > Data sources)."
   : p.country === "Scotland" ? "No list size in the Scottish file for this practice."
+  : p.country === "Northern Ireland" ? "No list size yet: load the Northern Ireland list sizes file (Data > Data sources)."
+  : p.country === "Isle of Man" ? "No list size in the Isle of Man registrations file for this practice."
   : "Not in the monthly NHS patient register. Usually a service rather than a registering practice (walk-in centre, hub, federation), or a practice too new to be published.";
 const TIER_CLS = { "Tier 1": "bg-purple-200 text-purple-900", "Tier 2": "bg-purple-100 text-purple-800", "Tier 3": "bg-violet-50 text-violet-700", "Tier 4": "bg-slate-100 text-slate-600", "Tier 5": "bg-slate-50 text-slate-500" };
 const CQC_CHIP = { "Outstanding": "bg-emerald-100 text-emerald-800", "Requires improvement": "bg-amber-100 text-amber-800", "Inadequate": "bg-rose-100 text-rose-800" };   // "Good" is the norm: plain text

@@ -324,7 +324,11 @@ with sync_playwright() as p:
     r0 = calls[0][1]["p_rows"][0]; assert r0["code"] == "S10000" and r0["icb"] == "NHS Tayside" and r0["net_code"] == "SC-dundee-0" and r0["patients"] == 5000 and r0["town"] == "Muirhead", r0
     assert calls[1][1]["p_rows"][0]["patients"] == 5000 and calls[1][1]["p_rows"][0]["icb"] is None or True
     w0 = calls[2][1]["p_rows"][0]; assert w0["code"] == "W93000" and w0["net_code"] == "WC60100", w0
-    assert "In the database" in pg.inner_text("#up-eng .up-status") and pg.locator("#uploads > details").count() == 3
+    iom = os.path.join(os.path.dirname(__file__), "fixtures", "iom_practice_registrations_2020.csv")      # the real 2020 return: names map to ODS codes, the last column is the total
+    up("iom", iom, "12 practices"); pg.click("#up-iom .up-load"); pg.wait_for_function("document.querySelector('#up-iom .up-msg').textContent.startsWith('Done')")
+    ic = pg.evaluate("window.__rpc.filter(c => c[0] === 'load_devolved' && c[1].p_country === 'Isle of Man')"); assert len(ic) == 1 and ic[0][1]["p_create"] is False and ic[0][1]["p_month"] == "2020-04", ic
+    ir = {r["code"]: r["patients"] for r in ic[0][1]["p_rows"]}; assert ir["Y00003"] == 14429 and ir["Y00005"] == 9065 and ir["Y02419"] == 44 and len(ir) == 12, ir
+    assert "In the database" in pg.inner_text("#up-eng .up-status") and pg.locator("#uploads > details").count() == 4
     open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
     pg.set_input_files("#up-wal .up-file", os.path.join(td, "bad.csv")); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.includes('Not recognised')")
     pg.screenshot(path=SHOTS + "/data.png", full_page=True)
