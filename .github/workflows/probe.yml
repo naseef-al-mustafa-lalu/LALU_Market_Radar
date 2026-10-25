@@ -1,0 +1,24 @@
+name: Probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ODS Isle of Man and Northern Ireland practices (read-only)
+        run: |
+          set +e
+          B=https://directory.spineservices.nhs.uk/ORD/2-0-0/organisations
+          echo "== IM, RO177 active"; curl -s -m 40 "$B?PostCode=IM&PrimaryRoleId=RO177&Status=Active&Limit=100" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin).get('Organisations', [])
+          print(len(d))
+          for o in d: print(o['OrgId'], '|', o['Name'], '|', o.get('PostCode'), '|', o.get('PrimaryRoleId'))"
+          echo "== BT, RO177 active"; curl -s -m 40 "$B?PostCode=BT&PrimaryRoleId=RO177&Status=Active&Limit=100" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin).get('Organisations', [])
+          print(len(d)); [print(o['OrgId'], '|', o['Name'], '|', o.get('PostCode')) for o in d[:8]]"
+          echo "== BT, RO315 active"; curl -s -m 40 "$B?PostCode=BT&PrimaryRoleId=RO315&Status=Active&Limit=100" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin).get('Organisations', [])
+          print(len(d)); [print(o['OrgId'], '|', o['Name'], '|', o.get('PostCode')) for o in d[:8]]"
+          echo "== role RO315"; curl -s -m 30 "https://directory.spineservices.nhs.uk/ORD/2-0-0/roles/RO315" | head -c 400; echo
