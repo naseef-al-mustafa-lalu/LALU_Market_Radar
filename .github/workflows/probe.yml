@@ -1,0 +1,22 @@
+name: Probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Isle of Man open data page (read-only)
+        run: |
+          set +e
+          curl -s -m 40 -L -A "Mozilla/5.0" "https://www.gov.im/about-the-government/government/open-data/health-and-social-care/" -o page.html -w "HTTP %{http_code} size %{size_download}\n"
+          python3 - <<'PY'
+          import re, html
+          t = open("page.html", errors="ignore").read()
+          print("TITLE:", re.findall(r"<title>(.*?)</title>", t, re.S)[:1])
+          links = re.findall(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', t, re.S)
+          seen = set()
+          for h, txt in links:
+              txt = re.sub(r"<[^>]+>", "", html.unescape(txt)).strip()
+              if any(k in (h + txt).lower() for k in ("gp", "practice", "patient", "list", "register", "csv", "xls", "dataset", "primary", "health")) and (h, txt) not in seen:
+                  seen.add((h, txt)); print(txt[:90], "|", h[:140])
+          print("MENTIONS gp/practice:", len(re.findall(r"(?i)gp|general practice", t)))
+          PY
