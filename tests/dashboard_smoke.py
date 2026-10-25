@@ -34,8 +34,8 @@ SHOTS = os.environ.get("SHOT_DIR") or tempfile.gettempdir()
 FAKE = """
 window.supabase = { createClient: () => {
   const data = %s;
-  const q = t => { const r = { select: () => r, order: () => r, range: (a,b) => window.__fail ? Promise.resolve({ data: null, error: { message: 'network down' } }) : (window.__slow ? new Promise(r => setTimeout(r, window.__slow)) : Promise.resolve()).then(() => ({ data: (data[t]||[]).slice(a, b+1) })), eq: () => r, in: () => r, limit: () => Promise.resolve({ data: data[t]||[] }),
-    update: () => ({ eq: () => Promise.resolve({ error: null }) }), then: (f) => Promise.resolve({ data: data[t]||[] }).then(f) }; return r; };
+  const q = t => { const fl = []; const rows = () => (data[t]||[]).filter(x => t !== 'referral_groups' || fl.every(([k, v]) => x[k] === v)); const r = { select: () => r, order: () => r, range: (a,b) => window.__fail ? Promise.resolve({ data: null, error: { message: 'network down' } }) : (window.__slow ? new Promise(r => setTimeout(r, window.__slow)) : Promise.resolve()).then(() => ({ data: (data[t]||[]).slice(a, b+1) })), eq: (k, v) => { fl.push([k, v]); return r; }, in: () => r, limit: () => Promise.resolve({ data: rows() }),
+    update: () => ({ eq: () => Promise.resolve({ error: null }) }), then: (f) => Promise.resolve({ data: rows() }).then(f) }; return r; };
   return { auth: { getSession: async () => ({ data: { session: { user: { email: 'new@lalu.co.uk' } } } }), signOut: async () => {}, updateUser: async (a) => { (window.__rpc = window.__rpc || []).push(['updateUser', a]); return {}; }, resetPasswordForEmail: async (e, o) => { (window.__rpc = window.__rpc || []).push(['reset', e, o]); return {}; }, signInWithPassword: async () => ({}) },
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async (name, o) => { const b = (o && o.body) || {}; (window.__rpc = window.__rpc || []).push(['fn:' + name, b]);
       if (name !== 'hubspot-push') return { data: {} };
@@ -116,6 +116,13 @@ with sync_playwright() as p:
     pg.click("#dr-body .rg-alone"); mb = pg.inner_text("#dr-body"); assert "Priced alone" in mb and "Referral group discount" not in mb, mb
     pg.click("#dr-body .rg-alone"); assert "Group price" in pg.inner_text("#dr-body")
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
+    pg.keyboard.press("Escape"); pg.wait_for_selector("#drawer.translate-x-full", state="attached"); pg.click("#rows tr:has-text('Test Surgery 3')"); pg.wait_for_selector("#drawer:not(.translate-x-full)"); pg.wait_for_selector("#dr-body .rg-create"); pg.click("#dr-body .rg-create"); pg.wait_for_selector("#gp-go")
+    gm = pg.inner_text("#hs-body"); assert "Test Surgery 5" in gm and "Create company and deal" in gm and "referral discount 5%" in gm, gm       # one screen creates the missing referred practices' deals at the group rate
+    pg.click("#gp-go"); pg.wait_for_function("document.querySelector('#hs-msg').innerText.includes('created')"); assert "1 deal created" in pg.inner_text("#hs-msg"), pg.inner_text("#hs-msg")
+    gw = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && ['create_company', 'create_deal', 'write'].includes(c[1].action)).slice(-3).map(c => c[1])")
+    assert [x["action"] for x in gw] == ["create_company", "create_deal", "write"] and gw[0]["ods"] == "A10005" and abs(gw[2]["deal"]["referral_discount"] - 0.05) < 1e-9 and gw[1]["deal"]["dealname"] == "Test Surgery 5", gw
+    pg.click("#hs-cancel"); pg.keyboard.press("Escape")
+    pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     bc = pg.locator("#dr-body details.branch-card"); assert bc.count() == 1 and bc.get_attribute("open") is None and "1 site" in bc.locator("summary").inner_text(), bc.locator("summary").inner_text()      # branch sites: collapsed, count beside the header
     bc.locator("summary").click(); assert bc.get_attribute("open") is not None
     assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "false"  # the speed discount is not guaranteed, so it is off by default
@@ -163,8 +170,8 @@ with sync_playwright() as p:
     assert pg.locator('#hs-results a[href$="/record/0-136/99"]').count() == 2 and "Lead created" in pg.inner_text("#hs-results") and "Test Surgery 1 (HubSpot) | Atlas" in pg.inner_text("#hs-results")   # flash link + the new row, no reload
     assert "Atlas › " in pg.inner_text("#hs-title")
     pg.click("#hs-newdeal"); pg.wait_for_selector("#nd-create"); dp = pg.inner_text("#hs-results"); assert "pricing to be sent with this deal" in dp.lower() and "£8,640" in dp and "ReportSure - All Report - Annual" in dp and "10%" in dp, dp; assert pg.input_value("#nd-name") == "Lena Contact - Test Surgery 1 (HubSpot)" and pg.input_value("#nd-owner") == "38848375" and pg.locator("[data-nd-contact]:checked").count() == 1   # editable defaults: lead contact - company, signed-in owner
-    pg.fill("#nd-name", "Test deal from the tool"); pg.click("#nd-create"); pg.wait_for_function("document.querySelector('#hs-msg') && document.querySelector('#hs-msg').innerText.includes('matches the tool')"); assert "Deal created" in pg.inner_text("#hs-body") and pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'write').length") == 1
-    cd = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_deal')")[0][1]
+    pg.fill("#nd-name", "Test deal from the tool"); pg.click("#nd-create"); pg.wait_for_function("document.querySelector('#hs-msg') && document.querySelector('#hs-msg').innerText.includes('matches the tool')"); assert "Deal created" in pg.inner_text("#hs-body") and pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'write').length") == 2
+    cd = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_deal' && c[1].companyId === '77')")[0][1]
     assert cd["companyId"] == "77" and cd["contactIds"] == ["c1"] and cd["deal"]["dealname"] == "Test deal from the tool" and cd["deal"]["pipeline"] == "default" and cd["deal"]["dealstage"] == "appointmentscheduled" and cd["deal"]["dealtype"] == "newbusiness" and cd["deal"]["product___service"] == "eMR+" and cd["deal"]["hubspot_owner_id"] == "38848375" and cd["deal"]["amount"] == "8640" and cd["deal"]["closedate"].endswith("T00:00:00Z"), cd
     pg.evaluate("Object.assign(window.__hsdb.deal, { size_tier: 'Tier 4', commercial_model: 'eMR+ SAR Only', value_per_patient: '£0.10', size_discount: '0', speed_discount: '0', term_length_discount: '0', term_length_years: '1', total_discount: '0', actual_value_per_patient_calculated: '0.10' }); window.__hsdb.company.patient_list_size = '9000'; window.__hsdb.lineItems = []")   # the form's auto-write changed the fake deal: reset it
     pg.click("#hs-back"); pg.click("#hs-search"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-results [data-deal]"); pg.click("#hs-results [data-deal]"); pg.wait_for_selector("#hs-write")
@@ -173,7 +180,7 @@ with sync_playwright() as p:
     pg.screenshot(path=SHOTS + "/hubspot.png"); pg.evaluate("window.__hsBlank = true"); pg.click("#hs-write")
     pg.wait_for_selector("#hs-recheck"); assert "not filled in" in pg.inner_text("#hs-msg") or "has not filled in" in pg.inner_text("#hs-msg"), pg.inner_text("#hs-msg")   # blank calculated value: amber, with a Re-check button
     pg.evaluate("window.__hsBlank = false; window.__hsdb.deal.actual_value_per_patient_calculated = '0.072'"); pg.click("#hs-recheck"); pg.wait_for_function("document.querySelector('#hs-msg').innerText.includes('HubSpot matches the tool')")
-    wr = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'write')")[0][1]
+    wr = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'write' && c[1].ods !== 'A10005' && 'size_tier' in c[1].deal)")[0][1]
     assert wr["ods"] == "A10001" and wr["company"] == {"patient_list_size": 10000} and wr["deal"]["size_tier"] == "Tier 3" and wr["deal"]["value_per_patient"] == "£0.08" and wr["deal"]["commercial_model"] == "Subscription" and wr["deal"]["size_discount"] == 0.05 and wr["deal"]["speed_discount"] == 0.05 and wr["deal"]["term_length_discount"] == 0 and wr["deal"]["term_length_years"] == "1" and wr["lineItem"] == dict(productId="440423339237", quantity=10000, netUnit=0.864, termMonths=12, frequency="annually", terms="FIXED", payments=1), wr
     pg.click("#hs-cancel"); pg.wait_for_selector("#hs-modal", state="hidden")
     assert pg.evaluate("[hsState({ hubspot_customer: true, hubspot_commercial_model: 'Freemium' }), hsState({ hubspot_customer: true, hubspot_commercial_model: 'eMR Plus' }), hsState({ hubspot_customer: true })]") == ["freemium", "customer", "customer"]   # Freemium is a customer with no revenue
@@ -193,7 +200,7 @@ with sync_playwright() as p:
     pg.screenshot(path=SHOTS + "/hubspot_section.png")
     pg.click('#dr-hs .hs-bar [data-hs-act="create"]'); pg.wait_for_selector("#hs-create"); cp = pg.inner_text("#hs-body"); assert "has no company with this GP ODS Code" in cp and "A10002" in cp and "New company to create" in cp, cp
     pg.click("#hs-create"); pg.wait_for_function("document.querySelector('#hs-msg').innerText.includes('Company created')")
-    cc = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company')")[0][1]; assert cc["ods"] == "A10002" and cc["company"]["partner_organisation_code"] == "A10002" and cc["company"]["patient_list_size"] == 11000 and cc["company"]["company_status"] == "Prospective Customer", cc
+    cc = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company' && c[1].ods === 'A10002')")[0][1]; assert cc["ods"] == "A10002" and cc["company"]["partner_organisation_code"] == "A10002" and cc["company"]["patient_list_size"] == 11000 and cc["company"]["company_status"] == "Prospective Customer", cc
     pg.click("#hs-cancel"); pg.select_option("#f-hs", "")
     pg.keyboard.press("Escape")
     pg.set_viewport_size({"width": 1180, "height": 800}); noflow("#view-practices .overflow-x-auto", "practices@1180"); pg.screenshot(path=SHOTS + "/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})

@@ -38,7 +38,7 @@ const LEAD_TO_PRIMARY_CONTACT = 578;   // HubSpot-defined association type: lead
 const LEAD_TYPES = new Set(["NEW_BUSINESS", "RE_ATTEMPTING"]);
 const LEAD_CAMPAIGNS = new Set(["PCN Prospecting", "ICB April 26", "Field Based Lead", "ICB Prospecting", "Atlas"]);
 const NOTE_TO_DEAL = 214;   // HubSpot-defined association type: note -> deal
-const REF_MEMBER = "Referral group member", REF_LEAD = "Referral group lead";   // labels on the deal-to-deal association
+const REF_MEMBER = "Referred practice", REF_LEAD = "Referring practice";   // labels on the deal-to-deal association
 const LINE_TO_DEAL = 20;   // HubSpot-defined association type: line item -> deal
 
 // Pipelines and owners change rarely: keep them for five minutes inside a warm function instance.
@@ -138,13 +138,13 @@ async function readPair(companyId: string, dealId: string) {
 async function referralLabelId(): Promise<number> {
   const find = (r: any) => (r?.results ?? []).find((x: any) => x.label === REF_MEMBER);
   let hit = find(await hs(`/crm/v4/associations/deals/deals/labels`));
-  if (!hit) { await hs(`/crm/v4/associations/deals/deals/labels`, { method: "POST", body: JSON.stringify({ label: REF_MEMBER, inverseLabel: REF_LEAD, name: "referral_group_member" }) });
+  if (!hit) { await hs(`/crm/v4/associations/deals/deals/labels`, { method: "POST", body: JSON.stringify({ label: REF_MEMBER, inverseLabel: REF_LEAD, name: "referred_practice" }) });
     hit = find(await hs(`/crm/v4/associations/deals/deals/labels`)); }
   if (!hit) throw new Fail("Could not create the referral group association labels");
   return Number(hit.typeId);
 }
 
-// After a pricing write: record the group (or its revert) in our table, put a note on the deal and label the lead's deal against each member's deal. Each step only warns on failure.
+// After a pricing write: record the group (or its revert) in our table, put a note on the deal and label the referring practice's deal against each referred practice's deal. Each step only warns on failure.
 async function referralFollowUp(admin: any, who: string, ods: string, dealId: string, dealName: string, r: any, warnings: string[]) {
   const now = new Date().toISOString();
   if (r.revert) {
@@ -176,7 +176,7 @@ async function referralFollowUp(admin: any, who: string, ods: string, dealId: st
   return { members: members.length, linked, expires };
 }
 
-// A deal for a practice that belongs to an active referral group (created or pushed later) is labelled against the lead's deal and gets a short note.
+// A deal for a practice that belongs to an active referral group (created or pushed later) is labelled against the referring practice's deal and gets a short note.
 async function linkIntoGroup(admin: any, ods: string, dealId: string, warnings: string[]) {
   const { data: groups } = await admin.from("referral_groups").select("id,lead_ods,lead_deal_id,members,extra_discount,expires_at").eq("status", "active").contains("members", [{ ods }]);
   const done: string[] = [];
@@ -187,7 +187,7 @@ async function linkIntoGroup(admin: any, ods: string, dealId: string, warnings: 
     try {
       await hs(`/crm/v4/objects/deals/${idOf(g.lead_deal_id)}/associations/deals/${dealId}`, { method: "PUT", body: JSON.stringify([{ associationCategory: "USER_DEFINED", associationTypeId: await referralLabelId() }]) });
       await admin.from("referral_groups").update({ members: (g.members ?? []).map((m: any) => m.ods === ods ? { ...m, deal_id: dealId } : m) }).eq("id", g.id);
-      await note(dealId, `Part of a referral group led by practice ${g.lead_ods} (deal ${g.lead_deal_id}). The group's referral discount of ${(Number(g.extra_discount) * 100).toFixed(1)}% on the lead's deal depends on this practice signing by ${String(g.expires_at ?? "").slice(0, 10)}.`, warnings);
+      await note(dealId, `Referred by practice ${g.lead_ods} (deal ${g.lead_deal_id}) as part of a referral group. The referring practice's referral discount of ${(Number(g.extra_discount) * 100).toFixed(1)}% depends on this practice signing by ${String(g.expires_at ?? "").slice(0, 10)}.`, warnings);
       done.push(g.lead_ods);
     } catch (e) { warnings.push(`Referral group link for ${g.lead_ods}: ${(e as Error).message}`); }
   }
