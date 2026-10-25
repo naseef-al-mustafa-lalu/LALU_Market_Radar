@@ -4,7 +4,7 @@
 const REFERRAL_DAYS = 90;
 const HS_REFERRAL_WRITES = true;   // HubSpot's Total Discount % formula includes referral_discount (confirmed 24 Oct 2026)
 const referralState = new Map();    // lead ODS -> { open, sel: Set of codes, extra: [{ code, name, patients }], manual: bool }
-const refState = lead => { let s = referralState.get(lead.ods_code); if (!s) referralState.set(lead.ods_code, s = { open: false, sel: new Set(), extra: [], manual: false }); return s; };
+const refState = lead => { let s = referralState.get(lead.ods_code); if (!s) referralState.set(lead.ods_code, s = { open: false, sel: new Set(), extra: [], manual: false, alone: false }); return s; };
 const refTiers = () => cfgTiers.filter(t => t.route === "practice").sort((a, b) => b.threshold - a.threshold);   // largest threshold first
 const refTierFor = n => refTiers().find(t => n >= t.threshold) || null;
 const refN = n => Math.round(n).toLocaleString("en-GB");
@@ -17,17 +17,31 @@ function refCandidates(lead) {
 const refPool = lead => [...refCandidates(lead), ...refState(lead).extra.filter(e => !refCandidates(lead).some(c => c.code === e.code))];
 const refPicked = lead => refPool(lead).filter(c => refState(lead).sel.has(c.code));
 
+// Active referral groups saved by earlier pushes, by member ODS. A practice that is a member of one is quoted at the group rate by default (the group still has to sign within 90 days).
+let refGroups = null, refGroupsBusy = false;
+async function refLoadGroups() {
+  if (refGroupsBusy) return; refGroupsBusy = true;
+  try { const { data } = await db.from("referral_groups").select("*").eq("status", "active"), m = new Map(); (data || []).forEach(g => (g.members || []).forEach(x => { if (x.ods) m.set(x.ods, g); })); refGroups = m; } catch (e) { refGroups = new Map(); }
+  refGroupsBusy = false; repaintPriceCards(); hsRefreshBars();
+}
+const refMembership = p => { if (refGroups === null) { refLoadGroups(); return null; } const g = refGroups.get(p.ods_code); return g && g.lead_ods !== p.ods_code && g.combined_patients && !(g.expires_at && new Date(g.expires_at) < Date.now()) ? g : null; };
+
 // null when no practices are ticked (or the lead has no price tier); otherwise the combined size, both tiers and the extra discount.
 function referralFor(lead) {
   const picked = refPicked(lead), own = refTierFor(lead.total_patients);
-  if (!picked.length || !own) return null;
+  if (!own) return null;
+  if (!picked.length) {   // not leading a group here: a member of a saved group is priced at its rate unless "Price alone" was chosen
+    const g = refState(lead).alone ? null : refMembership(lead); if (!g) return null;
+    const grp = refTierFor(Number(g.combined_patients)), ownSize = Number(own.size_discount), groupSize = Number(grp.size_discount);
+    return { picked: [], n: (g.members || []).length, combined: Number(g.combined_patients), ownTier: own, groupTier: grp, ownSize, groupSize, extra: Math.max(0, groupSize - ownSize), member: g };
+  }
   const combined = lead.total_patients + picked.reduce((t, c) => t + c.patients, 0), grp = refTierFor(combined);
   const ownSize = Number(own.size_discount), groupSize = Number(grp.size_discount);
   return { picked, n: picked.length, combined, ownTier: own, groupTier: grp, ownSize, groupSize, extra: Math.max(0, groupSize - ownSize) };
 }
 const referralExtraFor = lead => (lead && lead.total_patients > 0 && billing !== "monthly" ? (referralFor(lead) || { extra: 0 }).extra : 0);
 // What the push sends alongside the discount: who was counted, for the note, the tracking table and the deal links.
-const referralPayload = lead => { const r = referralFor(lead); return r && r.extra > 0 ? { extra: r.extra, combined: r.combined, members: r.picked.map(c => ({ ods: /^manual/.test(c.code) ? "" : c.code, name: c.name, patients: c.patients })) } : null; };
+const referralPayload = lead => { const r = referralFor(lead); return r && r.extra > 0 && r.picked.length ? { extra: r.extra, combined: r.combined, members: r.picked.map(c => ({ ods: /^manual/.test(c.code) ? "" : c.code, name: c.name, patients: c.patients })) } : null; };
 const referralActive = lead => referralExtraFor(lead) > 0;
 
 // Ladder: the distinct size-discount steps of the single-practice table (equal discounts merged), the first step drawn twice as wide.
@@ -53,7 +67,20 @@ function refTip(lead, ref) {
   return `<b>${refN(need)} more patients</b> reach ${pct(Number(next.size_discount))} off` + (one ? `: <b>${esc(one.name)}</b> (${refN(one.patients)}) would do it.` : pool.length ? ". It would take more than one practice." : ".");
 }
 
+// A member of a saved group: one clean card instead of the picker, with a way out.
+function referralMemberCard(lead, g) {
+  const s = refState(lead), own = refTierFor(lead.total_patients), grp = refTierFor(Number(g.combined_patients)), monthly = billing === "monthly";
+  const sp = speedOn && !monthly ? Number(own.speed_discount) : 0, term = monthly ? 0 : termDiscount(termYrs), extra = Math.max(0, Number(grp.size_discount) - Number(own.size_discount));
+  const save = yearly(lead.total_patients, dealRate(Number(own.size_discount), term, sp)) - yearly(lead.total_patients, dealRate(Number(own.size_discount) + extra, term, sp));
+  const leadName = byOds.get(g.lead_ods)?.practice_name || g.lead_ods, by = g.expires_at ? fmtDate(g.expires_at) : "";
+  return `<div class="mt-3 rounded-xl border ${s.alone ? "border-slate-200 bg-slate-50" : "border-amber-200 bg-amber-50/70"} p-3" data-rg="${esc(lead.ods_code)}">
+    <div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="text-sm font-semibold">Part of ${esc(leadName)}'s referral group ${s.alone ? chip("Priced alone", "bg-slate-200 text-slate-700") : chip("Group price", "bg-amber-100 text-amber-800")}</div>
+      <p class="mt-0.5 text-xs text-slate-600">${refN(g.combined_patients)} patients combined · ${pct(Number(grp.size_discount))} size discount${extra > 0 ? ` (${pct(extra)} more than alone)` : ""}${by ? ` · the group needs to sign by ${esc(by)}` : ""}${!s.alone && save > 0 && !monthly ? ` · saves ${gbpFull(save)} a year` : ""}</p></div>
+      <button type="button" class="rg-alone shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50" data-lead="${esc(lead.ods_code)}">${s.alone ? "Use group price" : "Price alone"}</button></div></div>`;
+}
 function referralPanel(lead, id) {
+  const mg = refState(lead).sel.size ? null : (refState(lead).alone ? refMembership(lead) : referralFor(lead)?.member);
+  if (mg) return referralMemberCard(lead, mg);
   const s = refState(lead), ref = referralFor(lead), cands = refCandidates(lead), open = s.open;
   const summary = ref ? `${refN(ref.combined)} patients · ${pct(ref.groupSize)} size discount` : "Price this deal on the practices they can sign";
   const total = ref ? ref.combined : lead.total_patients;
@@ -130,12 +157,13 @@ function refSavedHtml(lead) {
 }
 
 document.addEventListener("click", e => {
-  const t = e.target.closest(".rg-toggle, .rg-all, .rg-rm, .rg-manual, .rg-madd, .rg-add, .rg-copy"); if (!t) { document.querySelectorAll(".rg-results").forEach(r => r.classList.add("hidden")); return; }
+  const t = e.target.closest(".rg-toggle, .rg-all, .rg-rm, .rg-manual, .rg-madd, .rg-add, .rg-copy, .rg-alone"); if (!t) { document.querySelectorAll(".rg-results").forEach(r => r.classList.add("hidden")); return; }
   const lead = refLead(t) || (t.closest("[data-rg]") && byOds.get(t.closest("[data-rg]").dataset.rg)); if (!lead) return; const s = refState(lead);
   if (t.classList.contains("rg-toggle")) s.open = !s.open;
   else if (t.classList.contains("rg-all")) { const c = refCandidates(lead).filter(x => !x.customer), every = c.every(x => s.sel.has(x.code)); c.forEach(x => every ? s.sel.delete(x.code) : s.sel.add(x.code)); }
   else if (t.classList.contains("rg-rm")) { s.extra = s.extra.filter(x => x.code !== t.dataset.code); s.sel.delete(t.dataset.code); }
   else if (t.classList.contains("rg-manual")) s.manual = !s.manual;
+  else if (t.classList.contains("rg-alone")) s.alone = !s.alone;
   else if (t.classList.contains("rg-madd")) { const box = t.closest("[data-rg]"), n = parseInt(box.querySelector(".rg-mp").value, 10); if (!(n > 0)) { box.querySelector(".rg-mp").focus(); return; } const code = "manual" + (s.extra.length + 1); s.extra.push({ code, name: box.querySelector(".rg-mn").value.trim() || "Practice (manual)", patients: n }); s.sel.add(code); }
   else if (t.classList.contains("rg-add")) { const p = byOds.get(t.dataset.code); if (p && !s.extra.some(x => x.code === p.ods_code)) s.extra.push({ code: p.ods_code, name: p.practice_name, patients: p.total_patients }); s.sel.add(t.dataset.code); }
   else if (t.classList.contains("rg-copy")) { const text = referralSummaryText(lead), done = () => { t.textContent = "Copied"; setTimeout(() => { t.textContent = "Copy summary"; }, 1600); }; try { navigator.clipboard.writeText(text).then(done, () => { t.textContent = "Select and copy"; }); } catch (err) { t.textContent = "Select and copy"; } return; }

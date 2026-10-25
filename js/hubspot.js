@@ -48,7 +48,7 @@ function hsDesired(p) {
   const row = cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), monthly = billing === "monthly";
   const size = monthly ? 0 : Number(row.size_discount), term = monthly ? 0 : termDiscount(termYrs), speed = monthly || !speedOn ? 0 : Number(row.speed_discount);
   const referral = HS_REFERRAL_WRITES ? referralExtraFor(p) : 0;   // the conditional referral-group discount
-  return { size, term, speed, referral, group: referral > 0 ? referralPayload(p) : null, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral, term, speed), list: baseRate(),
+  return { size, term, speed, referral, group: referral > 0 ? referralPayload(p) : null, member: refMembership(p), termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral, term, speed), list: baseRate(),
     total: size + referral + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size + referral, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }
 // The HubSpot section of the profile now holds facts only (status, links, lifecycle); the one action lives beside the price controls (hsBarHtml).

@@ -233,9 +233,11 @@ function hsPreview() {
         ${tile("Term", w.termMonths + " month" + (w.termMonths > 1 ? "s" : ""), !cur || cur.hs_recurring_billing_period !== `P${w.termMonths}M`, cur ? "now " + esc(cur.hs_recurring_billing_period || "not set") : "")}
         ${tile("Billing", w.frequency === "monthly" ? "Monthly" : "Annually", false, w.frequency === "monthly" ? "auto-renews" : w.payments + " payment" + (w.payments > 1 ? "s" : ""))}</div>`;
   const nLine = line.unreadable || line.same ? 0 : 1;
-  const g = want.group, removing = !g && hsNum(deal.referral_discount) > 0;
+  const g = want.group, removing = !g && !want.member && hsNum(deal.referral_discount) > 0, mg = !g && want.member;
   const groupCard = g ? sectionCard("Referral group", '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Conditional</span>', `<div class="text-sm text-slate-700">${g.members.map(m => esc(m.name) + " · " + m.patients.toLocaleString()).join("<br>")}</div>
       <p class="mt-2 text-xs text-slate-500">Combined list size ${g.combined.toLocaleString()}. This push writes Referral Discount ${pct(g.extra)}, adds a note to the deal listing the group and the 90-day condition, saves the group in the tool, and labels this deal against each member's linked deal ("Referral group lead" / "Referral group member"). A member's deal is linked automatically when it is created or pushed in the tool.</p><div id="hs-rg-status" class="mt-2"></div>`)
+    : mg ? sectionCard("Referral group member", want.referral > 0 ? '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Group price</span>' : '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">Priced alone</span>',
+      `<p class="text-xs text-slate-600">${want.referral > 0 ? `Part of ${esc(byOds.get(want.member.lead_ods)?.practice_name || want.member.lead_ods)}'s referral group: Referral Discount ${pct(want.referral)} is written and the line item is priced at the group rate.` : "Priced alone: no referral discount is written."} This deal is linked to the lead's deal automatically.</p>`)
     : removing ? sectionCard("Referral group", '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">Removing</span>', '<p class="text-xs text-slate-600">No referral group is selected in the profile, so Referral Discount goes back to 0, the line item is repriced for this practice alone, and the group is closed with a note on the deal.</p>') : "";
   hsRender(`<div class="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><div class="min-w-0"><div class="truncate font-semibold">${hsLink("0-2", company.id, company.name)}</div><div class="text-xs text-slate-500">ODS ${esc(company.partner_organisation_code || "not set")}</div></div>
       <div class="min-w-0 text-right"><div class="truncate font-semibold">${hsLink("0-3", deal.id, deal.dealname)}</div><div class="text-xs text-slate-500">${esc(deal.dealstage || "")} · ${hs.linked ? "saved link" : "link saved after the write"}</div></div></div>
@@ -262,7 +264,7 @@ async function hsWrite(checks) {
   const dealProps = { size_discount: hsPct(want.size), speed_discount: hsPct(want.speed), term_length_discount: hsPct(want.term), term_length_years: String(want.termYears) };
   const companyProps = {};
   if (want.referral > 0 || hsNum(deal.referral_discount) > 0) dealProps.referral_discount = hsPct(want.referral);
-  const referral = want.group ? want.group : hsNum(deal.referral_discount) > 0 ? { revert: true } : undefined;
+  const referral = want.group ? want.group : hsNum(deal.referral_discount) > 0 && !want.member ? { revert: true } : undefined;
   if (ticked("tier")) dealProps.size_tier = want.tier;
   if (ticked("cm")) dealProps.commercial_model = want.model;
   if (ticked("vpp")) dealProps.value_per_patient = want.vpp;
@@ -272,7 +274,7 @@ async function hsWrite(checks) {
     const w = want.line, wr = await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps, referral,
       lineItem: hs.lineItems == null ? undefined : { productId: w.productId, quantity: w.quantity, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
     hs.lineItems = wr.lineItems ?? hs.lineItems; hs.warnings = wr.warnings || [];
-    refSaved.delete(p.ods_code); repaintPriceCards();   // the saved group strip reloads
+    refSaved.delete(p.ods_code); refGroups = null; repaintPriceCards();   // the saved group strip reloads
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
     await hsValidate(6);
     hsSetLink(p, { company_id: company.id, deal_id: deal.id });   // the bar on the price card now reflects the saved link and the new values
