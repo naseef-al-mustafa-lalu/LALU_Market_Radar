@@ -49,32 +49,25 @@ const AUD_ICON = { signal: '<svg viewBox="0 0 20 20" fill="currentColor" class="
 const audCard = a => {
   const prac = audPractices(a), custom = a.kind === "custom", appr = audApproved(a), enr = audMembers.filter(m => m.audience_id === a.id && m.state === "enrolled").length, tone = custom ? ["bg-lalu-teal-50", "text-lalu-teal-700", "from-lalu-teal-600 to-lalu-teal"] : ["bg-purple-50", "text-purple-700", "from-purple-600 to-fuchsia-400"];
   const cfg = custom ? null : sigSettings.find(t => t.trigger_type === a.signal_type), sum = custom ? ((a.filters && a.filters.summary) || "Hand-picked practices") : (cfg && (cfg.why || cfg.rule)) || "Practices are added as this signal is detected";
-  return `<button type="button" class="aud-card group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-lalu-teal-600 hover:shadow-md" data-aud="${esc(a.id)}">
-    <span class="h-1.5 w-full bg-gradient-to-r ${tone[2]}"></span>
-    <span class="flex flex-1 flex-col gap-4 p-4">
-      <span class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone[0]} ${tone[1]}">${AUD_ICON[custom ? "custom" : "signal"]}</span>
-        <span class="min-w-0 flex-1"><span class="block font-semibold leading-snug text-slate-900">${esc(a.name)}</span><span class="mt-0.5 line-clamp-2 block text-xs text-slate-500">${esc(sum)}</span></span>
+  const stat = (v, l, hot) => `<span class="px-1"><span class="block text-base font-bold leading-tight ${hot ? hot : v === 0 || v === "–" ? "text-slate-400" : "text-slate-900"}">${typeof v === "number" ? v.toLocaleString() : v}</span><span class="block truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">${l}</span></span>`;
+  const perf = enr && audPerfFor(a), ks = audKpisOf(a), run = audRunning(a);
+  return `<button type="button" class="aud-card group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-lalu-teal-600 hover:shadow-md" data-aud="${esc(a.id)}">
+    <span class="h-1 w-full bg-gradient-to-r ${tone[2]}"></span>
+    <span class="flex flex-1 flex-col gap-2.5 p-3">
+      <span class="flex items-start gap-2.5"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone[0]} ${tone[1]}">${AUD_ICON[custom ? "custom" : "signal"]}</span>
+        <span class="min-w-0 flex-1"><span class="block text-sm font-semibold leading-snug text-slate-900">${esc(a.name)}</span><span class="line-clamp-2 block text-xs leading-snug text-slate-500">${esc(sum)}</span></span>
         ${!custom && prac.length ? `<span class="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 text-[11px] font-bold text-white">${prac.length} to review</span>` : ""}</span>
-      <span class="grid grid-cols-3 divide-x divide-slate-200 rounded-xl bg-slate-50 py-3 text-center">
-        <span><span class="block text-xl font-bold leading-none text-slate-900">${prac.length.toLocaleString()}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Practices</span></span>
-        <span><span class="block text-xl font-bold leading-none ${appr ? "text-emerald-700" : "text-slate-900"}">${appr}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Approved</span></span>
-        <span><span class="block text-xl font-bold leading-none ${enr ? "text-lalu-teal-700" : "text-slate-900"}">${enr}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">In sequence</span></span></span></span>
-    ${audCardPerf(a, enr)}
-    <span class="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-xs"><span class="flex min-w-0 items-center gap-2"><span class="truncate ${a.sequence_name ? "text-slate-700" : "text-slate-400"}">${audRunning(a) ? "A/B test: " + esc(audRunning(a).name) : a.sequence_name ? "Sequence: " + esc(a.sequence_name) : "No sequence set yet"}</span>${a.sequence_id || audRunning(a) ? audSeqBadge(audRunning(a) ? null : a.sequence_id, true).replace("Not chosen", "") : ""}</span><span class="shrink-0 font-semibold text-lalu-teal-700 group-hover:underline">Open →</span></span></button>`;
+      <span class="grid grid-cols-3 divide-x divide-slate-200 rounded-lg bg-slate-50 py-1.5 text-center">${stat(prac.length, "Practices")}${stat(appr, "Approved", appr ? "text-emerald-700" : "")}${stat(enr, "In sequence", enr ? "text-lalu-teal-700" : "")}</span>
+      <span class="grid divide-x divide-slate-200 rounded-lg border border-slate-100 py-1.5 text-center" style="grid-template-columns:repeat(${ks.length},minmax(0,1fr))" title="${enr ? "Sequence performance of enrolled contacts" : "Nobody enrolled yet, so no performance to show"}">${ks.map(k => stat(perf ? audKpiText(k, perf) : "–", AUD_KPIS[k].short)).join("")}</span></span>
+    <span class="flex items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/60 px-3 py-1.5 text-xs"><span class="flex min-w-0 items-center gap-2"><span class="truncate ${a.sequence_name ? "text-slate-700" : "text-slate-400"}">${run ? "A/B test: " + esc(run.name) : a.sequence_name ? esc(a.sequence_name) : "No sequence set yet"}</span>${a.sequence_id && !run ? audSeqBadge(a.sequence_id) : ""}</span><span class="shrink-0 font-semibold text-lalu-teal-700 group-hover:underline">Open →</span></span></button>`;
 };
-function audCardPerf(a, enr) {      // second strip on the card: the audience's chosen KPIs (see the KPIs button inside the audience)
-  const s = enr && audPerfFor(a), ks = audKpisOf(a), note = !enr ? "Nobody enrolled yet" : s ? "" : "Loading performance…";
-  const cell = (k) => { const v = s ? audKpiText(k, s) : "–"; return `<span><span class="block text-lg font-bold leading-none ${v !== "–" && v !== "0" && v !== "0%" ? "text-slate-900" : "text-slate-400"}">${v}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">${AUD_KPIS[k].short}</span></span>`; };
-  return `<span class="mx-4 mb-4 block"><span class="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400"><span>Sequence performance</span>${note ? `<span class="font-normal normal-case tracking-normal">${note}</span>` : ""}</span>
-    <span class="grid divide-x divide-slate-200 rounded-xl border border-slate-100 py-2.5 text-center" style="grid-template-columns:repeat(${ks.length},minmax(0,1fr))">${ks.map(cell).join("")}</span></span>`;
-}
 function audienceCards() {
   const list = audiences.filter(a => a.kind === (audSub === "custom" ? "custom" : "signal"));
   const intro = audSub === "custom" ? "Audiences you build: save the Practices filters, or hand-pick practices from a profile. Practices matching a saved filter appear here automatically."
     : "One audience per signal type, filled automatically as signals are detected. Open one to choose which contacts at each practice to message.";
   const empty = audSub === "custom" ? `<div class="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-6 text-sm text-slate-600 sm:col-span-2 lg:col-span-3"><div class="font-semibold text-slate-800">No custom audiences yet</div><p class="mt-1">Filter the Practices table, then choose <b>Save as audience</b>. Or use <b>+ Audience</b> in a practice's profile to hand-pick.</p><button type="button" class="aud-goto-practices mt-3 rounded-lg bg-lalu-navy px-3 py-2 text-sm font-semibold text-white hover:bg-lalu-navy-700">Go to Practices</button></div>` : '<p class="text-sm text-slate-500">No signal audiences yet.</p>';
   return `<p class="mb-4 text-sm text-slate-600">${intro} A contact can be approved in one audience at a time.</p>
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">${list.map(audCard).join("") || empty}</div>`;
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">${list.map(audCard).join("") || empty}</div>`;
 }
 function audRoleBar() {
   return `<div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Contact role">${AUD_ROLES.map(([k, l]) => `<button type="button" class="aud-role rounded-full border px-2.5 py-1 text-xs font-semibold ${audRole === k ? "border-lalu-teal-700 bg-lalu-teal-50 text-lalu-teal-800" : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"}" data-role="${k}">${l}</button>`).join("")}</div>`;
