@@ -200,6 +200,16 @@ async function note(dealId: string, body: string, warnings: string[]) {
   catch (e) { warnings.push(`Note not added: ${(e as Error).message}`); }
 }
 
+// Sequences belong to HubSpot users: the sequences API wants the user id, which the owners list carries beside the owner id.
+async function userIdOf(email: string): Promise<string> {
+  const r = await cached(`user:${email.toLowerCase()}`, () => hs(`/crm/v3/owners?email=${encodeURIComponent(email)}&limit=1`));
+  const id = r?.results?.[0]?.userId;
+  if (!id) throw new Fail(`${email} is not a HubSpot user, so sequences cannot be used as them`);
+  return String(id);
+}
+const CONTACT_SEQ_PROPS = ["hs_sequences_is_enrolled", "hs_sequences_actively_enrolled_count", "hs_sequences_enrolled_count", "hs_latest_sequence_enrolled", "hs_latest_sequence_enrolled_date", "hs_latest_sequence_ended_date",
+  "hs_sales_email_last_replied", "hs_sales_email_last_opened", "hs_sales_email_last_clicked", "engagements_last_meeting_booked", "hs_email_optout", "hs_email_bad_address"];
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -325,6 +335,54 @@ Deno.serve(async (req) => {
       const [company, contacts, deals, leads] = await Promise.all([
         hs(`/crm/v3/objects/companies/${companyId}?properties=${COMPANY_READ.join(",")}`), contactsOf(companyId), dealsOf(companyId), leadsOf(companyId).catch(() => null)]);
       return reply({ company: { id: company.id, ...company.properties }, contacts, deals, leads });   // leads is null when the token cannot read them
+    }
+    if (b.action === "sequences") {        // the sequences a HubSpot user can use, for choosing an audience's sequence
+      const email = String(b.sender ?? who).trim(), uid = await userIdOf(email), out: any[] = [];
+      let after: string | undefined;
+      for (let i = 0; i < 10; i++) {
+        const r = await hs(`/automation/v4/sequences?userId=${uid}&limit=100${after ? `&after=${after}` : ""}`);
+        for (const x of r?.results ?? []) out.push({ id: String(x.id), name: x.name });
+        after = r?.paging?.next?.after; if (!after) break;
+      }
+      return reply({ sender: email, sequences: out.sort((x, y) => String(x.name).localeCompare(String(y.name))) });
+    }
+    if (b.action === "audience_push") {     // approved contacts: into the audience's HubSpot list, and (when asked) into its sequence
+      const { data: a } = await admin.from("audiences").select("*").eq("id", String(b.audienceId ?? "")).eq("archived", false).maybeSingle();
+      if (!a) throw new Fail("Audience not found");
+      const ids = [...new Set((Array.isArray(b.contactIds) ? b.contactIds : []).map(idOf))].slice(0, 200);
+      if (!ids.length) throw new Fail("No contacts to add");
+      const warnings: string[] = [], results: Record<string, string> = {};
+      let listId = a.hubspot_list_id as string | null;
+      if (!listId) {
+        const mk = (name: string) => hs(`/crm/v3/lists`, { method: "POST", body: JSON.stringify({ name, objectTypeId: "0-1", processingType: "MANUAL" }) });
+        let made: any;
+        try { made = await mk(`Atlas: ${a.name}`); } catch (_) { made = await mk(`Atlas: ${a.name} (${String(a.id).slice(0, 6)})`); }
+        listId = String(made?.list?.listId ?? made?.listId);
+        if (!listId || listId === "undefined") throw new Fail("HubSpot did not return the new list id");
+        await admin.from("audiences").update({ hubspot_list_id: listId }).eq("id", a.id);
+      }
+      let listed = false;
+      try { await hs(`/crm/v3/lists/${listId}/memberships/add`, { method: "PUT", body: JSON.stringify(ids) }); listed = true; } catch (e) { warnings.push(`Could not add to the HubSpot list: ${(e as Error).message}`); }
+      if (b.enrol === true) {
+        if (!a.sequence_id) throw new Fail("Choose a sequence for this audience first");
+        const sender = String(a.sequence_sender || who), uid = await userIdOf(sender), now = new Date().toISOString();
+        for (const id of ids) {
+          try {
+            await hs(`/automation/v4/sequences/enrollments?userId=${uid}`, { method: "POST", body: JSON.stringify({ sequenceId: String(a.sequence_id), contactId: id, senderEmail: sender }) });
+            results[id] = "enrolled";
+            await admin.from("audience_members").update({ state: "enrolled", enrolled_at: now, hubspot_note: null }).eq("audience_id", a.id).eq("contact_id", id);
+          } catch (e) { results[id] = (e as Error).message; await admin.from("audience_members").update({ hubspot_note: (e as Error).message.slice(0, 300) }).eq("audience_id", a.id).eq("contact_id", id); }
+        }
+      }
+      return reply({ ok: true, listId, listed, results, warnings });
+    }
+    if (b.action === "audience_stats") {    // contact-level sequence and sales email fields for the performance view
+      const ids = [...new Set((Array.isArray(b.contactIds) ? b.contactIds : []).map(idOf))].slice(0, 500), out: Record<string, any> = {};
+      for (let i = 0; i < ids.length; i += 100) {
+        const d = await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: CONTACT_SEQ_PROPS, inputs: ids.slice(i, i + 100).map((id) => ({ id })) }) });
+        for (const x of d?.results ?? []) out[x.id] = x.properties;
+      }
+      return reply({ contacts: out });
     }
     if (b.action === "contacts") return reply({ contacts: await contactsOf(idOf(b.companyId)) });   // a company's contacts with their email status, for the Audiences review
     if (b.action === "add_contacts") {

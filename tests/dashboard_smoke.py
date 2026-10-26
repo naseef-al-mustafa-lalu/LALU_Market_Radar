@@ -46,6 +46,9 @@ window.supabase = { createClient: () => {
       if (b.action === 'deals') return { data: { deals: [H.deal] } };
       if (b.action === 'hub') return { data: { company: H.company, contacts: [{ id: 'c1', firstname: 'Lena', lastname: 'Contact', jobtitle: 'Manager', email: 'l@x.nhs' }], deals: [H.deal], leads: window.__noLeadScope ? null : (window.__hasLead ? [{ id: '99', name: 'Lead 99', stage: 'New (Prospecting Pipeline)', open: true }] : []) } };
       if (b.action === 'add_contacts') return { data: { ok: true, contacts: (b.contacts || []).map((c, i) => ({ email: c.email.toLowerCase(), id: 'n' + i, existed: false })), warnings: [] } };
+      if (b.action === 'sequences') return { data: { sender: 'new@lalu.co.uk', sequences: [{ id: 's1', name: 'Hiring follow-up' }, { id: 's2', name: 'CQC change' }] } };
+      if (b.action === 'audience_push') return { data: { ok: true, listId: '9001', listed: true, results: b.enrol ? Object.fromEntries(b.contactIds.map(i => [i, 'enrolled'])) : {}, warnings: [] } };
+      if (b.action === 'audience_stats') return { data: { contacts: Object.fromEntries(b.contactIds.map(i => [i, { hs_sequences_is_enrolled: 'true', hs_sales_email_last_opened: '2099-01-01T00:00:00Z', hs_sales_email_last_replied: '2099-01-02T00:00:00Z' }])) } };
       if (b.action === 'contacts') return { data: { contacts: [{ id: 'c1', firstname: 'Lena', lastname: 'Contact', jobtitle: 'Practice Manager', email: 'l@x.nhs' }, { id: 'c2', firstname: 'Opt', lastname: 'Out', jobtitle: 'GP', email: 'o@x.nhs', hs_email_optout: 'true' }, { id: 'c3', firstname: 'Locked', lastname: 'One', email: 'k@x.nhs' }, { id: 'c4', firstname: 'Pat', lastname: 'Manager', jobtitle: 'Practice Manager', email: 'p@x.nhs' }, { id: 'c5', firstname: 'Gail', lastname: 'Doc', jobtitle: 'GP Partner', email: 'g@x.nhs' }] } };
       if (b.action === 'read') return { data: { company: H.company, deal: H.deal, lineItems: H.lineItems } };
       if (b.action === 'write') { Object.assign(H.company, b.company || {}); const d = Object.assign(H.deal, b.deal || {});
@@ -163,6 +166,14 @@ with sync_playwright() as p:
     pg.wait_for_selector("input[name=aud-pick]"); pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-modal-body').innerText.includes('Added to')"); pg.keyboard.press("Escape"); pg.evaluate("closeDrawer()")
     pg.click("#tab-audiences"); pg.screenshot(path=SHOTS + "/aud_cards2.png"); pg.click("#aud-sub button[data-a=signals]"); assert "Job report role" in pg.inner_text("#aud-body") and "Surgery three, renamed" not in pg.inner_text("#aud-body"); pg.click("#aud-sub button[data-a=custom]"); pg.click(".aud-card:has-text('Surgery three, renamed')"); pg.wait_for_selector(".aud-unpin"); assert "Test Surgery 1" in pg.inner_text("#aud-body") and "hand-picked" in pg.inner_text("#aud-body")
     pg.click(".aud-delete"); pg.click("#aud-modal-ok"); pg.wait_for_function("!document.querySelector('#aud-body').innerText.includes('Surgery three, renamed')")
+    pg.click("#aud-sub button[data-a=signals]"); pg.click(".aud-card:has-text('Job report role')"); pg.wait_for_selector(".aud-seq")      # choose the audience's sequence, then approve and enrol
+    assert "Not set" in pg.inner_text("#aud-body"); pg.click(".aud-seq"); pg.wait_for_selector("input[name=aud-seq-pick]"); pg.fill("#aud-seq-q", "hiring"); assert pg.locator(".aud-seq-opt:not(.hidden)").count() == 1
+    pg.check("input[name=aud-seq-pick][data-name='Hiring follow-up']"); pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('Hiring follow-up')")
+    pg.click(".aud-row"); pg.wait_for_selector(".aud-chk"); pg.check(".aud-chk[data-id=c5]"); pg.click(".aud-enrol"); pg.wait_for_selector("text=Enrol 1 contact in"); pg.click("#aud-modal-ok")
+    pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('Enrolled')")
+    ep_ = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'audience_push').pop()[1]"); assert ep_["enrol"] is True and ep_["contactIds"] == ["c5"] and ep_["audienceId"] == "au1", ep_
+    pg.click("#aud-sub button[data-a=performance]"); pg.click(".aud-stats-refresh"); pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('100%')")
+    pf = pg.inner_text("#aud-body"); assert "Job report role" in pf and "Hiring follow-up" in pf and "replied" in pf.lower() and "1 100%" in pf, pf      # performance counts from HubSpot's contact fields
     pg.click("#tab-practices"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     bc = pg.locator("#dr-body details.branch-card"); assert bc.count() == 1 and bc.get_attribute("open") is None and "1 site" in bc.locator("summary").inner_text(), bc.locator("summary").inner_text()      # branch sites: collapsed, count beside the header
     bc.locator("summary").click(); assert bc.get_attribute("open") is not None
