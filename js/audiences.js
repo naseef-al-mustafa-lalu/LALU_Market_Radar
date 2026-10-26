@@ -30,6 +30,7 @@ async function loadAudiences() {
     audiences = audiences.concat(data || []);
   }
   renderAudiences();
+  if (!audStats && audMembers.some(m => m.state === "enrolled")) audLoadStats();   // the cards show performance, so fetch it once when anyone is enrolled
 }
 function setAudSub(which) {      // the two sub tabs in the second row: automatic signal audiences, and custom ones
   audSub = which; audOpen = null;
@@ -57,8 +58,16 @@ const audCard = a => {
         <span><span class="block text-xl font-bold leading-none text-slate-900">${prac.length.toLocaleString()}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Practices</span></span>
         <span><span class="block text-xl font-bold leading-none ${appr ? "text-emerald-700" : "text-slate-900"}">${appr}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Approved</span></span>
         <span><span class="block text-xl font-bold leading-none ${enr ? "text-lalu-teal-700" : "text-slate-900"}">${enr}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">In sequence</span></span></span></span>
+    ${audCardPerf(a, enr)}
     <span class="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-xs"><span class="truncate ${a.sequence_name ? "text-slate-700" : "text-slate-400"}">${a.sequence_name ? "Sequence: " + esc(a.sequence_name) : "No sequence set yet"}</span><span class="shrink-0 font-semibold text-lalu-teal-700 group-hover:underline">Open →</span></span></button>`;
 };
+function audCardPerf(a, enr) {      // second strip on the card: how the sequence is performing, as a share of those enrolled
+  const s = enr && audPerfFor(a), pct = x => s && s.enrolled ? Math.round(100 * x / s.enrolled) + "%" : "–";
+  const cell = (v, l, tone) => `<span><span class="block text-lg font-bold leading-none ${v && v !== "–" && v !== "0%" && v !== 0 ? tone : "text-slate-400"}">${v}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">${l}</span></span>`;
+  const note = !enr ? "Nobody enrolled yet" : s ? "" : "Loading performance…";
+  return `<span class="mx-4 mb-4 block"><span class="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400"><span>Sequence performance</span>${note ? `<span class="font-normal normal-case tracking-normal">${note}</span>` : ""}</span>
+    <span class="grid grid-cols-3 divide-x divide-slate-200 rounded-xl border border-slate-100 py-2.5 text-center">${cell(s ? pct(s.opened) : "–", "Opened", "text-slate-900")}${cell(s ? pct(s.replied) : "–", "Replied", "text-emerald-700")}${cell(s ? s.meetings : "–", "Meetings", "text-lalu-teal-700")}</span></span>`;
+}
 function audienceCards() {
   const list = audiences.filter(a => a.kind === (audSub === "custom" ? "custom" : "signal"));
   const intro = audSub === "custom" ? "Audiences you build: save the Practices filters, or hand-pick practices from a profile. Practices matching a saved filter appear here automatically."
