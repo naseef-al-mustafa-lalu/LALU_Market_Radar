@@ -1,0 +1,41 @@
+name: Probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: HubSpot sequences and lists access (read-only)
+        env:
+          T: ${{ secrets.HUBSPOT_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os, json, requests
+          H = {"Authorization": "Bearer " + os.environ["T"]}
+          B = "https://api.hubapi.com"
+          def g(path, **kw):
+              r = requests.get(B + path, headers=H, timeout=40, **kw)
+              try: j = r.json()
+              except Exception: j = r.text[:200]
+              return r.status_code, j
+          sc, ow = g("/crm/v3/owners", params={"limit": 100, "email": "naseef.al-mustafa@lalu.co.uk"})
+          print("owners by email:", sc, [(o.get("id"), o.get("userId"), bool(o.get("email"))) for o in (ow.get("results") if isinstance(ow, dict) else [])])
+          uid = None
+          if isinstance(ow, dict) and ow.get("results"): uid = ow["results"][0].get("userId")
+          sc, allow = g("/crm/v3/owners", params={"limit": 100})
+          print("owners total:", sc, len(allow.get("results", [])) if isinstance(allow, dict) else allow)
+          for path, params in [("/automation/v4/sequences", {"userId": uid, "limit": 100}), ("/automation/v4/sequences", {"limit": 100})]:
+              sc, j = g(path, params={k: v for k, v in params.items() if v})
+              if isinstance(j, dict):
+                  res = j.get("results", [])
+                  print("GET", path, params.keys(), "->", sc, "count", len(res), "keys", list(res[0].keys()) if res else list(j.keys()), [ (x.get("id"), x.get("name")) for x in res[:8]])
+              else: print("GET", path, "->", sc, j)
+          sc, j = g("/crm/v3/lists/search" if False else "/crm/v3/lists", params={"listIds": "1"})
+          print("lists api read:", sc, (list(j.keys()) if isinstance(j, dict) else j))
+          # one known contact: enrollment status shape
+          sc, c = g("/crm/v3/objects/contacts", params={"limit": 1})
+          cid = c["results"][0]["id"] if isinstance(c, dict) and c.get("results") else None
+          if cid:
+              for path in (f"/automation/v4/sequences/enrollments/contact/{cid}", f"/automation/sequences/2026-09/enrollments/contact/{cid}"):
+                  sc, j = g(path)
+                  print("GET", path.split("/enrollments")[0] + "/enrollments/contact/{id}", "->", sc, (list(j.keys()) if isinstance(j, dict) else j))
+          PY
