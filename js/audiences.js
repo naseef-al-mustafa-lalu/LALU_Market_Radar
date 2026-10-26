@@ -21,7 +21,7 @@ const audMember = (a, id) => audMembers.find(m => m.audience_id === a.id && m.co
 const audLock = (a, id) => { const m = audMembers.find(x => x.contact_id === id && x.audience_id !== a.id && AUD_LOCKS.includes(x.state)); return m ? (audiences.find(x => x.id === m.audience_id) || {}).name || "another audience" : null; };
 const audApproved = a => audMembers.filter(m => m.audience_id === a.id && AUD_LOCKS.includes(m.state)).length;
 async function loadAudiences() {
-  const [a, m] = await Promise.all([db.from("audiences").select("*").eq("archived", false).order("created_at"), db.from("audience_members").select("*")]);
+  const [a, m] = await Promise.all([db.from("audiences").select("*").eq("archived", false).order("created_at"), db.from("audience_members").select("*"), audLoadTests()]);
   audiences = a.data || []; audMembers = m.data || [];
   const missing = [...new Set(signals.map(s => s.trigger_type))].filter(t => t && !audiences.some(x => x.signal_type === t));
   if (missing.length) {   // a signal type that appeared after the audiences were created
@@ -30,6 +30,7 @@ async function loadAudiences() {
     audiences = audiences.concat(data || []);
   }
   renderAudiences();
+  audLoadSeqStatus();
   if (!audStats && audMembers.some(m => m.state === "enrolled")) audLoadStats();   // the cards show performance, so fetch it once when anyone is enrolled
 }
 function setAudSub(which) {      // the two sub tabs in the second row: automatic signal audiences, and custom ones
@@ -59,7 +60,7 @@ const audCard = a => {
         <span><span class="block text-xl font-bold leading-none ${appr ? "text-emerald-700" : "text-slate-900"}">${appr}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Approved</span></span>
         <span><span class="block text-xl font-bold leading-none ${enr ? "text-lalu-teal-700" : "text-slate-900"}">${enr}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">In sequence</span></span></span></span>
     ${audCardPerf(a, enr)}
-    <span class="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-xs"><span class="truncate ${a.sequence_name ? "text-slate-700" : "text-slate-400"}">${a.sequence_name ? "Sequence: " + esc(a.sequence_name) : "No sequence set yet"}</span><span class="shrink-0 font-semibold text-lalu-teal-700 group-hover:underline">Open →</span></span></button>`;
+    <span class="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-xs"><span class="flex min-w-0 items-center gap-2"><span class="truncate ${a.sequence_name ? "text-slate-700" : "text-slate-400"}">${audRunning(a) ? "A/B test: " + esc(audRunning(a).name) : a.sequence_name ? "Sequence: " + esc(a.sequence_name) : "No sequence set yet"}</span>${a.sequence_id || audRunning(a) ? audSeqBadge(audRunning(a) ? null : a.sequence_id, true).replace("Not chosen", "") : ""}</span><span class="shrink-0 font-semibold text-lalu-teal-700 group-hover:underline">Open →</span></span></button>`;
 };
 function audCardPerf(a, enr) {      // second strip on the card: how the sequence is performing, as a share of those enrolled
   const s = enr && audPerfFor(a), pct = x => s && s.enrolled ? Math.round(100 * x / s.enrolled) + "%" : "–";
@@ -96,7 +97,7 @@ function audienceDetail(a) {
       <span class="text-sm text-slate-500">${all.length.toLocaleString()} practice${all.length === 1 ? "" : "s"} · ${audApproved(a)} contact${audApproved(a) === 1 ? "" : "s"} approved</span>
       ${custom ? '<span class="ml-auto flex gap-2"><button type="button" class="aud-rename rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Rename</button><button type="button" class="aud-delete rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">Delete</button></span>' : ""}</div>
     ${custom ? `<p class="mb-3 text-xs text-slate-500">${crit ? "Live filter: " + esc(crit) : "Hand-picked practices"}${crit && audPinned(a).length ? ` plus ${audPinned(a).length} hand-picked` : ""}. Practices that start matching appear here automatically.</p>` : ""}
-    ${audSequenceRow(a)}${audNotice ? `<p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">${esc(audNotice)}</p>` : ""}
+    ${audSequenceRow(a)}${audTestPanel(a)}${audNotice ? `<p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">${esc(audNotice)}</p>` : ""}
     <div class="mb-3 flex flex-wrap items-center gap-3">${audRoleBar()}<span class="ml-auto flex items-center gap-2"><button type="button" class="aud-expand-all rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Expand first ${AUD_EXPAND_ALL}</button>
       ${ticked ? `<button type="button" class="aud-approve-all rounded-md border border-lalu-navy bg-white px-3 py-1 text-xs font-semibold text-lalu-navy hover:bg-slate-50">Approve ${ticked} ticked</button><button type="button" class="aud-enrol-all rounded-md bg-lalu-navy px-3 py-1 text-xs font-semibold text-white hover:bg-lalu-navy-700">Approve and enrol ${ticked}</button>` : ""}</span></div>
     <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">${rows || `<p class="p-4 text-sm text-slate-500">${custom ? "No practice matches this audience right now." : "No practice has this signal open right now. They appear here as signals are detected."}</p>`}</div>
@@ -151,7 +152,7 @@ const audMe = async () => (await db.auth.getSession()).data.session?.user?.email
 function audSequenceRow(a) {
   const st = audPerfFor(a);
   return `<div class="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-slate-50 px-3 py-2 text-sm"><span class="text-slate-500">Sequence</span>
-    ${a.sequence_name ? `<span class="font-semibold">${esc(a.sequence_name)}</span><span class="text-xs text-slate-500">sends as ${esc(a.sequence_sender || "the approver")}</span>` : '<span class="text-slate-400">Not set: contacts can be approved to the list but not enrolled</span>'}
+    ${a.sequence_name ? `<span class="font-semibold">${esc(a.sequence_name)}</span><span class="text-xs text-slate-500">sends as ${esc(a.sequence_sender || "the approver")}</span>${audSeqBadge(a.sequence_id)}` : '<span class="text-slate-400">Not set: contacts can be approved to the list but not enrolled</span>'}
     <button type="button" class="aud-seq rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">${a.sequence_name ? "Change" : "Choose a sequence"}</button>
     <span class="ml-auto text-xs text-slate-500">${st ? `${st.enrolled} enrolled · ${st.active} active · ${st.replied} replied · ${st.opened} opened · ${st.meetings} meeting${st.meetings === 1 ? "" : "s"}` : '<button type="button" class="aud-stats-refresh font-semibold text-lalu-teal-700 hover:underline">Load performance</button>'}</span></div>`;
 }
@@ -165,7 +166,7 @@ async function audSequenceOpen(a) {
       async () => {
         const pick = document.querySelector("input[name=aud-seq-pick]:checked"); if (!pick) throw new Error("Pick a sequence.");
         const patch = { sequence_id: pick.value, sequence_name: pick.dataset.name, sequence_sender: r.sender }, { error } = await db.from("audiences").update(patch).eq("id", a.id); if (error) throw error;
-        Object.assign(a, patch); audModalClose(); renderAudiences();
+        Object.assign(a, patch); audModalClose(); renderAudiences(); audLoadSeqStatus();
       });
     $("aud-seq-q").oninput = e => document.querySelectorAll(".aud-seq-opt").forEach(o => o.classList.toggle("hidden", !o.dataset.n.includes(e.target.value.trim().toLowerCase())));
   } catch (e) { audModal("Choose a sequence", `<p class="text-sm text-rose-700">${esc(e.message)}</p>`, null); }
@@ -185,13 +186,20 @@ async function audApprove(a, ids, enrol) {
     renderAudiences();
   };
   if (!enrol) return go();
+  const test = audRunning(a);
+  if (test) {
+    const bad = [["A", test.seq_a_id, test.seq_a_name], ["B", test.seq_b_id, test.seq_b_name]].find(x => !audSeqOk(x[1]));
+    if (bad) { audModal("Fix the sequence first", `<p class="text-sm">Sequence ${bad[0]} (${esc(bad[2])}) is not ready in HubSpot: ${esc(({ missing: "HubSpot cannot find it", empty: "it has no steps" })[(audSeqStatus[String(bad[1])] || {}).state] || "unknown problem")}. Fix it in HubSpot, then try again.</p>`, null); return; }
+    audModal("Enrol in A/B test", `<p class="text-sm">Enrol <b>${n}</b> contact${n === 1 ? "" : "s"} split ${test.split_a}/${100 - test.split_a} between <b>A: ${esc(test.seq_a_name)}</b> and <b>B: ${esc(test.seq_b_name)}</b>, sending as <b>${esc(test.sequence_sender || "you")}</b>? Each contact is placed in one arm and stays there.</p>`, async () => { audModalClose(); await go(); }, "Approve and enrol"); return;
+  }
   if (!a.sequence_id) { audModal("Choose a sequence first", '<p class="text-sm">This audience has no sequence yet. Choose one, then approve and enrol.</p>', null); return; }
+  if (!audSeqOk(a.sequence_id)) { audModal("Fix the sequence first", `<p class="text-sm">${esc(a.sequence_name)} is not ready in HubSpot: ${esc(({ missing: "HubSpot cannot find it", empty: "it has no steps" })[(audSeqStatus[String(a.sequence_id)] || {}).state] || "unknown problem")}. Fix it in HubSpot, then try again.</p>`, null); return; }
   audModal("Enrol in sequence", `<p class="text-sm">Enrol <b>${n}</b> contact${n === 1 ? "" : "s"} in <b>${esc(a.sequence_name)}</b>, sending as <b>${esc(a.sequence_sender || "you")}</b>? The first email goes out according to the sequence's schedule.</p>`, async () => { audModalClose(); await go(); }, "Approve and enrol");
 }
 const audDate = v => { if (!v) return null; const t = isNaN(v) ? new Date(v).getTime() : Number(v); return Number.isFinite(t) ? t : null; };
-function audPerfFor(a) {
+function audPerfFor(a, arm) {
   if (!audStats) return null;
-  const mem = audMembers.filter(m => m.audience_id === a.id && AUD_LOCKS.includes(m.state)), out = { approved: mem.length, enrolled: 0, active: 0, opened: 0, replied: 0, clicked: 0, meetings: 0 };
+  const mem = audMembers.filter(m => m.audience_id === a.id && AUD_LOCKS.includes(m.state) && (!arm || m.arm === arm)), out = { approved: mem.length, enrolled: 0, active: 0, opened: 0, replied: 0, clicked: 0, meetings: 0 };
   for (const m of mem) {
     if (m.state !== "enrolled") continue; out.enrolled++;
     const c = audStats.contacts[m.contact_id] || {}, since = audDate(m.enrolled_at) || audDate(m.state_at) || 0, after = v => { const t = audDate(v); return t != null && t >= since - 60000; };
@@ -260,7 +268,7 @@ document.addEventListener("click", e => {
   if (t.closest("#btn-save-aud")) { audSaveOpen(); return; }
   const add = t.closest(".aud-add"); if (add) { audAddOpen(add.dataset.ods); return; }
   if (t.closest(".aud-goto-practices")) { showTab("practices"); return; }
-  const card = t.closest(".aud-card"); if (card) { audNotice = ""; audOpen = card.dataset.aud; audExpanded.clear(); audTicked.clear(); audRole = "all"; audShown = AUD_PAGE; renderAudiences(); return; }
+  const card = t.closest(".aud-card"); if (card) { audNotice = ""; audOpen = card.dataset.aud; audExpanded.clear(); audTicked.clear(); audRole = "all"; audShown = AUD_PAGE; renderAudiences(); audLoadSeqStatus(); return; }
   if (t.closest(".aud-back")) { audOpen = null; renderAudiences(); return; }
   const a = audiences.find(x => x.id === audOpen);
   const role = t.closest(".aud-role"); if (role) { audRole = role.dataset.role; audTickRole(); renderAudiences(); return; }

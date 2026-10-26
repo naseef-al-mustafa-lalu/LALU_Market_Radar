@@ -346,6 +346,18 @@ Deno.serve(async (req) => {
       }
       return reply({ sender: email, sequences: out.sort((x, y) => String(x.name).localeCompare(String(y.name))) });
     }
+    if (b.action === "sequence_status") {   // is each sequence visible to its sender in HubSpot, and does it have steps
+      const ids = [...new Set((Array.isArray(b.sequences) ? b.sequences : []).map((x: any) => `${x.id}|${x.sender ?? ""}`))].slice(0, 20), out: Record<string, any> = {};
+      for (const key of ids) {
+        const [id, sender] = key.split("|"); const email = sender || who;
+        try {
+          const uid = await userIdOf(email), d = await hs(`/automation/v4/sequences/${idOf(id)}?userId=${uid}`);
+          const steps = Array.isArray(d?.steps) ? d.steps.length : null;
+          out[id] = steps === 0 ? { state: "empty", sender: email } : { state: "ready", steps, sender: email, name: d?.name ?? null };
+        } catch (e) { out[id] = { state: (e as Fail).status === 502 && /404|not found/i.test((e as Error).message) ? "missing" : "error", message: (e as Error).message.slice(0, 160), sender: email }; }
+      }
+      return reply({ status: out });
+    }
     if (b.action === "audience_push") {     // approved contacts: into the audience's HubSpot list, and (when asked) into its sequence
       const { data: a } = await admin.from("audiences").select("*").eq("id", String(b.audienceId ?? "")).eq("archived", false).maybeSingle();
       if (!a) throw new Fail("Audience not found");
@@ -364,14 +376,24 @@ Deno.serve(async (req) => {
       let listed = false;
       try { await hs(`/crm/v3/lists/${listId}/memberships/add`, { method: "PUT", body: JSON.stringify(ids) }); listed = true; } catch (e) { warnings.push(`Could not add to the HubSpot list: ${(e as Error).message}`); }
       if (b.enrol === true) {
-        if (!a.sequence_id) throw new Fail("Choose a sequence for this audience first");
-        const sender = String(a.sequence_sender || who), uid = await userIdOf(sender), now = new Date().toISOString();
+        const { data: test } = await admin.from("audience_tests").select("*").eq("audience_id", a.id).eq("status", "running").maybeSingle();
+        if (test ? !(test.seq_a_id && test.seq_b_id) : !a.sequence_id) throw new Fail(test ? "This audience's test needs both sequences" : "Choose a sequence for this audience first");
+        const sender = String((test ? test.sequence_sender : a.sequence_sender) || who), uid = await userIdOf(sender), now = new Date().toISOString();
+        const { data: have } = test ? await admin.from("audience_members").select("contact_id,arm").eq("test_id", test.id) : { data: [] };
+        const arms: Record<string, string> = Object.fromEntries((have ?? []).filter((x: any) => x.arm).map((x: any) => [x.contact_id, x.arm]));
+        const count = { a: Object.values(arms).filter((x) => x === "a").length, b: Object.values(arms).filter((x) => x === "b").length };
         for (const id of ids) {
+          let arm: string | null = null, seq = String(a.sequence_id);
+          if (test) {   // keep a contact's earlier arm; otherwise give the arm furthest below its target share, so the split stays balanced
+            arm = arms[id] ?? ((count.a + 1) / test.split_a <= (count.b + 1) / (100 - test.split_a) ? "a" : "b");
+            if (!arms[id]) count[arm as "a" | "b"]++;
+            seq = String(arm === "a" ? test.seq_a_id : test.seq_b_id);
+          }
           try {
-            await hs(`/automation/v4/sequences/enrollments?userId=${uid}`, { method: "POST", body: JSON.stringify({ sequenceId: String(a.sequence_id), contactId: id, senderEmail: sender }) });
+            await hs(`/automation/v4/sequences/enrollments?userId=${uid}`, { method: "POST", body: JSON.stringify({ sequenceId: seq, contactId: id, senderEmail: sender }) });
             results[id] = "enrolled";
-            await admin.from("audience_members").update({ state: "enrolled", enrolled_at: now, hubspot_note: null }).eq("audience_id", a.id).eq("contact_id", id);
-          } catch (e) { results[id] = (e as Error).message; await admin.from("audience_members").update({ hubspot_note: (e as Error).message.slice(0, 300) }).eq("audience_id", a.id).eq("contact_id", id); }
+            await admin.from("audience_members").update({ state: "enrolled", enrolled_at: now, hubspot_note: null, ...(test ? { test_id: test.id, arm } : {}) }).eq("audience_id", a.id).eq("contact_id", id);
+          } catch (e) { results[id] = (e as Error).message; if (test && !arms[id]) count[arm as "a" | "b"]--; await admin.from("audience_members").update({ hubspot_note: (e as Error).message.slice(0, 300) }).eq("audience_id", a.id).eq("contact_id", id); }
         }
       }
       return reply({ ok: true, listId, listed, results, warnings });
