@@ -15,27 +15,20 @@ jobs:
           def g(path, **kw):
               r = requests.get(B + path, headers=H, timeout=40, **kw)
               try: j = r.json()
-              except Exception: j = r.text[:200]
+              except Exception: j = r.text[:80].replace("\n", " ")
               return r.status_code, j
-          sc, ow = g("/crm/v3/owners", params={"limit": 100, "email": "naseef.al-mustafa@lalu.co.uk"})
-          print("owners by email:", sc, [(o.get("id"), o.get("userId"), bool(o.get("email"))) for o in (ow.get("results") if isinstance(ow, dict) else [])])
-          uid = None
-          if isinstance(ow, dict) and ow.get("results"): uid = ow["results"][0].get("userId")
-          sc, allow = g("/crm/v3/owners", params={"limit": 100})
-          print("owners total:", sc, len(allow.get("results", [])) if isinstance(allow, dict) else allow)
-          for path, params in [("/automation/v4/sequences", {"userId": uid, "limit": 100}), ("/automation/v4/sequences", {"limit": 100})]:
-              sc, j = g(path, params={k: v for k, v in params.items() if v})
-              if isinstance(j, dict):
-                  res = j.get("results", [])
-                  print("GET", path, params.keys(), "->", sc, "count", len(res), "keys", list(res[0].keys()) if res else list(j.keys()), [ (x.get("id"), x.get("name")) for x in res[:8]])
-              else: print("GET", path, "->", sc, j)
-          sc, j = g("/crm/v3/lists/search" if False else "/crm/v3/lists", params={"listIds": "1"})
-          print("lists api read:", sc, (list(j.keys()) if isinstance(j, dict) else j))
-          # one known contact: enrollment status shape
+          names = ["hs_sequences_is_enrolled", "hs_sequences_actively_enrolled_count", "hs_sequences_enrolled_count", "hs_latest_sequence_enrolled", "hs_latest_sequence_enrolled_date", "hs_latest_sequence_ended_date",
+                   "hs_sales_email_last_replied", "hs_sales_email_last_opened", "hs_sales_email_last_clicked", "hs_email_last_send_date", "engagements_last_meeting_booked", "hs_email_optout", "hs_email_bad_address", "hs_email_last_reply_date"]
+          for n in names:
+              sc, j = g("/crm/v3/properties/contacts/" + n)
+              print("prop", n, sc, (j.get("label") if isinstance(j, dict) else j))
           sc, c = g("/crm/v3/objects/contacts", params={"limit": 1})
           cid = c["results"][0]["id"] if isinstance(c, dict) and c.get("results") else None
-          if cid:
-              for path in (f"/automation/v4/sequences/enrollments/contact/{cid}", f"/automation/sequences/2026-09/enrollments/contact/{cid}"):
-                  sc, j = g(path)
-                  print("GET", path.split("/enrollments")[0] + "/enrollments/contact/{id}", "->", sc, (list(j.keys()) if isinstance(j, dict) else j))
+          print("sample contact", sc, bool(cid))
+          for path in ("/automation/v4/sequences/enrollments/contacts/%s" % cid, "/automation/v4/sequences/enrollments/contact/%s" % cid, "/automation/v4/sequences/%s/enrollments" % "553071802",
+                       "/automation/v4/sequences/enrollments", "/automation/v4/sequences/553071802"):
+              sc, j = g(path, params={"userId": 38848375})
+              print("GET", path.replace(str(cid), "{id}"), sc, (list(j.keys()) if isinstance(j, dict) else j))
+          sc, j = g("/automation/v4/sequences/553071802", params={"userId": 38848375})
+          if isinstance(j, dict): print("sequence detail", {k: (v if not isinstance(v, (list, dict)) else type(v).__name__) for k, v in j.items()})
           PY
