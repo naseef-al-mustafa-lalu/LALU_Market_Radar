@@ -1,7 +1,7 @@
 // Sub tabs as a second row under the main bar. To go back to the old pills inside each page, set SUBNAV_DEFAULT to "inline" (one word), or open the app with ?subnav=inline
 // (and ?subnav=bar to return); the last ?subnav= choice is remembered in this browser. Loaded after main.js; moves the existing elements, so nothing else needs to know.
 const SUBNAV_DEFAULT = "bar";
-const SUBNAVS = { signals: "sig-sub", data: "data-sub" };      // tab -> the sub-tab strip that belongs to it
+const SUBNAVS = { networks: "net-kinds", signals: "sig-sub", data: "data-sub" };      // tab -> the sub-tab strip that belongs to it
 const subnavHome = new Map();                                    // id -> where the strip lives in "inline" mode
 function subnavMode() {
   const q = new URLSearchParams(location.search).get("subnav");

@@ -132,8 +132,10 @@ with sync_playwright() as p:
         pg.set_viewport_size({"width": w, "height": 900}); h = pg.evaluate("document.querySelector('#app > nav').offsetHeight"); assert h < 70, (w, h)
         if w == 1024: pg.keyboard.press("Escape"); pg.wait_for_timeout(300); pg.screenshot(path=SHOTS + "/nav1024.png", clip={"x": 0, "y": 0, "width": 1024, "height": 120})
     pg.set_viewport_size({"width": 1440, "height": 900})
+    pg.click("#tab-networks"); assert pg.is_visible("#subnav #net-kinds") and "PCNs" in pg.inner_text("#subnav") and "Federations" in pg.inner_text("#subnav")      # the network types are sub tabs too
+    pg.click("#subnav #net-kinds button[data-k=group]"); assert pg.evaluate("netKind") == "group"; pg.click("#subnav #net-kinds button[data-k=pcn]")
     pg.click("#tab-signals"); assert pg.is_visible("#subnav #sig-sub") and pg.evaluate("document.querySelector('#subnav').getBoundingClientRect().top >= document.querySelector('#app > nav').getBoundingClientRect().bottom - 1")      # sub tabs: a second row under the main bar
-    pg.screenshot(path=SHOTS + "/subnav_signals.png"); pg.click("#tab-data"); pg.screenshot(path=SHOTS + "/subnav_data.png"); assert pg.is_visible("#subnav #data-sub") and not pg.is_visible("#sig-sub"); pg.click("#tab-practices"); assert pg.is_hidden("#subnav")
+    pg.screenshot(path=SHOTS + "/subnav_signals.png"); pg.click("#tab-networks"); pg.keyboard.press("Escape"); pg.wait_for_timeout(300); pg.screenshot(path=SHOTS + "/subnav_networks.png"); pg.click("#tab-signals"); pg.click("#tab-data"); pg.screenshot(path=SHOTS + "/subnav_data.png"); assert pg.is_visible("#subnav #data-sub") and not pg.is_visible("#sig-sub"); pg.click("#tab-practices"); assert pg.is_hidden("#subnav")
     pg.evaluate("localStorage.setItem('lalu.subnav', 'inline')"); pg.click("#tab-signals"); assert pg.is_hidden("#subnav") and pg.is_visible("#view-signals #sig-sub")      # the old in-page pills come back with one setting
     pg.evaluate("localStorage.removeItem('lalu.subnav')"); pg.click("#tab-practices")
     pg.keyboard.press("Escape"); pg.evaluate("signals.push({ id: 't1', ods_code: 'A10003', trigger_type: 'JOB_REPORT_ROLE', headline: 'Hiring: Records Clerk', detected_at: '2026-10-20T08:00:00Z', status: 'new' })")
