@@ -47,7 +47,7 @@ function renderAudiences() {
 const AUD_ICON = { signal: '<svg viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5"><path d="M11 2L4 11h5l-1 7 7-9h-5z"/></svg>', custom: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="h-5 w-5"><path d="M3 5h14M6 10h8M9 15h2"/></svg>' };
 const audCard = a => {
   const prac = audPractices(a), custom = a.kind === "custom", appr = audApproved(a), enr = audMembers.filter(m => m.audience_id === a.id && m.state === "enrolled").length, tone = custom ? ["bg-lalu-teal-50", "text-lalu-teal-700", "from-lalu-teal-600 to-lalu-teal"] : ["bg-purple-50", "text-purple-700", "from-purple-600 to-fuchsia-400"];
-  const sum = custom ? ((a.filters && a.filters.summary) || "Hand-picked practices") : "Automatic: practices appear as the signal is detected";
+  const cfg = custom ? null : sigSettings.find(t => t.trigger_type === a.signal_type), sum = custom ? ((a.filters && a.filters.summary) || "Hand-picked practices") : (cfg && (cfg.why || cfg.rule)) || "Practices are added as this signal is detected";
   return `<button type="button" class="aud-card group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-lalu-teal-600 hover:shadow-md" data-aud="${esc(a.id)}">
     <span class="h-1.5 w-full bg-gradient-to-r ${tone[2]}"></span>
     <span class="flex flex-1 flex-col gap-4 p-4">
