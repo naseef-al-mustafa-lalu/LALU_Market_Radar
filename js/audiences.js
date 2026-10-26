@@ -62,12 +62,11 @@ const audCard = a => {
     ${audCardPerf(a, enr)}
     <span class="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-xs"><span class="flex min-w-0 items-center gap-2"><span class="truncate ${a.sequence_name ? "text-slate-700" : "text-slate-400"}">${audRunning(a) ? "A/B test: " + esc(audRunning(a).name) : a.sequence_name ? "Sequence: " + esc(a.sequence_name) : "No sequence set yet"}</span>${a.sequence_id || audRunning(a) ? audSeqBadge(audRunning(a) ? null : a.sequence_id, true).replace("Not chosen", "") : ""}</span><span class="shrink-0 font-semibold text-lalu-teal-700 group-hover:underline">Open →</span></span></button>`;
 };
-function audCardPerf(a, enr) {      // second strip on the card: how the sequence is performing, as a share of those enrolled
-  const s = enr && audPerfFor(a), pct = x => s && s.enrolled ? Math.round(100 * x / s.enrolled) + "%" : "–";
-  const cell = (v, l, tone) => `<span><span class="block text-lg font-bold leading-none ${v && v !== "–" && v !== "0%" && v !== 0 ? tone : "text-slate-400"}">${v}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">${l}</span></span>`;
-  const note = !enr ? "Nobody enrolled yet" : s ? "" : "Loading performance…";
+function audCardPerf(a, enr) {      // second strip on the card: the audience's chosen KPIs (see the KPIs button inside the audience)
+  const s = enr && audPerfFor(a), ks = audKpisOf(a), note = !enr ? "Nobody enrolled yet" : s ? "" : "Loading performance…";
+  const cell = (k) => { const v = s ? audKpiText(k, s) : "–"; return `<span><span class="block text-lg font-bold leading-none ${v !== "–" && v !== "0" && v !== "0%" ? "text-slate-900" : "text-slate-400"}">${v}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">${AUD_KPIS[k].short}</span></span>`; };
   return `<span class="mx-4 mb-4 block"><span class="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400"><span>Sequence performance</span>${note ? `<span class="font-normal normal-case tracking-normal">${note}</span>` : ""}</span>
-    <span class="grid grid-cols-3 divide-x divide-slate-200 rounded-xl border border-slate-100 py-2.5 text-center">${cell(s ? pct(s.opened) : "–", "Opened", "text-slate-900")}${cell(s ? pct(s.replied) : "–", "Replied", "text-emerald-700")}${cell(s ? s.meetings : "–", "Meetings", "text-lalu-teal-700")}</span></span>`;
+    <span class="grid divide-x divide-slate-200 rounded-xl border border-slate-100 py-2.5 text-center" style="grid-template-columns:repeat(${ks.length},minmax(0,1fr))">${ks.map(cell).join("")}</span></span>`;
 }
 function audienceCards() {
   const list = audiences.filter(a => a.kind === (audSub === "custom" ? "custom" : "signal"));
@@ -154,7 +153,7 @@ function audSequenceRow(a) {
   return `<div class="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-slate-50 px-3 py-2 text-sm"><span class="text-slate-500">Sequence</span>
     ${a.sequence_name ? `<span class="font-semibold">${esc(a.sequence_name)}</span><span class="text-xs text-slate-500">sends as ${esc(a.sequence_sender || "the approver")}</span>${audSeqBadge(a.sequence_id)}` : '<span class="text-slate-400">Not set: contacts can be approved to the list but not enrolled</span>'}
     <button type="button" class="aud-seq rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">${a.sequence_name ? "Change" : "Choose a sequence"}</button>
-    <span class="ml-auto text-xs text-slate-500">${st ? `${st.enrolled} enrolled · ${st.active} active · ${st.replied} replied · ${st.opened} opened · ${st.meetings} meeting${st.meetings === 1 ? "" : "s"}` : '<button type="button" class="aud-stats-refresh font-semibold text-lalu-teal-700 hover:underline">Load performance</button>'}</span></div>`;
+    <span class="ml-auto text-xs text-slate-500">${st ? `${st.enrolled} enrolled · ${st.active} active · ${audKpisOf(a).map(k => audKpiText(k, st) + " " + AUD_KPIS[k].short.toLowerCase()).join(" · ")}` : '<button type="button" class="aud-stats-refresh font-semibold text-lalu-teal-700 hover:underline">Load performance</button>'} <button type="button" class="aud-kpis ml-2 rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">KPIs</button></span></div>`;
 }
 async function audSequenceOpen(a) {
   audModal("Choose a sequence", '<p class="text-sm text-slate-500">Loading your sequences from HubSpot…</p>', null);
@@ -199,12 +198,12 @@ async function audApprove(a, ids, enrol) {
 const audDate = v => { if (!v) return null; const t = isNaN(v) ? new Date(v).getTime() : Number(v); return Number.isFinite(t) ? t : null; };
 function audPerfFor(a, arm) {
   if (!audStats) return null;
-  const mem = audMembers.filter(m => m.audience_id === a.id && AUD_LOCKS.includes(m.state) && (!arm || m.arm === arm)), out = { approved: mem.length, enrolled: 0, active: 0, opened: 0, replied: 0, clicked: 0, meetings: 0 };
+  const mem = audMembers.filter(m => m.audience_id === a.id && AUD_LOCKS.includes(m.state) && (!arm || m.arm === arm)), out = { approved: mem.length, enrolled: 0, active: 0, opened: 0, replied: 0, clicked: 0, meetings: 0, mql: 0 };
   for (const m of mem) {
     if (m.state !== "enrolled") continue; out.enrolled++;
     const c = audStats.contacts[m.contact_id] || {}, since = audDate(m.enrolled_at) || audDate(m.state_at) || 0, after = v => { const t = audDate(v); return t != null && t >= since - 60000; };
     if (String(c.hs_sequences_is_enrolled) === "true") out.active++;
-    if (after(c.hs_sales_email_last_opened)) out.opened++; if (after(c.hs_sales_email_last_replied)) out.replied++; if (after(c.hs_sales_email_last_clicked)) out.clicked++; if (after(c.engagements_last_meeting_booked)) out.meetings++;
+    if (after(c.hs_sales_email_last_opened)) out.opened++; if (after(c.hs_sales_email_last_replied)) out.replied++; if (after(c.hs_sales_email_last_clicked)) out.clicked++; if (after(c.engagements_last_meeting_booked)) out.meetings++; if (after(c.hs_v2_date_entered_marketingqualifiedlead)) out.mql++;
   }
   return out;
 }
@@ -220,9 +219,9 @@ function audPerformance() {
       <span class="text-sm text-slate-500">${audStats ? "As of " + new Date(audStats.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "Not loaded yet"}</span>
       <button type="button" class="aud-stats-refresh ml-auto rounded-lg bg-lalu-navy px-3 py-2 text-sm font-semibold text-white hover:bg-lalu-navy-700">${audStats ? "Refresh from HubSpot" : "Load from HubSpot"}</button></div>
     ${audNotice ? `<p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">${esc(audNotice)}</p>` : ""}
-    <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-3 py-2">Audience</th><th class="px-3 py-2 text-right">Approved</th><th class="px-3 py-2 text-right">Enrolled</th><th class="px-3 py-2 text-right">Active</th><th class="px-3 py-2 text-right">Opened</th><th class="px-3 py-2 text-right">Replied</th><th class="px-3 py-2 text-right">Meetings</th></tr></thead>
+    <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-3 py-2">Audience</th><th class="px-3 py-2 text-right">Approved</th><th class="px-3 py-2 text-right">Enrolled</th><th class="px-3 py-2 text-right">Active</th><th class="px-3 py-2 text-right">Opened</th><th class="px-3 py-2 text-right">Replied</th><th class="px-3 py-2 text-right">Link clicks</th><th class="px-3 py-2 text-right">Meetings</th><th class="px-3 py-2 text-right">MQLs</th><th class="px-3 py-2 text-right">MQL rate</th></tr></thead>
     <tbody class="divide-y divide-slate-100">${rows.map(({ a, s, n }) => `<tr class="hover:bg-slate-50"><td class="px-3 py-2"><div class="font-semibold">${esc(a.name)}</div><div class="text-xs text-slate-500">${a.kind === "custom" ? "Custom" : "Signal"} · ${a.sequence_name ? esc(a.sequence_name) : "no sequence"}</div></td>
-      <td class="px-3 py-2 text-right font-mono">${n}</td>${s ? `<td class="px-3 py-2 text-right font-mono">${s.enrolled}</td><td class="px-3 py-2 text-right font-mono">${s.active}</td><td class="px-3 py-2 text-right font-mono">${s.opened}${pct(s.opened, s.enrolled)}</td><td class="px-3 py-2 text-right font-mono">${s.replied}${pct(s.replied, s.enrolled)}</td><td class="px-3 py-2 text-right font-mono">${s.meetings}${pct(s.meetings, s.enrolled)}</td>` : '<td class="px-3 py-2 text-right text-slate-400" colspan="5">Load from HubSpot to see this</td>'}</tr>`).join("") || '<tr><td class="px-3 py-4 text-slate-500" colspan="7">No audiences yet.</td></tr>'}</tbody></table></div>
+      <td class="px-3 py-2 text-right font-mono">${n}</td>${s ? `<td class="px-3 py-2 text-right font-mono">${s.enrolled}</td><td class="px-3 py-2 text-right font-mono">${s.active}</td><td class="px-3 py-2 text-right font-mono">${s.opened}${pct(s.opened, s.enrolled)}</td><td class="px-3 py-2 text-right font-mono">${s.replied}${pct(s.replied, s.enrolled)}</td><td class="px-3 py-2 text-right font-mono">${s.clicked}${pct(s.clicked, s.enrolled)}</td><td class="px-3 py-2 text-right font-mono">${s.meetings}${pct(s.meetings, s.enrolled)}</td><td class="px-3 py-2 text-right font-mono">${s.mql}</td><td class="px-3 py-2 text-right font-mono">${s.enrolled ? Math.round(100 * s.mql / s.enrolled) + "%" : "–"}</td>` : '<td class="px-3 py-2 text-right text-slate-400" colspan="8">Load from HubSpot to see this</td>'}</tr>`).join("") || '<tr><td class="px-3 py-4 text-slate-500" colspan="10">No audiences yet.</td></tr>'}</tbody></table></div>
     <p class="mt-3 text-xs text-slate-500">Counted from each enrolled contact's HubSpot sequence and sales-email fields, from the day they were enrolled. Opened, replied and meetings are the contact's most recent activity, so a contact counts once.</p></div>`;
 }
 

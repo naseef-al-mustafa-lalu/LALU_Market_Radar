@@ -208,7 +208,7 @@ async function userIdOf(email: string): Promise<string> {
   return String(id);
 }
 const CONTACT_SEQ_PROPS = ["hs_sequences_is_enrolled", "hs_sequences_actively_enrolled_count", "hs_sequences_enrolled_count", "hs_latest_sequence_enrolled", "hs_latest_sequence_enrolled_date", "hs_latest_sequence_ended_date",
-  "hs_sales_email_last_replied", "hs_sales_email_last_opened", "hs_sales_email_last_clicked", "engagements_last_meeting_booked", "hs_email_optout", "hs_email_bad_address"];
+  "hs_sales_email_last_replied", "hs_sales_email_last_opened", "hs_sales_email_last_clicked", "engagements_last_meeting_booked", "hs_v2_date_entered_marketingqualifiedlead", "hs_email_optout", "hs_email_bad_address"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
