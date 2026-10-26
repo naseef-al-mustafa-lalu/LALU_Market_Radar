@@ -12,8 +12,8 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.bare{background:transparent;padding:0}.atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}.atlas-chip.bare,.atlas-chip.lg.bare{background:transparent;padding:0}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261022y"></script>
-<link rel="stylesheet" href="assets/tailwind.css?v=20261022y">
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261022z"></script>
+<link rel="stylesheet" href="assets/tailwind.css?v=20261022z">
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
 <body class="bg-lalu-mist text-lalu-navy antialiased">
@@ -89,6 +89,7 @@
           <select id="f-hs" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="">Any HubSpot status</option><option value="customer">Paying customers</option><option value="freemium">Freemium customers</option><option value="engaged">Engaged (not customer)</option><option value="imported">Contact imported only</option><option value="company">Company only (no contacts)</option><option value="missing">Not in HubSpot</option></select>
           <button id="f-more-btn" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm hover:bg-slate-50">More filters ▾</button>
           <span class="ml-auto flex items-center gap-3"><span id="count" class="text-sm text-slate-500"></span>
+            <button id="btn-save-aud" class="border border-slate-300 bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg text-sm font-semibold" title="Save these filters as an audience for sales sequences">Save as audience</button>
             <button id="btn-export" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold">Export CSV</button></span>
         </div>
         <div id="f-more" class="hidden flex flex-wrap gap-2 items-center">
@@ -277,30 +278,36 @@
   <div id="dr-body" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
 </aside>
 
+<div id="aud-modal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="aud-modal-title">
+  <div class="mx-auto mt-16 w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl">
+    <div class="bg-lalu-navy px-5 py-3 text-white"><h3 id="aud-modal-title" class="text-base font-bold leading-snug"></h3></div>
+    <div id="aud-modal-body" class="px-5 py-4 text-sm"></div>
+  </div>
+</div>
 <div id="hs-modal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="hs-title">
   <div class="mx-auto mt-6 flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
     <div class="flex shrink-0 items-start justify-between gap-3 bg-lalu-navy px-5 py-3 text-white"><h3 id="hs-title" class="text-base font-bold leading-snug">HubSpot</h3><button id="hs-close" class="text-2xl leading-none text-slate-300 hover:text-white" aria-label="Close">&times;</button></div>
     <div id="hs-body" class="flex-1 overflow-y-auto px-5 pb-5 pt-4 text-sm"></div>
   </div>
 </div>
-<script src="js/core.js?v=20261022y"></script>
-<script src="js/data-load.js?v=20261022y"></script>
-<script src="js/practices.js?v=20261022y"></script>
-<script src="js/referral.js?v=20261022y"></script>
-<script src="js/networks.js?v=20261022y"></script>
-<script src="js/signals.js?v=20261022y"></script>
-<script src="js/mergers.js?v=20261022y"></script>
-<script src="js/audiences.js?v=20261022y"></script>
-<script src="js/data-tab.js?v=20261022y"></script>
-<script src="js/data-connections.js?v=20261022y"></script>
-<script src="js/data-uploads.js?v=20261022y"></script>
-<script src="js/data-audit.js?v=20261022y"></script>
-<script src="js/data-branches.js?v=20261022y"></script>
-<script src="js/hubspot.js?v=20261022y"></script>
-<script src="js/hubspot-company.js?v=20261022y"></script>
-<script src="js/hubspot-admin.js?v=20261022y"></script>
-<script src="js/hubspot-group.js?v=20261022y"></script>
-<script src="js/export.js?v=20261022y"></script>
-<script src="js/main.js?v=20261022y"></script>
+<script src="js/core.js?v=20261022z"></script>
+<script src="js/data-load.js?v=20261022z"></script>
+<script src="js/practices.js?v=20261022z"></script>
+<script src="js/referral.js?v=20261022z"></script>
+<script src="js/networks.js?v=20261022z"></script>
+<script src="js/signals.js?v=20261022z"></script>
+<script src="js/mergers.js?v=20261022z"></script>
+<script src="js/audiences.js?v=20261022z"></script>
+<script src="js/data-tab.js?v=20261022z"></script>
+<script src="js/data-connections.js?v=20261022z"></script>
+<script src="js/data-uploads.js?v=20261022z"></script>
+<script src="js/data-audit.js?v=20261022z"></script>
+<script src="js/data-branches.js?v=20261022z"></script>
+<script src="js/hubspot.js?v=20261022z"></script>
+<script src="js/hubspot-company.js?v=20261022z"></script>
+<script src="js/hubspot-admin.js?v=20261022z"></script>
+<script src="js/hubspot-group.js?v=20261022z"></script>
+<script src="js/export.js?v=20261022z"></script>
+<script src="js/main.js?v=20261022z"></script>
 </body>
 </html>

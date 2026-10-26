@@ -5,18 +5,23 @@ const netMatch = (p, nf) => !nf || (nf.kind === "pcn" ? p.pcn_code === nf.key : 
 const SORTERS = {
   name: p => (p.practice_name || "").toLowerCase(), patients: p => p.total_patients || 0, arr: p => p.est_arr || 0, arr_sar: p => p.est_arr_sar || 0, contracted: p => p.hubspot_contracted_arr || 0,
   cqc: p => CQC_RANK[p.cqc_rating] || 9, hubspot: p => HS_RANK[hsState(p)] };
+// The practice filters as a plain object, and the test that applies them: used by the table and by custom audiences (js/audiences.js), which save the object.
+const readFilters = () => ({ q: $("f-search").value.trim().toLowerCase(), tier: $("f-tier").value, sw: $("f-sw").value, hs: $("f-hs").value, cqc: $("f-cqc").value, icb: $("f-icb").value, country: $("f-country").value,
+  size: $("f-size").value, st: $("f-status").value, sig: $("f-sig").checked, grp: $("f-grp").checked, net: netFilter });
+function matchPractice(p, f, hits) {
+  return (f.st === "all" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : p.status === "Active" && !p.merged_into && !isClosed(p))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
+    (!f.sw || p.clinical_software === f.sw) && (!f.hs || (f.hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === f.hs)) &&
+    (!f.cqc || (f.cqc === "None" ? !p.cqc_rating : p.cqc_rating === f.cqc)) && (!f.icb || p.icb_name === f.icb) && (!f.country || (p.country || "England") === f.country) && (!f.size || (f.size === "yes") === (p.total_patients > 0)) &&
+    (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
+    (!f.q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(f.q)) || !!(hits && hits.has(p.ods_code)));
+}
 function applyFilters() {
-  const q = $("f-search").value.trim().toLowerCase(), t = $("f-tier").value, sw = $("f-sw").value, hs = $("f-hs").value,
-        cqcf = $("f-cqc").value, icb = $("f-icb").value, ctry = $("f-country").value, sz = $("f-size").value, stf = $("f-status").value, sig = $("f-sig").checked, grp = $("f-grp").checked;
+  const flt = readFilters(), q = flt.q;
   const bHits = q.length >= 3 ? branches.filter(b => [b.branch_name, b.branch_code, b.postcode, b.town].some(v => (v || "").toLowerCase().includes(q))) : [];
   branchHit = new Map();
   for (const b of bHits) if (b.practice_code && branchRes(b) !== "other" && branchRes(b) !== "shared" && (branchSite(b) || branchDupe(b))) branchHit.set(b.practice_code, [...(branchHit.get(b.practice_code) || []), b.branch_name]);
   renderBranchHits(bHits.filter(b => !(b.practice_code && (branchSite(b) || branchDupe(b)))));
-  filtered = practices.filter(p =>
-    (stf === "all" || (stf === "merged" ? !!p.merged_into : stf === "closed" ? isClosed(p) && !p.merged_into : p.status === "Active" && !p.merged_into && !isClosed(p))) && netMatch(p, netFilter) && (!t || tier(p) === t) && (!sw || p.clinical_software === sw) && (!hs || (hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === hs)) &&
-    (!cqcf || (cqcf === "None" ? !p.cqc_rating : p.cqc_rating === cqcf)) && (!icb || p.icb_name === icb) && (!ctry || (p.country || "England") === ctry) && (!sz || (sz === "yes") === (p.total_patients > 0)) &&
-    (!sig || signalCodes.has(p.ods_code)) && (!grp || p.group_size > 1) &&
-    (!q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(q)) || branchHit.has(p.ods_code)));
+  filtered = practices.filter(p => matchPractice(p, flt, branchHit));
   const f = SORTERS[sort.key], by = (a, b) => { const x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || b.total_patients - a.total_patients; };
   filtered.sort(by);
   renderChips(); renderSortHeaders();
@@ -283,7 +288,7 @@ async function openDrawer(p) {
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
   $("dr-title").textContent = p.practice_name; stateToUrl(); hsShowBar(p);
   const st = hsState(p);
-  $("dr-sub").innerHTML = `<span class="font-mono">${esc(p.ods_code)}</span>${p.merged_into ? " " + chip("Merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : ""}${p.town ? " · " + esc(p.town) : ""} ${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${p.cqc_rating && CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : ""}${p.cqc_status === "Deregistered" ? " " + chip("CQC deregistered", "bg-amber-100 text-amber-800", "CQC lists this location as deregistered; check whether the practice still operates") : ""} ${st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st]) : ""}`;
+  $("dr-sub").innerHTML = `<span class="font-mono">${esc(p.ods_code)}</span>${p.merged_into ? " " + chip("Merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : ""}${p.town ? " · " + esc(p.town) : ""} ${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${p.cqc_rating && CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : ""}${p.cqc_status === "Deregistered" ? " " + chip("CQC deregistered", "bg-amber-100 text-amber-800", "CQC lists this location as deregistered; check whether the practice still operates") : ""} ${st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st]) : ""} ${p.status === "Active" ? `<button type="button" class="aud-add rounded-full border border-white/30 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-white/10" data-ods="${esc(p.ods_code)}">+ Audience</button>` : ""}`;
   const link = (label, kind, key) => `<a href="#" class="text-lalu-teal-700 hover:underline" data-net="${kind}|${esc(key)}|${esc(label)}">${esc(label)}</a>`;
   const web = p.website ? `<a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${esc(/^https?:/.test(p.website) ? p.website : "https://" + p.website)}">${esc(p.website)}</a>` : "";
   const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
