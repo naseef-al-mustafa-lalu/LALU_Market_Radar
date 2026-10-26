@@ -82,7 +82,7 @@ async function startApp() {
     if (openCode && byOds.get(openCode)) openDrawer(byOds.get(openCode));
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signals.unshift(p.new); indexSignals(); renderSignals(); if (currentTab === "practices") applyFilters(); })
       .subscribe(s => { $("sig-live").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
-  } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); loadFailed(err); }
+  } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); $("refresh-badge").classList.remove("hidden"); loadFailed(err); }
 }
 
 /* keyboard: Enter or Space activates a focused row or sortable header, exactly like a click */
@@ -129,7 +129,7 @@ const TABS = ["practices", "networks", "revenue", "signals", "audiences", "data"
 function showTab(which, fromUrl) {
   if (which === "data" && currentTab !== "data") setDataSub("overview");
   const changed = currentTab !== which; currentTab = which;
-  for (const t of TABS) { $("view-" + t).classList.toggle("hidden", t !== which); $("tab-" + t).className = "px-3 py-1 rounded-md " + (t === which ? "bg-white text-lalu-navy shadow-sm" : "text-slate-300 hover:text-white hover:bg-white/10"); }
+  for (const t of TABS) { $("view-" + t).classList.toggle("hidden", t !== which); $("tab-" + t).className = "px-2.5 lg:px-3 py-1 rounded-md whitespace-nowrap " + (t === which ? "bg-white text-lalu-navy shadow-sm" : "text-slate-300 hover:text-white hover:bg-white/10"); }
   if (which === "revenue") renderRevenue();
   if (which === "audiences") loadAudiences();
   if (which === "data") renderData();

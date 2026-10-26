@@ -128,6 +128,10 @@ with sync_playwright() as p:
     pg.keyboard.press("Escape"); pg.wait_for_selector("#drawer.translate-x-full", state="attached"); pg.click("#rows tr:has-text('Test Surgery 7')"); pg.wait_for_selector("#drawer:not(.translate-x-full)"); pg.wait_for_function("document.querySelector('#dr-body').innerText.includes('Effective price')")
     ep = pg.inner_text("#dr-body"); assert "£0.068 per patient per month" in ep and "−15%" in ep and "no discount breakdown" in ep, ep       # a customer with no deal discounts still shows what the contract implies
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
+    for w in (1024, 1180, 1280, 1440):      # the main bar stays one row as tabs are added
+        pg.set_viewport_size({"width": w, "height": 900}); h = pg.evaluate("document.querySelector('#app > nav').offsetHeight"); assert h < 70, (w, h)
+        if w == 1024: pg.keyboard.press("Escape"); pg.wait_for_timeout(300); pg.screenshot(path=SHOTS + "/nav1024.png", clip={"x": 0, "y": 0, "width": 1024, "height": 120})
+    pg.set_viewport_size({"width": 1440, "height": 900})
     pg.click("#tab-signals"); assert pg.is_visible("#subnav #sig-sub") and pg.evaluate("document.querySelector('#subnav').getBoundingClientRect().top >= document.querySelector('#app > nav').getBoundingClientRect().bottom - 1")      # sub tabs: a second row under the main bar
     pg.screenshot(path=SHOTS + "/subnav_signals.png"); pg.click("#tab-data"); pg.screenshot(path=SHOTS + "/subnav_data.png"); assert pg.is_visible("#subnav #data-sub") and not pg.is_visible("#sig-sub"); pg.click("#tab-practices"); assert pg.is_hidden("#subnav")
     pg.evaluate("localStorage.setItem('lalu.subnav', 'inline')"); pg.click("#tab-signals"); assert pg.is_hidden("#subnav") and pg.is_visible("#view-signals #sig-sub")      # the old in-page pills come back with one setting
