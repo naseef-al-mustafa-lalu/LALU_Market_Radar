@@ -15,3 +15,9 @@ th[data-sort]:hover { color: #1e293b; }
 .chip { display:inline-flex; align-items:center; gap:.25rem; padding:.05rem .5rem; border-radius:9999px; font-size:12px; font-weight:600; white-space:nowrap; }
 .chip.hidden { display: none; }
 #drawer { transition: transform .18s ease-out; }
+
+/* sub tabs in the second row under the main bar (js/subnav.js): underline tabs, restyling the pill buttons the page scripts toggle */
+#subnav > div { background: transparent; padding: 0; margin: 0; border-radius: 0; display: flex; flex-wrap: wrap; gap: .25rem; }
+#subnav button { background: transparent !important; box-shadow: none !important; border-radius: 0; padding: .65rem .85rem; border-bottom: 2px solid transparent; color: #64748b; font-weight: 600; }
+#subnav button:hover { color: #1e293b; }
+#subnav button.bg-white { color: #182337; border-bottom-color: #17808f; font-weight: 700; }
