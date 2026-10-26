@@ -61,6 +61,8 @@ function renderChips() {
   sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country"); sel("f-size", "List size"); sel("f-status", "Status");
   if ($("f-sig").checked) add("Has recent signals", () => { $("f-sig").checked = false; applyFilters(); });
   if ($("f-grp").checked) add("Group-run only", () => { $("f-grp").checked = false; applyFilters(); });
+  const nf = box.querySelectorAll(".chip").length - ($("f-search").value.trim() ? 1 : 0) - (netFilter ? 1 : 0), badge = $("f-badge");      // filters inside the panel (search and a network have their own place)
+  badge.textContent = nf; badge.classList.toggle("hidden", nf < 1);
   if (box.children.length > 1 || (box.children.length === 1 && !netFilter)) {
     const x = document.createElement("button"); x.className = "text-xs text-slate-500 hover:text-slate-800 underline"; x.textContent = "Clear all";
     x.onclick = clearFilters; box.appendChild(x);
@@ -79,7 +81,12 @@ function renderSortHeaders() {
 }
 document.querySelectorAll("#view-practices th[data-sort]").forEach(th => th.onclick = () => {
   const k = th.dataset.sort; sort = { key: k, dir: sort.key === k ? -sort.dir : (k === "name" || k === "cqc" || k === "hubspot" ? 1 : -1) }; applyFilters(); });
-$("f-more-btn").onclick = () => { const m = $("f-more"); m.classList.toggle("hidden"); $("f-more-btn").textContent = m.classList.contains("hidden") ? "More filters ▾" : "Fewer filters ▴"; };
+const filterPanel = open => { $("f-more").classList.toggle("hidden", !open); $("f-more-btn").setAttribute("aria-expanded", open); };
+$("f-more-btn").onclick = () => filterPanel($("f-more").classList.contains("hidden"));
+$("f-done").onclick = () => filterPanel(false);
+$("f-clear").onclick = () => { clearFilters(); };
+document.addEventListener("click", e => { if (!$("f-more").classList.contains("hidden") && !e.target.closest("#f-more, #f-more-btn")) filterPanel(false); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("f-more").classList.contains("hidden")) filterPanel(false); });
 ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-status", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
 
 /* ---------- practices: compact rows ---------- */

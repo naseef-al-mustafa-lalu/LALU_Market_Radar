@@ -126,7 +126,7 @@ window.addEventListener("popstate", () => { if (!$("app").classList.contains("hi
 
 /* ---------- tabs ---------- */
 const TABS = ["practices", "networks", "revenue", "signals", "audiences", "data"]; let currentTab = "practices";
-const SUBNAV = { networks: "net-kinds", signals: "sig-sub", data: "data-sub" };   // tab -> its sub-tab strip in the second row (#subnav)
+const SUBNAV = { networks: "net-kinds", signals: "sig-sub", audiences: "aud-sub", data: "data-sub" };   // tab -> its sub-tab strip in the second row (#subnav)
 window.addEventListener("resize", () => { if (!$("subnav").classList.contains("hidden")) $("subnav").style.top = document.querySelector("#app > nav").offsetHeight + "px"; });
 function showTab(which, fromUrl) {
   if (which === "data" && currentTab !== "data") setDataSub("overview");

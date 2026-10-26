@@ -1,7 +1,7 @@
 // Audiences: signal audiences (one per signal type, automatic) and custom audiences (a saved Practices filter, hand-picked practices, or both).
 // A practice appears in an audience; the salesperson expands it, ticks the contacts worth messaging and approves them. Suggested contacts are read live from HubSpot
 // (Atlas holds none); only decisions (approved, skipped) are stored. A contact approved for one audience is locked in every other. Loaded after mergers.js.
-let audiences = [], audMembers = [], audOpen = null, audRole = "all", audShown = 100;
+let audiences = [], audMembers = [], audOpen = null, audRole = "all", audShown = 100, audSub = "signals";
 const audExpanded = new Set(), audContacts = new Map(), audTicked = new Set();   // ODS -> { loading, list, error }; contact ids ticked for the next approve or skip
 const AUD_LOCKS = ["approved", "enrolled"], AUD_PAGE = 100, AUD_EXPAND_ALL = 25;
 const AUD_ROLES = [["all", "All roles"], ["manager", "Practice managers"], ["clinical", "GPs and clinicians"], ["other", "Other"]];
@@ -30,29 +30,41 @@ async function loadAudiences() {
   }
   renderAudiences();
 }
+function setAudSub(which) {      // the two sub tabs in the second row: automatic signal audiences, and custom ones
+  audSub = which; audOpen = null;
+  $("aud-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.a === which ? "bg-white shadow-sm" : "text-slate-500"));
+  renderAudiences();
+}
+$("aud-sub").querySelectorAll("button").forEach(b => b.onclick = () => setAudSub(b.dataset.a));
 function renderAudiences() {
   const box = $("aud-body"); if (!box) return;
   const a = audiences.find(x => x.id === audOpen);
-  box.innerHTML = a ? audienceDetail(a) : audienceCards();
+  box.innerHTML = a ? `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">${audienceDetail(a)}</div>` : audienceCards();
+  $("aud-sub").querySelectorAll("button").forEach(b => { const n = audiences.filter(x => x.kind === (b.dataset.a === "custom" ? "custom" : "signal")).length; b.querySelector("span").textContent = n || ""; });
 }
+const AUD_ICON = { signal: '<svg viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5"><path d="M11 2L4 11h5l-1 7 7-9h-5z"/></svg>', custom: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="h-5 w-5"><path d="M3 5h14M6 10h8M9 15h2"/></svg>' };
 const audCard = a => {
-  const prac = audPractices(a), custom = a.kind === "custom", sum = custom ? ((a.filters && a.filters.summary) || "Hand-picked practices") : "";
-  return `<button type="button" class="aud-card rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-lalu-teal-500 hover:shadow-sm" data-aud="${esc(a.id)}">
-    <div class="flex items-start justify-between gap-2"><div class="font-semibold leading-tight">${esc(a.name)}</div>${!custom && prac.length ? `<span class="shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-800">${prac.length} to review</span>` : ""}${custom ? '<span class="shrink-0 rounded-full bg-lalu-teal-50 px-2 py-0.5 text-[11px] font-semibold text-lalu-teal-800">Custom</span>' : ""}</div>
-    ${custom ? `<div class="mt-1 line-clamp-2 text-xs text-slate-500">${esc(sum)}</div>` : ""}
-    <div class="mt-3 flex gap-5 text-sm"><div><div class="text-lg font-bold leading-none">${prac.length.toLocaleString()}</div><div class="text-[11px] uppercase tracking-wider text-slate-500">practices</div></div>
-      <div><div class="text-lg font-bold leading-none">${audApproved(a)}</div><div class="text-[11px] uppercase tracking-wider text-slate-500">approved</div></div></div>
-    <div class="mt-3 truncate text-xs ${a.sequence_name ? "text-slate-600" : "text-slate-400"}">${a.sequence_name ? "Sequence: " + esc(a.sequence_name) : "No sequence set yet"}</div></button>`;
+  const prac = audPractices(a), custom = a.kind === "custom", appr = audApproved(a), tone = custom ? ["bg-lalu-teal-50", "text-lalu-teal-700", "from-lalu-teal-600 to-lalu-teal"] : ["bg-purple-50", "text-purple-700", "from-purple-600 to-fuchsia-400"];
+  const sum = custom ? ((a.filters && a.filters.summary) || "Hand-picked practices") : "Automatic: practices appear as the signal is detected";
+  return `<button type="button" class="aud-card group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-lalu-teal-600 hover:shadow-md" data-aud="${esc(a.id)}">
+    <span class="h-1.5 w-full bg-gradient-to-r ${tone[2]}"></span>
+    <span class="flex flex-1 flex-col gap-4 p-4">
+      <span class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone[0]} ${tone[1]}">${AUD_ICON[custom ? "custom" : "signal"]}</span>
+        <span class="min-w-0 flex-1"><span class="block font-semibold leading-snug text-slate-900">${esc(a.name)}</span><span class="mt-0.5 line-clamp-2 block text-xs text-slate-500">${esc(sum)}</span></span>
+        ${!custom && prac.length ? `<span class="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 text-[11px] font-bold text-white">${prac.length} to review</span>` : ""}</span>
+      <span class="grid grid-cols-3 divide-x divide-slate-200 rounded-xl bg-slate-50 py-3 text-center">
+        <span><span class="block text-xl font-bold leading-none text-slate-900">${prac.length.toLocaleString()}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Practices</span></span>
+        <span><span class="block text-xl font-bold leading-none ${appr ? "text-emerald-700" : "text-slate-900"}">${appr}</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Approved</span></span>
+        <span><span class="block text-xl font-bold leading-none text-slate-400">–</span><span class="mt-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">In sequence</span></span></span></span>
+    <span class="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 text-xs"><span class="truncate ${a.sequence_name ? "text-slate-700" : "text-slate-400"}">${a.sequence_name ? "Sequence: " + esc(a.sequence_name) : "No sequence set yet"}</span><span class="shrink-0 font-semibold text-lalu-teal-700 group-hover:underline">Open →</span></span></button>`;
 };
 function audienceCards() {
-  const sig = audiences.filter(a => a.kind === "signal"), cus = audiences.filter(a => a.kind === "custom");
-  return `<p class="mb-4 text-sm text-slate-600">Open an audience to see its practices, choose which of their contacts should be messaged, and approve them. A contact can be approved in one audience at a time.</p>
-    <h3 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Signals <span class="font-normal normal-case">(automatic)</span></h3>
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">${sig.map(audCard).join("") || '<p class="text-sm text-slate-500">No signal audiences yet.</p>'}</div>
-    <h3 class="mb-2 mt-6 text-xs font-bold uppercase tracking-wider text-slate-500">Custom</h3>
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">${cus.map(audCard).join("")}
-      <div class="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600"><div class="font-semibold text-slate-800">New custom audience</div><p class="mt-1 text-xs">Filter the Practices table, then choose <b>Save as audience</b>. Or use <b>+ Audience</b> on a practice to hand-pick.</p>
-        <button type="button" class="aud-goto-practices mt-2 text-xs font-semibold text-lalu-teal-700 hover:underline">Go to Practices →</button></div></div>`;
+  const list = audiences.filter(a => a.kind === (audSub === "custom" ? "custom" : "signal"));
+  const intro = audSub === "custom" ? "Audiences you build: save the Practices filters, or hand-pick practices from a profile. Practices matching a saved filter appear here automatically."
+    : "One audience per signal type, filled automatically as signals are detected. Open one to choose which contacts at each practice to message.";
+  const empty = audSub === "custom" ? `<div class="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-6 text-sm text-slate-600 sm:col-span-2 lg:col-span-3"><div class="font-semibold text-slate-800">No custom audiences yet</div><p class="mt-1">Filter the Practices table, then choose <b>Save as audience</b>. Or use <b>+ Audience</b> in a practice's profile to hand-pick.</p><button type="button" class="aud-goto-practices mt-3 rounded-lg bg-lalu-navy px-3 py-2 text-sm font-semibold text-white hover:bg-lalu-navy-700">Go to Practices</button></div>` : '<p class="text-sm text-slate-500">No signal audiences yet.</p>';
+  return `<p class="mb-4 text-sm text-slate-600">${intro} A contact can be approved in one audience at a time.</p>
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">${list.map(audCard).join("") || empty}</div>`;
 }
 function audRoleBar() {
   return `<div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Contact role">${AUD_ROLES.map(([k, l]) => `<button type="button" class="aud-role rounded-full border px-2.5 py-1 text-xs font-semibold ${audRole === k ? "border-lalu-teal-700 bg-lalu-teal-50 text-lalu-teal-800" : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"}" data-role="${k}">${l}</button>`).join("")}</div>`;
@@ -137,7 +149,7 @@ async function audCreate(name, filters) {
   if (error) throw error; audiences.push(data); return data;
 }
 const audDone = (msg, a) => audModal("Done", `<p class="text-sm">${esc(msg)}</p>${a ? `<div class="mt-3"><button type="button" id="aud-open-it" class="text-sm font-semibold text-lalu-teal-700 hover:underline">Open it in Audiences →</button></div>` : ""}`, null);
-function audOpenIt(a) { audModalClose(); audOpen = a.id; audExpanded.clear(); audTicked.clear(); showTab("audiences"); }
+function audOpenIt(a) { audModalClose(); setAudSub("custom"); audOpen = a.id; audExpanded.clear(); audTicked.clear(); showTab("audiences"); }
 function audSaveOpen() {      // from the Practices filters
   const flt = readFilters(), chips = [...$("f-chips").querySelectorAll(".chip")].map(c => c.childNodes[0].textContent.trim()), n = filtered.length;
   if (!chips.length) { audModal("Save as audience", '<p class="text-sm text-slate-600">No filters are set, so this would be every practice. Filter the table first (for example Country, Tier or HubSpot status), then save it.</p>', null); return; }

@@ -117,17 +117,16 @@ function renderMoreSignals() {
   const slice = sigList.slice(sigShown, sigShown + PAGE); sigShown += slice.length;
   const frag = document.createDocumentFragment();
   for (const s of slice) {
-    const t = sigTarget(s), tr = document.createElement("tr"); tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer align-top"; tr.tabIndex = 0; tr.setAttribute("role", "button");
-    tr.innerHTML = `<td class="px-3 py-2 whitespace-nowrap font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</td>
-      <td class="px-3 py-2 whitespace-nowrap">${chip(s.trigger_type.replaceAll("_", " ").toLowerCase(), HOT.includes(s.trigger_type) ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-700")}</td>
-      <td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(t.label)}${t.kind === "unlinked" ? " " + chip("unlinked", "bg-amber-100 text-amber-800") : t.kind === "network" ? " " + chip("network", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-xs text-slate-500 ${t.kind === "practice" ? "font-mono" : ""}">${esc(t.sub)}</div></td>
-      <td class="px-3 py-2"><div class="font-medium">${esc(s.headline)}</div><div class="text-xs text-slate-500">${esc(s.description)}</div></td>
-      <td class="px-3 py-2 text-xs text-blue-800">${esc(s.action || "")}</td>
-      <td class="px-3 py-2 sg-ctl" data-id="${esc(s.id)}"><select class="sg-status border border-slate-300 rounded px-1.5 py-1 text-xs w-full ${SIG_STATUS_CLS[s.status || "new"]}" aria-label="Status of ${esc(s.headline)}">${Object.entries(SIG_STATUS).map(([k, v]) => `<option value="${k}" ${k === (s.status || "new") ? "selected" : ""}>${v}</option>`).join("")}</select>
-        <input class="sg-note mt-1 border border-slate-200 rounded px-1.5 py-1 text-xs w-full" placeholder="Add a note…" value="${esc(s.note || "")}" maxlength="500" aria-label="Note for ${esc(s.headline)}"></td>
-      <td class="px-3 py-2 text-center">${sigLink(s)}</td>`;
+    const t = sigTarget(s), tr = document.createElement("tr"); tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer align-middle"; tr.tabIndex = 0; tr.setAttribute("role", "button");
+    tr.innerHTML = `<td class="px-3 py-1.5 whitespace-nowrap font-mono text-xs text-slate-500">${esc(fmtDate(s.detected_at))}</td>
+      <td class="px-3 py-1.5 whitespace-nowrap">${chip(s.trigger_type.replaceAll("_", " ").toLowerCase(), HOT.includes(s.trigger_type) ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-700")}</td>
+      <td class="px-3 py-1.5 max-w-[16rem]"><div class="flex items-baseline gap-2"><span class="truncate font-semibold">${esc(t.label)}</span>${t.kind === "unlinked" ? chip("unlinked", "bg-amber-100 text-amber-800") : t.kind === "network" ? chip("network", "bg-indigo-100 text-indigo-800") : ""}</div><div class="truncate text-xs text-slate-500 ${t.kind === "practice" ? "font-mono" : ""}" title="${esc(t.sub)}">${esc(t.sub)}</div></td>
+      <td class="px-3 py-1.5 max-w-[28rem]"><div class="flex items-center gap-1.5"><span class="truncate font-medium">${esc(s.headline)}</span>${s.action ? `<span class="shrink-0" title="Next step">${infoIcon("Next step: " + s.action)}</span>` : ""}</div><div class="truncate text-xs text-slate-500" title="${esc(s.description)}">${esc(s.description)}</div></td>
+      <td class="px-3 py-1.5 sg-ctl" data-id="${esc(s.id)}"><div class="flex items-center gap-1.5"><select class="sg-status shrink-0 border border-slate-300 rounded px-1.5 py-1 text-xs ${SIG_STATUS_CLS[s.status || "new"]}" aria-label="Status of ${esc(s.headline)}">${Object.entries(SIG_STATUS).map(([k, v]) => `<option value="${k}" ${k === (s.status || "new") ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <input class="sg-note min-w-0 flex-1 border border-slate-200 rounded px-1.5 py-1 text-xs" placeholder="Add a note…" value="${esc(s.note || "")}" maxlength="500" aria-label="Note for ${esc(s.headline)}"></div></td>
+      <td class="px-3 py-1.5 text-center">${sigLink(s)}</td>`;
     tr.onclick = ev => {
-      if (ev.target.closest(".sg-ctl")) return;
+      if (ev.target.closest(".sg-ctl, .info-i, .info-slot, a")) return;
       if (t.kind === "practice") { clearFilters(); showTab("practices"); $("f-search").value = t.p.ods_code; applyFilters(); openDrawer(t.p); }
       else if (t.kind === "network" && t.n) { netKind = t.n.kind; showTab("networks"); renderNetworks(); openNetworkProfile(t.n); }
       else if (t.kind === "unlinked") { setSigSub("jobs"); $("jm-status").value = t.e ? t.e.match_status : "review"; $("jm-search").value = t.label; renderJobMatches(); }

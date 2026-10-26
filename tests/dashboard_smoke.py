@@ -100,7 +100,7 @@ with sync_playwright() as p:
     assert "Test Surgery 1" in pg.inner_text("#rows") and "Branch: Holycroft Hosted Hall" in pg.inner_text("#rows") and pg.locator("#branch-hits").is_hidden()      # confirmed: now one of that practice's sites
     pg.fill("#f-search", ""); pg.wait_for_timeout(300)
     # filters + chips + sort
-    pg.click("#f-more-btn"); pg.check("#f-grp")
+    pg.click("#f-more-btn"); pg.click("label:has(#f-grp)"); pg.screenshot(path=SHOTS + "/filters_panel.png"); assert pg.inner_text("#f-badge") == "1"; pg.click("#f-done")
     assert "3 practices" in pg.inner_text("#count"), pg.inner_text("#count")
     assert "clear" in pg.inner_text("#f-chips").lower()
     pg.click("#f-chips >> text=/clear/i"); assert "11 practices" in pg.inner_text("#count")
@@ -158,10 +158,10 @@ with sync_playwright() as p:
     pg.click(".aud-role[data-role=manager]"); assert "Approve 1 ticked" in pg.inner_text("#aud-body"); pg.click(".aud-approve-all"); pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('2 contacts approved') || document.querySelector('#aud-body').innerText.includes('1 contact approved')")
     cu = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:audience_members').pop()[1]"); assert [(r['contact_id'], r['state']) for r in cu] == [('c4', 'approved')] and cu[0]['audience_id'].startswith('new'), cu
     pg.screenshot(path=SHOTS + "/aud_detail.png"); pg.click(".aud-rename"); pg.fill("#aud-name", "Surgery three, renamed"); pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('Surgery three, renamed')")
-    pg.click(".aud-back"); pg.screenshot(path=SHOTS + "/aud_cards.png"); assert "Custom" in pg.inner_text("#aud-body") and "Surgery three, renamed" in pg.inner_text("#aud-body")
+    pg.click(".aud-back"); pg.screenshot(path=SHOTS + "/aud_cards.png"); assert "Surgery three, renamed" in pg.inner_text("#aud-body") and "Job report role" not in pg.inner_text("#aud-body") and pg.is_visible("#aud-sub")      # custom audiences have their own sub tab
     pg.click("#tab-practices"); pg.fill("#f-search", ""); pg.wait_for_timeout(300); pg.click("#rows tr:has-text('Test Surgery 1')"); pg.wait_for_selector(".aud-add"); pg.click(".aud-add")      # hand-pick from a profile
     pg.wait_for_selector("input[name=aud-pick]"); pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-modal-body').innerText.includes('Added to')"); pg.keyboard.press("Escape"); pg.evaluate("closeDrawer()")
-    pg.click("#tab-audiences"); pg.click(".aud-card:has-text('Surgery three, renamed')"); pg.wait_for_selector(".aud-unpin"); assert "Test Surgery 1" in pg.inner_text("#aud-body") and "hand-picked" in pg.inner_text("#aud-body")
+    pg.click("#tab-audiences"); pg.screenshot(path=SHOTS + "/aud_cards2.png"); pg.click("#aud-sub button[data-a=signals]"); assert "Job report role" in pg.inner_text("#aud-body") and "Surgery three, renamed" not in pg.inner_text("#aud-body"); pg.click("#aud-sub button[data-a=custom]"); pg.click(".aud-card:has-text('Surgery three, renamed')"); pg.wait_for_selector(".aud-unpin"); assert "Test Surgery 1" in pg.inner_text("#aud-body") and "hand-picked" in pg.inner_text("#aud-body")
     pg.click(".aud-delete"); pg.click("#aud-modal-ok"); pg.wait_for_function("!document.querySelector('#aud-body').innerText.includes('Surgery three, renamed')")
     pg.click("#tab-practices"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     bc = pg.locator("#dr-body details.branch-card"); assert bc.count() == 1 and bc.get_attribute("open") is None and "1 site" in bc.locator("summary").inner_text(), bc.locator("summary").inner_text()      # branch sites: collapsed, count beside the header
@@ -235,14 +235,14 @@ with sync_playwright() as p:
     assert "in sync" in state[0] and "Push pricing" not in state[0] and "Manage in HubSpot" in state[0] and "Open deal" in state[0], state
     assert "1 change to push" in state[1] and "Push pricing" in state[1], state
     # practices that are not in HubSpot: filter, flag, create
-    pg.select_option("#f-hs", "missing"); assert pg.locator("#rows tr:has-text('Test Surgery 1')").count() == 0 and pg.locator("#rows tr:has-text('Test Surgery 2')").count() == 1
+    pg.select_option("#f-hs", "missing", force=True); assert pg.locator("#rows tr:has-text('Test Surgery 1')").count() == 0 and pg.locator("#rows tr:has-text('Test Surgery 2')").count() == 1
     pg.click("#rows tr:has-text('Test Surgery 2')"); pg.wait_for_selector('#dr-hs .hs-bar [data-hs-act="create"]'); assert "No company record" in pg.inner_text("#dr-body")
     assert "Not in HubSpot yet" in pg.inner_text("#dr-hs .hs-bar") and "Add to HubSpot" in pg.inner_text("#dr-hs .hs-bar")   # the bar offers the next step for a practice that is missing
     pg.screenshot(path=SHOTS + "/hubspot_section.png")
     pg.click('#dr-hs .hs-bar [data-hs-act="create"]'); pg.wait_for_selector("#hs-create"); cp = pg.inner_text("#hs-body"); assert "has no company with this GP ODS Code" in cp and "A10002" in cp and "New company to create" in cp, cp
     pg.click("#hs-create"); pg.wait_for_function("document.querySelector('#hs-msg').innerText.includes('Company created')")
     cc = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company' && c[1].ods === 'A10002')")[0][1]; assert cc["ods"] == "A10002" and cc["company"]["partner_organisation_code"] == "A10002" and cc["company"]["patient_list_size"] == 11000 and cc["company"]["company_status"] == "Prospective Customer", cc
-    pg.click("#hs-cancel"); pg.select_option("#f-hs", "")
+    pg.click("#hs-cancel"); pg.select_option("#f-hs", "", force=True)
     pg.keyboard.press("Escape")
     pg.set_viewport_size({"width": 1180, "height": 800}); noflow("#view-practices .overflow-x-auto", "practices@1180"); pg.screenshot(path=SHOTS + "/narrow.png"); pg.set_viewport_size({"width": 1440, "height": 900})
     # networks
@@ -290,7 +290,7 @@ with sync_playwright() as p:
     # signals + data
     pg.click("#tab-signals"); assert pg.is_visible("#s-count")
     pg.screenshot(path=SHOTS + "/signals.png"); sr = pg.inner_text("#s-rows"); assert "unlinked" in sr.lower() and "network" in sr.lower() and "Little Common Surgery" in sr, sr
-    assert "Offer cover for reports." in pg.inner_text("#s-rows tr:has-text('Little Common') td:nth-child(5)") and "http" not in sr and pg.locator("#s-rows a[href*=jobadvert]").count() == 1
+    pg.hover("#s-rows tr:has-text('Little Common') .info-i"); pg.wait_for_selector("#info-pop:not(.hidden)"); assert "Offer cover for reports." in pg.inner_text("#info-pop") and "http" not in sr and pg.locator("#s-rows a[href*=jobadvert]").count() == 1
     pg.click("#sig-settings-link"); pg.wait_for_selector("#view-data:not(.hidden)"); assert "NHS ODS (daily)" in pg.inner_text("#sig-types-rows")
     pg.uncheck("input[data-t=NEW_PRACTICE]"); pg.wait_for_function("document.querySelector('#sig-types-msg').textContent.includes('disabled')")
     pg.click("#tab-signals"); pg.click("#sig-sub button[data-s=jobs]"); pg.wait_for_selector("#jm-rows tr[data-c]")
@@ -375,9 +375,9 @@ with sync_playwright() as p:
     pg.wait_for_selector("#drawer:not(.translate-x-full)"); assert "open=" in pg.evaluate("location.search")
     pg.keyboard.press("Escape"); pg.wait_for_function("document.querySelector('#drawer').classList.contains('translate-x-full')")
     assert "open=" not in pg.evaluate("location.search") and pg.evaluate("document.activeElement.tagName") == "TR"       # focus goes back to the row
-    pg.click("#f-more-btn") if pg.is_hidden("#f-size") else None
-    pg.select_option("#f-size", "no"); assert "3 practices" in pg.inner_text("#count") and "size=no" in pg.evaluate("location.search")
-    pg.select_option("#f-size", ""); pg.select_option("#f-tier", "Tier 3"); assert "tier=Tier+3" in pg.evaluate("location.search")
+    pg.click("#f-more-btn") if pg.is_hidden("#f-more") else None
+    pg.select_option("#f-size", "no", force=True); assert "3 practices" in pg.inner_text("#count") and "size=no" in pg.evaluate("location.search")
+    pg.select_option("#f-size", "", force=True); pg.select_option("#f-tier", "Tier 3", force=True); assert "tier=Tier+3" in pg.evaluate("location.search")
     pg.goto("about:blank"); pg.goto(INDEX + "?tier=Tier+3&open=A10001&sort=name:1")      # a shared link restores the view
     pg.wait_for_selector("#drawer:not(.translate-x-full)", timeout=8000)
     assert "Test Surgery 1" in pg.inner_text("#dr-title") and pg.input_value("#f-tier") == "Tier 3" and "11 practices" in pg.inner_text("#count")
@@ -402,11 +402,11 @@ with sync_playwright() as p:
     # mergers: status filter, profile status card, review tab
     pg.goto("about:blank"); pg.goto(INDEX); pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     assert "Test Old Surgery" not in pg.inner_text("#rows") and "May have closed or merged" in pg.inner_text("#rows")   # merged hidden by default, suggestions flagged
-    pg.click("#f-more-btn"); pg.select_option("#f-status", "merged"); assert pg.locator("#rows tr").count() == 1 and "Merged → Test Surgery 1" in pg.inner_text("#rows") and "status" not in pg.evaluate("location.search") and "st=merged" in pg.evaluate("location.search")
+    pg.click("#f-more-btn"); pg.select_option("#f-status", "merged", force=True); pg.click("#f-done"); assert pg.locator("#rows tr").count() == 1 and "Merged → Test Surgery 1" in pg.inner_text("#rows") and "status" not in pg.evaluate("location.search") and "st=merged" in pg.evaluate("location.search")
     pg.click("#rows tr"); pg.wait_for_selector("#drawer:not(.translate-x-full)"); card = pg.inner_text("#dr-body")
     assert "Merged into Test Surgery 1" in card and "Merged 2025" in card and "boss@lalu.co.uk" in card and "Undo merge" in card, card
     pg.click('#dr-body [data-mg="undo"]'); pg.wait_for_function("window.__rpc.some(c => c[0] === 'set_practice_merge' && c[1].p_into === null)")
-    pg.keyboard.press("Escape"); pg.select_option("#f-status", label="Active practices"); pg.click("#rows tr:has-text('Test Annex A')"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
+    pg.keyboard.press("Escape"); pg.select_option("#f-status", label="Active practices", force=True); pg.click("#rows tr:has-text('Test Annex A')"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     pg.screenshot(path=SHOTS + "/merge_card.png")
     card = pg.inner_text("#dr-body"); assert "Probably merged into Test Surgery 3" in card and "12,000 patients" in card and "Confirm merger" in card, card
     pg.click('#dr-body [data-mg="confirm"]'); pg.wait_for_function("window.__rpc.some(c => c[0] === 'set_practice_merge' && c[1].p_ods === 'A10009' && c[1].p_into === 'A10003')")
