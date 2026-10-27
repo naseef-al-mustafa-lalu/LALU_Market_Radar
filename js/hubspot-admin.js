@@ -77,8 +77,10 @@ let hsSizeOn = false, hsSizeLast = "";
 function hsSizePlan() {      // mirrors the sync: non-customers follow the NHS figure; a jump of more than 25% waits for a person; customers wait for renewal
   const auto = [], held = [];
   for (const p of practices) {
-    if (!p.hubspot_company_id || p.hubspot_customer || p.status !== "Active" || p.merged_into || !(p.total_patients > 0)) continue;
-    const base = Number(p.hubspot_list_size) || 0, now = Number(p.total_patients); if (now === base) continue;
+    if (!p.hubspot_company_id || p.hubspot_customer) continue;
+    const base = Number(p.hubspot_list_size) || 0, now = Number(p.total_patients) || 0;
+    if (p.merged_into || p.status !== "Active" || isClosed(p)) { if (now === 0 && base > 0) auto.push({ p, base, now: 0 }); continue; }      // merged or closed and NHS says 0: HubSpot says 0 too, so nothing is counted twice
+    if (now <= 0 || now === base) continue;
     (base && Math.abs(now - base) / base > 0.25 ? held : auto).push({ p, base, now });
   }
   return { auto, held, customers: practices.filter(p => sizeDrift(p) && sizeDrift(p).diff).length };

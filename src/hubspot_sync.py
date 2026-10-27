@@ -175,16 +175,23 @@ SIZE_HOLD = 0.25   # a one-month jump bigger than this is almost always a merge,
 
 
 def plan_list_sizes(practices, rows):
-    """(auto, held): non-customer companies whose HubSpot Patient List Size differs from the NHS figure. Customers keep their contract size until renewal."""
+    """(auto, held): non-customer companies whose HubSpot Patient List Size differs from the NHS figure. Customers keep their contract size until renewal.
+    A merged or closed practice whose NHS figure is 0 is written as 0 (its patients are counted at the successor, so HubSpot's own roll-ups must not count them twice); that is never held back."""
     auto, held = [], []
     for r in rows:
         p = practices.get(r["ods_code"])
-        if not p or not r.get("hubspot_company_id") or r.get("hubspot_customer") or p.get("status") != "Active" or p.get("merged_into"):
+        if not p or not r.get("hubspot_company_id") or r.get("hubspot_customer"):
             continue
         now, base = int(p.get("total_patients") or 0), int(r.get("hubspot_list_size") or 0)
+        item = {"ods": r["ods_code"], "id": str(r["hubspot_company_id"]), "name": p["practice_name"], "from": base or None, "to": now}
+        if p.get("merged_into") or p.get("status") != "Active" or p.get("closure_confirmed_at"):
+            if now == 0 and base > 0:
+                succ = practices.get(p.get("merged_into") or "", {})
+                auto.append({**item, "to": 0, "gone": expected_status(p), "successor": succ.get("practice_name") or p.get("merged_into")})
+            continue
         if now <= 0 or now == base:
             continue
-        (held if base and abs(now - base) / base > SIZE_HOLD else auto).append({"ods": r["ods_code"], "id": str(r["hubspot_company_id"]), "name": p["practice_name"], "from": base or None, "to": now})
+        (held if base and abs(now - base) / base > SIZE_HOLD else auto).append(item)
     return auto, held
 
 
@@ -208,9 +215,15 @@ def list_size_due(flag, month):
     return flag.get("enabled") is True and bool(month) and flag.get("last_month") != month
 
 
+def company_note(hub, company_id, text):
+    hub.call("POST", "/crm/v3/objects/notes", json={"properties": {"hs_timestamp": datetime.now(timezone.utc).isoformat(), "hs_note_body": text},
+                                                    "associations": [{"to": {"id": str(company_id)}, "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 190}]}]})
+
+
 def push_list_sizes(rest, hub, auto):
-    """Write the changed sizes to HubSpot in batches; returns (written, error). A token without the company write scope stops here and says so."""
-    done, err = [], None
+    """Write the changed sizes to HubSpot in batches; returns (written, error). A token without the company write scope stops here and says so.
+    A company set to 0 because its practice merged or closed gets a note with the old size, so the history is not lost."""
+    done, err, day = [], None, datetime.now(timezone.utc).date().isoformat()
     for ch in chunks(auto, 100):
         try:
             hub.call("POST", "/crm/v3/objects/companies/batch/update", json={"inputs": [{"id": c["id"], "properties": {"patient_list_size": str(c["to"])}} for c in ch]})
@@ -218,6 +231,13 @@ def push_list_sizes(rest, hub, auto):
             err = str(e)[:300]
             break
         rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], "hubspot_list_size": c["to"]} for c in ch], "ods_code")
+        for c in ch:
+            if c.get("gone"):
+                try:
+                    company_note(hub, c["id"], f"Atlas, {day}: list size set to 0 (was {c['from']:,}). NHS data shows this practice as {c['gone']}"
+                                 + (f", with its patients counted under {c['successor']}" if c.get("successor") else "") + ". Setting it to 0 stops HubSpot counting the same patients twice. The previous size is kept in this note.")
+                except Exception as e:  # noqa: BLE001 - the size is already written; a missing note is not worth failing the run
+                    print("Note skipped:", str(e)[:200])
         done += ch
     return done, err
 
