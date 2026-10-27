@@ -10,14 +10,12 @@ function alignOf(p) {      // null when the practice is not in HubSpot
   const web = p.website || "", hw = p.hubspot_website || "", wstate = !web ? "none" : !hw ? "missing" : hostOf(web) === hostOf(hw) ? "ok" : "differs";
   return { org: { ...org, ok: org.hs === org.atlas }, status: { ...st, ok: st.hs === st.atlas }, web: { atlas: web, hs: hw, state: wstate } };
 }
-function alignSection(p) {      // the practice profile: only what differs, or a single "aligned" line
+const ALIGN_FLAG = chip("Needs updating", "bg-amber-100 text-amber-800");
+function alignHsRows(p) {      // inside the profile's HubSpot section: HubSpot's own values, flagged when they do not match the NHS data (which sits in Practice details)
   const a = alignOf(p); if (!a || !alignRead()) return "";
-  const rows = [];
-  if (!a.org.ok) rows.push(kv("Org Type", `<span class="text-amber-700">HubSpot: ${esc(HS_ORG_LABEL[a.org.hs] || a.org.hs || "blank")}</span> <span class="text-slate-400">· NHS data: ${esc(HS_ORG_LABEL[a.org.atlas])}</span>`));
-  if (!a.status.ok) rows.push(kv("Operating status", `<span class="text-amber-700">HubSpot: ${esc(HS_OPSTATUS_LABEL[a.status.hs] || a.status.hs || "blank")}</span> <span class="text-slate-400">· NHS data: ${esc(HS_OPSTATUS_LABEL[a.status.atlas])}</span>`));
-  if (a.web.state === "missing") rows.push(kv("Website URL", `<span class="text-amber-700">Blank in HubSpot</span> <span class="text-slate-400">· NHS data: ${esc(a.web.atlas)}</span>`));
-  if (a.web.state === "differs") rows.push(kv("Website URL", `<span class="text-slate-700">${esc(a.web.hs)}</span> <span class="text-slate-400">· NHS data: ${esc(a.web.atlas)}</span>`));
-  return sec("HubSpot record", rows.join("") || `<div class="text-sm text-emerald-700">Org Type and Operating status match the NHS data.</div>`);
+  const val = (v, labels) => v ? esc(labels[v] || v) : '<span class="text-slate-500">Blank</span>';
+  return kv("Org Type", val(a.org.hs, HS_ORG_LABEL) + (a.org.ok ? "" : " " + ALIGN_FLAG)) + kv("Operating status", val(a.status.hs, HS_OPSTATUS_LABEL) + (a.status.ok ? "" : " " + ALIGN_FLAG)) +
+    (a.web.hs ? kv("Website", `<span class="break-all">${esc(a.web.hs)}</span>`) : a.web.atlas ? kv("Website", '<span class="text-slate-500">Blank</span> ' + ALIGN_FLAG) : "");
 }
 function alignPlan() {
   const rows = practices.filter(p => p.hubspot_company_id), read = alignRead(), out = { rows, read, org: 0, status: 0, webMissing: 0, webDiffers: 0, todo: [] };
