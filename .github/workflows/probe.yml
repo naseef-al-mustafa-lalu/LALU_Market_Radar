@@ -1,0 +1,26 @@
+name: Probe calculated properties (temporary)
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read property definitions (read-only; no values, no token printed)
+        env:
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          tok = os.environ["HUBSPOT_TOKEN"]
+          def get(url):
+              req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  return {"error": str(e)[:200]}
+          for obj, names in [("deals", ["amount", "patient_list_size", "patient_list_rollup", "actual_mrr_agreed", "actual_mrr_agreed_new", "actual_annual_contract_value__acv_", "standard_mrr", "standard_acv", "total_contract_value", "actual_value_per_patient_calculated"]), ("0-162", ["actual_annual_contract_value__acv_", "patient_list_size"]), ("companies", ["patient_list_rollup", "patient_list_size", "calculated_cost_per_month", "calculated_cost_per_month__cloned_", "patient_list_size_tier"])]:
+              for n in names:
+                  d = get(f"https://api.hubapi.com/crm/v3/properties/{obj}/{n}")
+                  print(obj, n, "|", d.get("type"), d.get("fieldType"), "calculated=", d.get("calculated"), "| formula:", str(d.get("calculationFormula"))[:400], "|", d.get("error", ""))
+          PY
