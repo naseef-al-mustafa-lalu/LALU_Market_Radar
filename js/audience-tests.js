@@ -42,11 +42,7 @@ function audVerdict(t, A, B) {      // decided on the test's deciding KPI, as a 
   if (Math.abs(z) >= 1.96) return `${lead} is ahead on ${w} (${Math.round(100 * Math.max(pa, pb))}% vs ${Math.round(100 * Math.min(pa, pb))}% of those enrolled) and the gap is unlikely to be chance.`;
   return `No clear difference in ${w} yet (A ${Math.round(100 * pa)}%, B ${Math.round(100 * pb)}%). Keep enrolling or end the test.`;
 }
-function audTestPanel(a) {
-  const t = audRunning(a), last = audLastEnded(a);
-  if (!t) return `<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm"><span class="font-semibold text-slate-700">A/B test</span>
-    <span class="text-xs text-slate-500">${last ? `Last test: ${esc(last.name)}${last.winner ? ` · ${last.winner.toUpperCase()} won (${esc(last.winner === "a" ? last.seq_a_name : last.seq_b_name)})` : " · no winner"}` : "Compare two sequences on the same audience."}</span>
-    <button type="button" class="aud-test-plan ml-auto rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Plan an A/B test</button></div>`;
+function audTestCard(a, t) {      // one running test: its two arms, the verdict and how to end it
   const cell = (arm, name, id) => {
     const s = audArm(a, arm), n = audMembers.filter(m => m.test_id === t.id && m.arm === arm).length, ks = (t.kpis && t.kpis.length ? t.kpis : ["replied", "meetings", "opened"]).filter(k => AUD_KPIS[k]);
     const tile = (v, l, hot) => `<span><span class="block font-bold ${hot ? "text-purple-700" : ""}">${v}</span><span class="text-[10px] uppercase tracking-wider text-slate-500">${l}</span></span>`;
@@ -54,12 +50,25 @@ function audTestPanel(a) {
       <div class="mt-1">${audSeqBadge(id)}</div>
       <div class="mt-2 grid gap-1 text-center" style="grid-template-columns:repeat(${ks.length + 1},minmax(0,1fr))">${tile(n, "Enrolled")}${ks.map(k => tile(audKpiText(k, s), AUD_KPIS[k].short, k === t.primary_kpi)).join("")}</div></div>`;
   };
-  return `<div class="mb-3 rounded-xl border border-purple-200 bg-purple-50/40 p-3"><div class="flex flex-wrap items-center gap-2"><span class="rounded-full bg-purple-600 px-2 py-0.5 text-[11px] font-bold text-white">A/B test running</span><span class="font-semibold">${esc(t.name)}</span>${t.variable ? `<span class="text-xs text-slate-500">testing ${esc(t.variable)}</span>` : ""}
-      <button type="button" class="aud-test-end ml-auto rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">End test</button></div>
+  return `<div class="rounded-xl border border-purple-200 bg-purple-50/40 p-3"><div class="flex flex-wrap items-center gap-2"><span class="rounded-full bg-purple-600 px-2 py-0.5 text-[11px] font-bold text-white">A/B test running</span><span class="font-semibold">${esc(t.name)}</span>${t.variable ? `<span class="text-xs text-slate-500">testing ${esc(t.variable)}</span>` : ""}
+      <span class="font-mono text-xs text-slate-500">${esc(a.name)}</span><button type="button" data-aud="${esc(a.id)}" class="aud-test-end ml-auto rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">End test</button></div>
     ${t.hypothesis ? `<p class="mt-1 text-xs text-slate-600">${esc(t.hypothesis)}</p>` : ""}
     <div class="mt-2 grid gap-2 sm:grid-cols-2">${cell("a", t.seq_a_name, t.seq_a_id)}${cell("b", t.seq_b_name, t.seq_b_id)}</div>
     <p class="mt-2 text-xs text-slate-700">${esc(audVerdict(t, audArm(a, "a"), audArm(a, "b")))}</p>
     <p class="mt-1 text-[11px] text-slate-500">While this runs, each approved and enrolled contact goes to A or B (${t.split_a}/${100 - t.split_a}), not to the audience's own sequence. The highlighted KPI decides the result. Opens are inflated by mail privacy features, and an MQL after enrolment is not proof the sequence caused it.</p></div>`;
+}
+function audTestNote(a) {      // inside an audience: only a pointer to its running test, which lives under A/B tests
+  const t = audRunning(a); if (!t) return "";
+  return `<p class="mb-3 text-xs text-slate-600"><span class="rounded-full bg-purple-600 px-2 py-0.5 text-[11px] font-bold text-white">A/B test running</span> ${esc(t.name)}: approved contacts are split between its two sequences. <button type="button" class="aud-test-go font-semibold text-lalu-teal-700 hover:underline" data-aud="${esc(a.id)}">See it under A/B tests</button></p>`;
+}
+function audTestsPage() {      // the A/B tests sub tab: running tests, planning a new one, and past results
+  const running = audTests.filter(t => t.status === "running"), ended = audTests.filter(t => t.status === "ended").sort((x, y) => String(y.ended_at).localeCompare(String(x.ended_at)));
+  const free = audiences.filter(a => !audRunning(a)), byId = new Map(audiences.map(a => [a.id, a]));
+  const past = ended.map(t => { const a = byId.get(t.audience_id); return `<tr class="border-t border-slate-100"><td class="py-1.5 pr-3 font-semibold">${esc(t.name)}</td><td class="px-2 text-slate-600">${esc(a ? a.name : "")}</td><td class="px-2">${t.winner ? t.winner.toUpperCase() + ": " + esc(t.winner === "a" ? t.seq_a_name : t.seq_b_name) : '<span class="text-slate-400">No winner</span>'}</td><td class="px-2 text-slate-600">${esc(t.conclusion || "")}</td><td class="pl-2 text-right text-xs text-slate-500">${fmtDate(t.ended_at)}</td></tr>`; }).join("");
+  return `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div class="mb-3 flex flex-wrap items-center gap-3"><h3 class="text-lg font-bold">A/B tests</h3><span class="text-sm text-slate-500">Compare two sequences on the same audience. Each approved contact goes to one of them.</span>
+      <span class="ml-auto flex items-center gap-2">${free.length ? `<select id="abt-aud" class="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-sm" aria-label="Audience to test">${free.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("")}</select><button type="button" class="aud-test-plan rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Plan an A/B test</button>` : '<span class="text-xs text-slate-500">Every audience has a test running.</span>'}</span></div>
+    <div class="space-y-3">${running.map(t => { const a = byId.get(t.audience_id); return a ? audTestCard(a, t) : ""; }).join("") || '<p class="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">No test is running.</p>'}</div>
+    ${ended.length ? `<h4 class="mb-1 mt-5 text-xs font-bold uppercase tracking-wider text-slate-500">Past tests</h4><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-[11px] uppercase tracking-wider text-slate-500"><tr><th>Test</th><th class="px-2">Audience</th><th class="px-2">Winner</th><th class="px-2">What we learned</th><th class="pl-2 text-right">Ended</th></tr></thead><tbody>${past}</tbody></table></div>` : ""}</div>`;
 }
 
 async function audTestPlan(a) {
@@ -99,8 +108,11 @@ function audTestEnd(a) {
     }, "End test");
 }
 document.addEventListener("click", e => {
-  const t = e.target, a = audiences.find(x => x.id === audOpen); if (!a) return;
-  if (t.closest(".aud-kpis")) audKpiPick(a); else if (t.closest(".aud-test-plan")) audTestPlan(a); else if (t.closest(".aud-test-end")) audTestEnd(a);
+  const t = e.target, open = audiences.find(x => x.id === audOpen);
+  if (t.closest(".aud-kpis")) { if (open) audKpiPick(open); return; }
+  if (t.closest(".aud-test-plan")) { const a = audiences.find(x => x.id === ($("abt-aud") || {}).value); if (a) audTestPlan(a); return; }
+  const en = t.closest(".aud-test-end"); if (en) { const a = audiences.find(x => x.id === en.dataset.aud); if (a) audTestEnd(a); return; }
+  const go = t.closest(".aud-test-go"); if (go) setAudSub("tests");
 });
 
 function audKpiPick(a) {      // which (up to three) KPIs this audience's card and summary line show

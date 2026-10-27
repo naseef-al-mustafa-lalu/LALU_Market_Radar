@@ -185,7 +185,7 @@ with sync_playwright() as p:
     pg.click(".aud-row"); pg.wait_for_selector(".aud-chk"); ac = pg.inner_text("#aud-body")
     assert "Lena Contact" in ac and "Opted out of email" in ac and "Locked: CQC provider change" in ac, ac      # unselectable contacts say why
     assert pg.is_disabled(".aud-chk[data-id=c2]") and pg.is_disabled(".aud-chk[data-id=c3]") and not pg.is_disabled(".aud-chk[data-id=c1]")
-    pg.check(".aud-chk[data-id=c1]"); pg.click(".aud-approve"); pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('1 approved')")
+    pg.check(".aud-chk[data-id=c1]"); assert pg.locator(".aud-approve, .aud-enrol, .aud-skip").count() == 0 and "Skip 1 ticked" in pg.inner_text("#aud-body"); pg.click(".aud-approve-all"); pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('1 approved')")
     up_ = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:audience_members')"); assert len(up_) == 1 and [(r['contact_id'], r['state'], r['state_by']) for r in up_[0][1]] == [('c1', 'approved', 'new@lalu.co.uk')], up_
     assert pg.is_disabled(".aud-chk[data-id=c1]")
     pg.click(".aud-back"); assert "1" in pg.inner_text(".aud-card:has-text('Job report role')")
@@ -209,20 +209,24 @@ with sync_playwright() as p:
     pg.click("#aud-sub button[data-a=signals]"); pg.click(".aud-card:has-text('Job report role')"); pg.wait_for_selector(".aud-seq")      # choose the audience's sequence, then approve and enrol
     assert "Not set" in pg.inner_text("#aud-body"); pg.click(".aud-seq"); pg.wait_for_selector("input[name=aud-seq-pick]"); pg.fill("#aud-seq-q", "hiring"); assert pg.locator(".aud-seq-opt:not(.hidden)").count() == 1
     pg.check("input[name=aud-seq-pick][data-name='Hiring follow-up']"); pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('Hiring follow-up')")
-    pg.click(".aud-row"); pg.wait_for_selector(".aud-chk"); pg.check(".aud-chk[data-id=c5]"); pg.click(".aud-enrol"); pg.wait_for_selector("text=Enrol 1 contact in"); pg.click("#aud-modal-ok")
+    pg.click(".aud-row"); pg.wait_for_selector(".aud-chk"); pg.check(".aud-chk[data-id=c5]"); pg.click(".aud-enrol-all"); pg.wait_for_selector("text=Enrol 1 contact in"); pg.click("#aud-modal-ok")
     pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('Enrolled')")
     ep_ = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'audience_push').pop()[1]"); assert ep_["enrol"] is True and ep_["contactIds"] == ["c5"] and ep_["audienceId"] == "au1", ep_
     pg.click("#aud-sub button[data-a=performance]"); pg.click(".aud-stats-refresh"); pg.wait_for_function("document.querySelector('#aud-body').innerText.includes('100%')")
     pf = pg.inner_text("#aud-body"); assert "Job report role" in pf and "Hiring follow-up" in pf and "replied" in pf.lower() and "1 100%" in pf, pf      # performance counts from HubSpot's contact fields
     assert "mql rate" in pf.lower() and "link clicks" in pf.lower(), pf      # the table carries the CTA click and MQL KPIs
-    pg.click("#aud-sub button[data-a=signals]"); pg.click(".aud-card:has-text('Job report role')"); pg.wait_for_selector(".aud-test-plan")      # sequence status badge, then plan, run and end an A/B test
+    pg.click("#aud-sub button[data-a=signals]"); pg.click(".aud-card:has-text('Job report role')"); pg.wait_for_selector(".aud-kpis")      # sequence status badge, then plan, run and end an A/B test (under the A/B tests sub tab)
     assert "Ready in HubSpot" in pg.inner_text("#aud-body") and "3 steps" in pg.inner_text("#aud-body"), pg.inner_text("#aud-body")
     pg.click(".aud-kpis"); pg.wait_for_selector(".aud-kpi-opt"); pg.uncheck(".aud-kpi-opt[value=opened]"); pg.check(".aud-kpi-opt[value=mql]"); pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-body').innerText.toLowerCase().includes('mqls')")
+    assert pg.locator(".aud-test-plan").count() == 0      # planning lives under A/B tests, not inside the audience
+    pg.click("#aud-sub button[data-a=tests]"); pg.wait_for_selector(".aud-test-plan"); pg.evaluate("(() => { const s = document.getElementById('abt-aud'); s.value = [...s.options].find(o => o.text.includes('Job report role')).value; })()"); assert "No test is running" in pg.inner_text("#aud-body")
     pg.click(".aud-test-plan"); pg.wait_for_selector("#abt-name"); pg.fill("#abt-name", "Subject test"); pg.fill("#abt-hyp", "Practice name wins"); pg.click("#aud-modal-ok"); pg.wait_for_selector("text=A/B test running")
     ab = pg.evaluate("window.__rpc.filter(c => c[0] === 'insert:audience_tests').pop()[1]"); assert (ab["seq_a_id"], ab["seq_b_id"], ab["split_a"], ab["min_per_arm"], ab["variable"]) == ("s1", "s2", 50, 20, "Subject line"), ab; assert ab["kpis"] == ["replied", "clicked", "meetings", "mql"] and ab["primary_kpi"] == "replied", ab
     bd = pg.inner_text("#aud-body"); assert "In HubSpot but has no steps" in bd, bd      # B has no steps in the fake HubSpot
     pg.click(".aud-test-end"); pg.wait_for_selector("input[name=abt-win]"); pg.check("input[name=abt-win][value=b]"); pg.fill("#abt-note", "B better"); pg.click("#aud-modal-ok"); pg.wait_for_function("!document.querySelector('#aud-body').innerText.includes('A/B test running')")
-    assert "B won" in pg.inner_text("#aud-body") and "CQC change" in pg.inner_text("#aud-body"), pg.inner_text("#aud-body")      # the winner becomes the audience's sequence
+    assert "past tests" in pg.inner_text("#aud-body").lower() and "B better" in pg.inner_text("#aud-body"), pg.inner_text("#aud-body")      # ended tests move to the past list
+    pg.click("#aud-sub button[data-a=signals]"); pg.click(".aud-card:has-text('Job report role')"); pg.wait_for_selector(".aud-kpis")
+    assert "CQC change" in pg.inner_text("#aud-body"), pg.inner_text("#aud-body")      # the winner becomes the audience's sequence
     pg.click("#tab-practices"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     bc = pg.locator("#dr-body details.branch-card"); assert bc.count() == 1 and bc.get_attribute("open") is None and "1 site" in bc.locator("summary").inner_text(), bc.locator("summary").inner_text()      # branch sites: collapsed, count beside the header
     bc.locator("summary").click(); assert bc.get_attribute("open") is not None

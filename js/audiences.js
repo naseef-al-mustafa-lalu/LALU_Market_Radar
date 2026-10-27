@@ -42,8 +42,8 @@ $("aud-sub").querySelectorAll("button").forEach(b => b.onclick = () => setAudSub
 function renderAudiences() {
   const box = $("aud-body"); if (!box) return;
   const a = audiences.find(x => x.id === audOpen);
-  box.innerHTML = a ? `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">${audienceDetail(a)}</div>` : audSub === "performance" ? audPerformance() : audienceCards();
-  $("aud-sub").querySelectorAll("button").forEach(b => { if (b.dataset.a === "performance") return; const n = audiences.filter(x => x.kind === (b.dataset.a === "custom" ? "custom" : "signal")).length; b.querySelector("span").textContent = n || ""; });
+  box.innerHTML = a ? `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">${audienceDetail(a)}</div>` : audSub === "performance" ? audPerformance() : audSub === "tests" ? audTestsPage() : audienceCards();
+  $("aud-sub").querySelectorAll("button").forEach(b => { if (b.dataset.a === "performance") return; if (b.dataset.a === "tests") { const r = audTests.filter(x => x.status === "running").length; b.querySelector("span").textContent = r || ""; return; } const n = audiences.filter(x => x.kind === (b.dataset.a === "custom" ? "custom" : "signal")).length; b.querySelector("span").textContent = n || ""; });
 }
 const AUD_ICON = { signal: '<svg viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5"><path d="M11 2L4 11h5l-1 7 7-9h-5z"/></svg>', custom: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="h-5 w-5"><path d="M3 5h14M6 10h8M9 15h2"/></svg>' };
 const audCard = a => {
@@ -89,9 +89,9 @@ function audienceDetail(a) {
       <span class="text-sm text-slate-500">${all.length.toLocaleString()} practice${all.length === 1 ? "" : "s"} · ${audApproved(a)} contact${audApproved(a) === 1 ? "" : "s"} approved</span>
       ${custom ? '<span class="ml-auto flex gap-2"><button type="button" class="aud-rename rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Rename</button><button type="button" class="aud-delete rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">Delete</button></span>' : ""}</div>
     ${custom ? `<p class="mb-3 text-xs text-slate-500">${crit ? "Live filter: " + esc(crit) : "Hand-picked practices"}${crit && audPinned(a).length ? ` plus ${audPinned(a).length} hand-picked` : ""}. Practices that start matching appear here automatically.</p>` : ""}
-    ${audSequenceRow(a)}${audTestPanel(a)}${audNotice ? `<p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">${esc(audNotice)}</p>` : ""}
+    ${audSequenceRow(a)}${audTestNote(a)}${audNotice ? `<p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">${esc(audNotice)}</p>` : ""}
     <div class="mb-3 flex flex-wrap items-center gap-3">${audRoleBar()}<span class="ml-auto flex items-center gap-2"><button type="button" class="aud-expand-all rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Expand first ${AUD_EXPAND_ALL}</button>
-      ${ticked ? `<button type="button" class="aud-approve-all rounded-md border border-lalu-navy bg-white px-3 py-1 text-xs font-semibold text-lalu-navy hover:bg-slate-50">Approve ${ticked} ticked</button><button type="button" class="aud-enrol-all rounded-md bg-lalu-navy px-3 py-1 text-xs font-semibold text-white hover:bg-lalu-navy-700">Approve and enrol ${ticked}</button>` : ""}</span></div>
+      ${ticked ? `<button type="button" class="aud-skip-all rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-slate-50">Skip ${ticked} ticked</button><button type="button" class="aud-approve-all rounded-md border border-lalu-navy bg-white px-3 py-1 text-xs font-semibold text-lalu-navy hover:bg-slate-50">Approve ${ticked} ticked</button><button type="button" class="aud-enrol-all rounded-md bg-lalu-navy px-3 py-1 text-xs font-semibold text-white hover:bg-lalu-navy-700">Approve and enrol ${ticked}</button>` : ""}</span></div>
     <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">${rows || `<p class="p-4 text-sm text-slate-500">${custom ? "No practice matches this audience right now." : "No practice has this signal open right now. They appear here as signals are detected."}</p>`}</div>
     ${all.length > prac.length ? `<div class="pt-3 text-center"><button type="button" class="aud-more rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(all.length - prac.length).toLocaleString()} more)</button></div>` : ""}`;
 }
@@ -109,10 +109,7 @@ function audContactsHtml(a, ods) {
     return `<label class="flex items-center gap-3 border-t border-slate-200 py-2 first:border-0 ${off ? "opacity-70" : "cursor-pointer"}"><input type="checkbox" class="aud-chk h-4 w-4 accent-lalu-teal-700" data-id="${esc(k.id)}" ${off ? "disabled" : ""} ${audTicked.has(k.id) && !off ? "checked" : ""}>
       <span class="min-w-0 flex-1"><span class="block text-sm font-semibold leading-tight">${esc(k.name || k.email || "Unnamed contact")}</span><span class="block truncate text-xs text-slate-500">${esc(k.title || "No job title")}${k.email ? " · " + esc(k.email) : ""}</span></span>${state}</label>`;
   };
-  return `${shown.map(line).join("") || '<p class="py-2 text-sm text-slate-600">No contact here matches this role.</p>'}${hidden ? `<p class="pt-1 text-[11px] text-slate-400">${hidden} hidden by the role filter</p>` : ""}
-    <div class="mt-2 flex justify-end gap-2"><button type="button" class="aud-skip rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50" data-ods="${esc(ods)}">Skip ticked</button>
-    <button type="button" class="aud-approve rounded-md border border-lalu-navy bg-white px-3 py-1.5 text-xs font-semibold text-lalu-navy hover:bg-slate-50" data-ods="${esc(ods)}" title="Add to the audience's HubSpot list">Approve ticked</button>
-    <button type="button" class="aud-enrol rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700" data-ods="${esc(ods)}" title="Add to the HubSpot list and enrol in the audience's sequence">Approve and enrol</button></div>`;
+  return `${shown.map(line).join("") || '<p class="py-2 text-sm text-slate-600">No contact here matches this role.</p>'}${hidden ? `<p class="pt-1 text-[11px] text-slate-400">${hidden} hidden by the role filter</p>` : ""}`;
 }
 async function audLoadContacts(ods) {
   const p = byOds.get(ods); if (!p || !p.hubspot_company_id || (audContacts.has(ods) && !audContacts.get(ods).error)) return;
@@ -272,8 +269,7 @@ document.addEventListener("click", e => {
   if (t.closest(".aud-delete") && a) { audModal("Delete audience", `<p class="text-sm">Delete “${esc(a.name)}”? Contacts you approved in it are kept on record, but they are no longer locked into this audience.</p>`,
     async () => { const { error } = await db.from("audiences").update({ archived: true }).eq("id", a.id); if (error) throw error; audiences = audiences.filter(x => x.id !== a.id); audMembers = audMembers.filter(m => m.audience_id !== a.id); audOpen = null; audModalClose(); renderAudiences(); }, "Delete"); return; }
   const row = t.closest(".aud-row"); if (row) { const o = row.dataset.ods; audExpanded.has(o) ? audExpanded.delete(o) : audExpanded.add(o); renderAudiences(); if (audExpanded.has(o)) audLoadContacts(o).then(() => { if (audRole !== "all") { audTickRole(); renderAudiences(); } }); return; }
-  const ok = t.closest(".aud-approve"), en = t.closest(".aud-enrol"), sk = t.closest(".aud-skip");
-  if (a && (ok || en || sk)) { const b = ok || en || sk, mine = new Set(((audContacts.get(b.dataset.ods) || {}).list || []).map(k => k.id)), ids = new Set([...audTicked].filter(id => mine.has(id))); sk ? audDecideIds(a, ids, "skipped") : audApprove(a, ids, !!en); return; }
+  if (a && t.closest(".aud-skip-all")) { audDecideIds(a, new Set(audTicked), "skipped"); return; }
   if (a && t.closest(".aud-approve-all")) { audApprove(a, new Set(audTicked), false); return; }
   if (a && t.closest(".aud-enrol-all")) { audApprove(a, new Set(audTicked), true); return; }
   if (a && t.closest(".aud-seq")) { audSequenceOpen(a); return; }
