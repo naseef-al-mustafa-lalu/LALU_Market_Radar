@@ -406,7 +406,11 @@ with sync_playwright() as p:
     up("iom", iom, "12 practices"); pg.click("#up-iom .up-load"); pg.wait_for_function("document.querySelector('#up-iom .up-msg').textContent.startsWith('Done')")
     ic = pg.evaluate("window.__rpc.filter(c => c[0] === 'load_devolved' && c[1].p_country === 'Isle of Man')"); assert len(ic) == 1 and ic[0][1]["p_create"] is False and ic[0][1]["p_month"] == "2020-04", ic
     ir = {r["code"]: r["patients"] for r in ic[0][1]["p_rows"]}; assert ir["Y00003"] == 14429 and ir["Y00005"] == 9065 and ir["Y02419"] == 44 and len(ir) == 12, ir
-    assert "In the database" in pg.inner_text("#up-eng .up-status") and pg.locator("#uploads > details").count() == 4
+    ni = os.path.join(os.path.dirname(__file__), "fixtures", "ni_gms_quarterly_tables_q1_26-27.xlsx")      # the real Q1 2026/27 workbook: sheet 7.1 is read straight from the xlsx
+    up("ni", ni, "list sizes for Q1 2026/27"); pg.click("#up-ni .up-load"); pg.wait_for_function("document.querySelector('#up-ni .up-msg').textContent.startsWith('Done')")
+    nc = pg.evaluate("window.__rpc.filter(c => c[0] === 'load_devolved' && c[1].p_country === 'Northern Ireland')"); assert len(nc) == 1 and nc[0][1]["p_create"] is False and nc[0][1]["p_month"] == "2026-06", nc[0][1]["p_month"]
+    nr = {r["code"]: r["patients"] for r in nc[0][1]["p_rows"]}; assert nr["Z00001"] == 6740 and nr["Z00003"] == 7083 and len(nr) == 304 and sum(nr.values()) == 2080799 and "Z00005" not in nr, (len(nr), nr.get("Z00001"))      # 304 practices that reported; closed ones skipped; the total is the published 2,080,799
+    assert "In the database" in pg.inner_text("#up-eng .up-status") and pg.locator("#uploads > details").count() == 5
     open(os.path.join(td, "bad.csv"), "w").write("a,b\n1,2\n")
     pg.set_input_files("#up-wal .up-file", os.path.join(td, "bad.csv")); pg.wait_for_function("document.querySelector('#up-wal .up-msg').textContent.includes('Not recognised')")
     pg.screenshot(path=SHOTS + "/data.png", full_page=True)

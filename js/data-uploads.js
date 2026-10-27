@@ -72,8 +72,25 @@ function readIsleOfMan(rows) {
   if (out.length < 8) throw new Error(`Only ${out.length} Isle of Man practices recognised: wrong file?`);
   return { kind: "iom", country: "Isle of Man", rows: out, month, skipped };
 }
+// Northern Ireland: the Department of Health's GMS quarterly tables, sheet 7.1 (registered patients by practice, one column per quarter). The ODS code is Z plus the practice number to five digits;
+// the latest quarter is the last column; "[c]" marks a practice that has closed. Financial quarters end in June, September, December and March.
+function readNorthernIreland(rows) {
+  const hi = rows.findIndex(r => /^practice number$/i.test((r[0] || "").trim())); if (hi < 0) throw new Error("No 'Practice number' header row found: is this sheet 7.1?");
+  const head = rows[hi].map(h => (h || "").trim()), lastCol = head.map((h, i) => h ? i : -1).filter(i => i >= 0).pop(), q = /Quarter\s+([1-4])\s+(20\d{2})\/(\d{2})/i.exec(head[lastCol] || "");
+  const ci = n => head.findIndex(h => h.toLowerCase() === n), [nm, pc] = [ci("partnership name"), ci("postcode")], out = [], closed = [];
+  for (const x of rows.slice(hi + 1)) {
+    const num = (x[0] || "").trim(); if (!/^\d{1,5}$/.test(num)) continue;
+    const n = parseInt(String(x[lastCol] || "").replace(/[, ]/g, ""), 10);
+    if (!Number.isFinite(n)) { closed.push(num); continue; }      // closed, or not yet reported for the latest quarter
+    out.push({ code: "Z" + num.padStart(5, "0"), name: titleCase((x[nm] || "").trim().replace(/\s+/g, " ")), postcode: (x[pc] || "").trim(), town: "", patients: n, net_code: null, net_name: null, icb: null });
+  }
+  if (out.length < 250) throw new Error(`Only ${out.length} Northern Ireland practices with a list size: wrong sheet?`);
+  const month = q ? `${Number(q[2]) + (Number(q[1]) === 4 ? 1 : 0)}-${String({ 1: 6, 2: 9, 3: 12, 4: 3 }[q[1]]).padStart(2, "0")}` : null;
+  return { kind: "ni", country: "Northern Ireland", rows: out, month, closed, quarter: q ? `Q${q[1]} ${q[2]}/${q[3]}` : "" };
+}
 function readDevolvedFile(text, fileName) {
   const rows = parseCsv(text.replace(/^\uFEFF/, "")), head = (rows[0] || []).map(h => h.trim().toLowerCase());
+  if (/Practice number/i.test(text.slice(0, 4000)) && /Partnership name/i.test(text.slice(0, 4000))) return readNorthernIreland(rows);
   if (/ISLE OF MAN/i.test(text.slice(0, 800)) && /\bPRACTICE\b/i.test(text)) return readIsleOfMan(rows);
   const ix = n => head.indexOf(n.toLowerCase()), out = [], seen = new Set();
   const cell = (x, i) => i >= 0 && x[i] != null ? x[i].trim() : "";
@@ -130,7 +147,7 @@ function readDevolved(text, name, expect) {
    parse(text, fileName) -> { count, month, payload }   throws a readable Error if the file is the wrong one
    load(payload, month, say) -> summary text            say(text) shows progress
    status() -> text shown under the box (what is currently in the database) */
-const UPLOAD_KIND = { iom: "Isle of Man list sizes", scotland: "Scotland practices", "wales-clusters": "Wales practices and clusters", "wales-sizes": "Wales patient numbers (StatsWales)" };
+const UPLOAD_KIND = { ni: "Northern Ireland list sizes", iom: "Isle of Man list sizes", scotland: "Scotland practices", "wales-clusters": "Wales practices and clusters", "wales-sizes": "Wales patient numbers (StatsWales)" };
 const latestMonth = list => list.map(p => p.data_month).filter(Boolean).sort().pop() || "?";
 async function loadDevolvedRows(country, rows, month, say, create = true) {
   let stored = 0, added = 0;
@@ -141,6 +158,36 @@ async function loadDevolvedRows(country, rows, month, say, create = true) {
   }
   return `${stored.toLocaleString()} practices processed (${added.toLocaleString()} new)`;
 }
+// An Excel workbook is a zip of XML files. Atlas reads the one sheet it needs with the browser's own inflate, so no spreadsheet library is loaded; the sheet comes back as CSV text for the normal parsers.
+async function xlsxSheetCsv(file, sheetName) {
+  const buf = new Uint8Array(await file.arrayBuffer()), dv = new DataView(buf.buffer), td = new TextDecoder();
+  let e = buf.length - 22; while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error(`${file.name} is not an Excel workbook.`);
+  const entries = new Map(); let p = dv.getUint32(e + 16, true);
+  for (let i = dv.getUint16(e + 10, true); i > 0; i--) {
+    const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+    entries.set(td.decode(buf.subarray(p + 46, p + 46 + nl)), { method: dv.getUint16(p + 10, true), size: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true) }); p += 46 + nl + xl + cl;
+  }
+  const read = async name => {
+    const en = entries.get(name); if (!en) return null; const o = en.off, start = o + 30 + dv.getUint16(o + 26, true) + dv.getUint16(o + 28, true), data = buf.subarray(start, start + en.size);
+    return en.method === 0 ? td.decode(data) : await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text();
+  };
+  const xml = t => new DOMParser().parseFromString(t, "application/xml"), wb = xml(await read("xl/workbook.xml") || "<x/>"), rels = xml(await read("xl/_rels/workbook.xml.rels") || "<x/>");
+  const sheet = [...wb.getElementsByTagName("sheet")].find(s => (s.getAttribute("name") || "").trim() === sheetName); if (!sheet) throw new Error(`${file.name} has no sheet "${sheetName}".`);
+  const rid = sheet.getAttribute("r:id") || sheet.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id"), rel = [...rels.getElementsByTagName("Relationship")].find(r => r.getAttribute("Id") === rid);
+  const target = rel && rel.getAttribute("Target").replace(/^\//, ""), sheetXml = target && await read(target.startsWith("xl/") ? target : "xl/" + target); if (!sheetXml) throw new Error("Could not read the sheet.");
+  const shared = [...xml(await read("xl/sharedStrings.xml") || "<x/>").getElementsByTagName("si")].map(si => [...si.getElementsByTagName("t")].map(t => t.textContent).join(""));
+  const rows = [], colOf = ref => ref.replace(/\d/g, "").split("").reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0) - 1;
+  for (const row of xml(sheetXml).getElementsByTagName("row")) {
+    const cells = []; for (const c of row.getElementsByTagName("c")) {
+      const t = c.getAttribute("t"), v = c.getElementsByTagName("v")[0], is = c.getElementsByTagName("is")[0];
+      cells[colOf(c.getAttribute("r"))] = t === "s" && v ? shared[Number(v.textContent)] : t === "inlineStr" && is ? [...is.getElementsByTagName("t")].map(x => x.textContent).join("") : v ? v.textContent : "";
+    }
+    rows[Number(row.getAttribute("r")) - 1] = Array.from(cells, x => x == null ? "" : x);
+  }
+  return Array.from(rows, r => r || []).map(r => r.map(v => '"' + String(v).replaceAll('"', '""') + '"').join(",")).join("\n");
+}
+const uploadText = async f => /\.xlsx$/i.test(f.name) ? xlsxSheetCsv(f, "7.1") : f.text();      // only Northern Ireland's workbook is read directly; every other box takes CSV
 const UPLOADS = [
   { id: "eng", title: "England: patient counts", gives: "List size for every English practice, which drives tiers and ARR", file: "gp-reg-pat-prac-all.csv", cadence: "monthly",
     links: [["https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice", "NHS Digital: Patients registered at a GP practice (latest month)"]],
@@ -160,6 +207,11 @@ const UPLOADS = [
     parse: (t, n) => { const r = readDevolved(t, n, "scotland"); return { count: r.rows.length, month: r.month, payload: r }; },
     load: (r, month, say) => loadDevolvedRows("Scotland", r.rows, month, say),
     status: () => { const l = practices.filter(p => p.country === "Scotland"); return l.length ? `${l.length.toLocaleString()} Scottish practices loaded (data month ${latestMonth(l)})` : "Nothing loaded yet"; } },
+  { id: "ni", title: "Northern Ireland: list sizes", accept: ".xlsx,.csv", gives: "List sizes for Northern Ireland's GP practices (the practices themselves come from ODS each day), so they get tiers and ARR", file: "fps_gms_quarterly_tables_….xlsx (the workbook; Atlas reads sheet 7.1) or sheet 7.1 saved as CSV", cadence: "quarterly",
+    links: [["https://bso.hscni.net/directorates/operations/family-practitioner-services/directorates-operations-family-practitioner-services-information-unit/1776-2/previous-general-medical-services-publications/", "BSO: General Medical Services publications (quarterly tables, Table 7.1)"], ["https://www.gov.uk/search/research-and-statistics?keywords=general+medical+services+statistics+for+ni", "GOV.UK: General Medical Services Statistics for NI (each quarter's workbook)"]],
+    parse: (t, n) => { const r = readDevolved(t, n, "ni"); return { count: r.rows.length, month: r.month, label: `list sizes for ${r.quarter}` + (r.closed.length ? ` (${r.closed.length} closed or unreported practices skipped)` : ""), payload: r }; },
+    load: (r, month, say) => loadDevolvedRows("Northern Ireland", r.rows, month, say, false),   // the practices already exist from ODS; this only sets list sizes
+    status: () => { const l = practices.filter(p => p.country === "Northern Ireland"); return l.length ? `${l.length.toLocaleString()} Northern Ireland practices, ${l.filter(p => p.total_patients > 0).length.toLocaleString()} with list sizes (data month ${latestMonth(l)})` : "Nothing loaded yet"; } },
   { id: "iom", title: "Isle of Man: list sizes", gives: "List sizes for the island's GP practices (the practices themselves come from ODS each day), so they get tiers and ARR", file: "practice-registrations-….csv (the health service's quarterly registrations return)", cadence: "annual",
     links: [["https://www.gov.im/about-the-government/government/open-data/health-and-social-care/", "Isle of Man government open data: health and social care"]],
     parse: (t, n) => { const r = readDevolved(t, n, "iom"); return { count: r.rows.length, month: r.month, label: r.skipped.length ? `list sizes (not recognised and skipped: ${r.skipped.join(", ")})` : "list sizes", payload: r }; },
@@ -185,7 +237,7 @@ function renderUploads() {
       <div class="grid gap-3 border-t border-slate-100 px-3 py-3 md:grid-cols-2">
         <div><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">What it gives</div><p class="mt-0.5 text-sm text-slate-700">${esc(u.gives)}</p></div>
         <div><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Download</div><p class="mt-0.5 text-sm">${u.links.map(([h, l]) => `<a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${esc(h)}">${esc(l)}</a>`).join("<br>")}<span class="mt-0.5 block text-xs text-slate-500">File${u.multiple ? "s" : ""}: ${esc(u.file)}</span></p></div>
-        <div class="md:col-span-2 rounded-lg bg-slate-50 p-2"><div class="flex flex-wrap items-center gap-2"><input type="file" accept=".csv,text/csv" ${u.multiple ? "multiple" : ""} class="up-file max-w-[22rem] text-xs"><input type="month" class="up-month rounded border border-slate-300 bg-white px-2 py-1 text-xs"><button disabled class="up-load rounded-lg bg-lalu-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-teal-800 disabled:opacity-40">Load</button></div>
+        <div class="md:col-span-2 rounded-lg bg-slate-50 p-2"><div class="flex flex-wrap items-center gap-2"><input type="file" accept="${u.accept || ".csv,text/csv"}" ${u.multiple ? "multiple" : ""} class="up-file max-w-[22rem] text-xs"><input type="month" class="up-month rounded border border-slate-300 bg-white px-2 py-1 text-xs"><button disabled class="up-load rounded-lg bg-lalu-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-teal-800 disabled:opacity-40">Load</button></div>
           <p class="up-msg mt-1 min-h-[1rem] whitespace-pre-line text-xs text-slate-600"></p></div>
       </div></details>`).join("");
     for (const u of UPLOADS) {
@@ -195,7 +247,7 @@ function renderUploads() {
         const lines = []; let ok = true;
         for (const f of files) {
           if (f.size > 60 * 1024 * 1024) { lines.push(`${f.name}: too large, check you have the right file.`); ok = false; continue; }
-          try { const p = u.parse(await f.text(), f.name); parsed.push(p); lines.push(`${f.name}: ${p.label ? p.label + ", " : ""}${p.count.toLocaleString()} practices${p.month ? " (" + p.month + ")" : " (month not found: check the month box)"}`); }
+          try { const p = u.parse(await uploadText(f), f.name); parsed.push(p); lines.push(`${f.name}: ${p.label ? p.label + ", " : ""}${p.count.toLocaleString()} practices${p.month ? " (" + p.month + ")" : " (month not found: check the month box)"}`); }
           catch (err) { lines.push(err.message); ok = false; }
         }
         if (parsed.length) q(".up-month").value = parsed.find(p => p.month)?.month || new Date().toISOString().slice(0, 7);
