@@ -73,7 +73,7 @@ const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_c
   link_company: ["Company linked", "bg-emerald-100 text-emerald-800"], pcn_created: ["PCN created", "bg-violet-100 text-violet-800"], pcn_repaired: ["PCN corrected", "bg-violet-100 text-violet-800"],
   pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"],
   list_size_sync: ["List sizes synced", "bg-violet-100 text-violet-800"], list_size: ["List size set", "bg-blue-100 text-blue-800"] };
-let hsSizeOn = false;
+let hsSizeOn = false, hsSizeLast = "";
 function hsSizePlan() {      // mirrors the sync: non-customers follow the NHS figure; a jump of more than 25% waits for a person; customers wait for renewal
   const auto = [], held = [];
   for (const p of practices) {
@@ -85,9 +85,10 @@ function hsSizePlan() {      // mirrors the sync: non-customers follow the NHS f
 }
 function hsSizeCard() {
   const { auto, held, customers } = hsSizePlan();
-  return `<div class="mt-4 rounded-lg border border-slate-200 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div><div class="text-sm font-bold">List sizes in HubSpot</div><div class="text-xs text-slate-500">Non-customers follow the NHS figure after each monthly load. Customers keep their contract size until renewal.</div></div>
+  return `<div class="mt-4 rounded-lg border border-slate-200 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div><div class="text-sm font-bold">List sizes in HubSpot</div><div class="text-xs text-slate-500">Non-customers follow the NHS figure once after each monthly NHS load, not every day. Customers keep their contract size until renewal.</div></div>
     <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="hsp-size-auto" class="h-4 w-4 accent-lalu-teal-700" ${hsSizeOn ? "checked" : ""}> Update automatically</label></div>
     <div class="mt-2 text-sm"><b>${auto.length.toLocaleString()}</b> would update · <b>${held.length.toLocaleString()}</b> held back (changed by more than 25%) · <b>${customers.toLocaleString()}</b> customers differ from NHS (review at renewal)</div>
+    <div class="mt-1 text-xs text-slate-500">${hsSizeOn ? (hsSizeLast ? `Last applied for NHS data of ${esc(hsSizeLast)}; it runs again when the next monthly load arrives.` : "Not applied yet: the next sync applies this month's figures once.") : "Off."}</div>
     <div class="mt-2 flex flex-wrap gap-2"><button type="button" id="hsp-size-prev" class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Preview changes</button>${held.length ? '<button type="button" id="hsp-size-held" class="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">Review held back</button>' : ""}</div></div>`;
 }
 function hsSizeList(rows, approve) {
@@ -110,7 +111,7 @@ async function renderHubspotPanel() {
   const box = $("d-hubspot"); if (!box) return;
   if (!box.innerHTML) box.innerHTML = '<p class="text-sm text-slate-500">Loading HubSpot status…</p>';
   const [{ data: act }, { data: links }, { data: flags }] = await Promise.all([db.from("hubspot_activity").select("*").order("at", { ascending: false }).limit(300), fetchAll("hubspot_network_links", "org_id", "org_id").then(data => ({ data })), db.from("app_flags").select("key,value")]);   // all rows: a plain select stops at 1,000
-  hsSizeOn = ((flags || []).find(f => f.key === "list_size_sync") || {}).value?.enabled === true;
+  const sizeFlag = ((flags || []).find(f => f.key === "list_size_sync") || {}).value || {}; hsSizeOn = sizeFlag.enabled === true; hsSizeLast = sizeFlag.last_month || "";
   hsLog = act || [];
   const run = hsLog.find(r => r.kind === "sync_run"), st = (run && run.detail) || {}, ok = run ? run.ok : null;
   const eligible = practices.filter(p => p.status === "Active" && p.total_patients > 0), missing = eligible.filter(p => !p.hubspot_company_id);
@@ -145,8 +146,8 @@ async function renderHubspotPanel() {
   $("hsp-csv").onclick = () => downloadCsv("Lalu_HubSpot_Activity", ["Time", "Who", "Type", "Practice", "Record", "Summary", "OK"], hsLogRows().map(r => [r.at, r.actor, (HS_KINDS[r.kind] || [r.kind])[0], r.ods_code, r.target, r.summary, r.ok ? "yes" : "no"]));
   $("hsp-size-auto").onchange = async e => {
     const on = e.target.checked, n = hsSizePlan().auto.length;
-    if (on && !confirm(`Turn on automatic list-size updates?\n\nThe next sync (daily at 08:30 UTC, or Run sync now) will write ${n.toLocaleString()} list sizes to non-customer HubSpot companies. Customers are never changed this way, and jumps of more than 25% are held for review.`)) { e.target.checked = false; return; }
-    const { error } = await db.from("app_flags").upsert([{ key: "list_size_sync", value: { enabled: on }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) { e.target.checked = !on; $("hsp-msg").textContent = error.message; return; }
+    if (on && !confirm(`Turn on automatic list-size updates?\n\nThe next sync (or Run sync now) will write ${n.toLocaleString()} list sizes to non-customer HubSpot companies, once for the current NHS data. After that it only runs again when a new monthly NHS load arrives, not daily. Customers are never changed this way, and jumps of more than 25% are held for review.`)) { e.target.checked = false; return; }
+    const { error } = await db.from("app_flags").upsert([{ key: "list_size_sync", value: { enabled: on, last_month: hsSizeLast || null }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) { e.target.checked = !on; $("hsp-msg").textContent = error.message; return; }
     hsSizeOn = on; $("hsp-msg").textContent = on ? "Automatic list-size updates are on from the next sync." : "Automatic list-size updates are off.";
   };
   $("hsp-size-prev").onclick = () => { const { auto } = hsSizePlan(); audModal("Would update on the next sync", auto.length ? hsSizeList(auto, false) : '<p class="text-sm text-slate-600">Every non-customer list size already matches the NHS figure.</p>', null); };

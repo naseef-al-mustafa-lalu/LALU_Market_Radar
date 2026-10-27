@@ -187,11 +187,17 @@ def plan_list_sizes(practices, rows):
     return auto, held
 
 
-def list_size_sync_enabled(rest):
+def list_size_flag(rest):
+    """The list_size_sync switch: {"enabled": bool, "last_month": the NHS data month already applied}. Empty when the table or row is missing."""
     try:
-        return any(r.get("key") == "list_size_sync" and (r.get("value") or {}).get("enabled") is True for r in rest.select_all("app_flags", "key,value", order="key"))
+        return next((r.get("value") or {} for r in rest.select_all("app_flags", "key,value", order="key") if r.get("key") == "list_size_sync"), {})
     except Exception:  # noqa: BLE001 - the flag table is optional
-        return False
+        return {}
+
+
+def list_size_due(flag, month):
+    """Sizes follow the NHS figure once per monthly load, not every day: due when the switch is on and this data month has not been applied yet."""
+    return flag.get("enabled") is True and bool(month) and flag.get("last_month") != month
 
 
 def push_list_sizes(rest, hub, auto):
@@ -546,7 +552,7 @@ def record(rest, rows, actor):
 
 def sync(rest, hub, now=None, actor="daily sync"):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,postcode,status,merged_into,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
+    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,data_month,postcode,status,merged_into,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
     by_ods = {}
     for c in raw:
@@ -585,13 +591,17 @@ def sync(rest, hub, now=None, actor="daily sync"):
     rest.upsert("gp_practices", rows, "ods_code")
     auto, held = plan_list_sizes(practices, rows)
     sizes = {"list_sizes_pending": len(auto), "list_sizes_held": len(held)}
-    if auto and list_size_sync_enabled(rest):
-        written, err = push_list_sizes(rest, hub, auto)
+    flag, month = list_size_flag(rest), max((p.get("data_month") or "" for p in practices.values()), default="")
+    if list_size_due(flag, month):
+        written, err = push_list_sizes(rest, hub, auto) if auto else ([], None)
         sizes["list_sizes_written"] = len(written)
         if err:
             sizes["list_size_error"] = err
-        record(rest, [{"kind": "list_size_sync", "ok": not err, "summary": f"Updated {len(written):,} list sizes in HubSpot; {len(held)} held back for review" + (f"; stopped: {err}" if err else ""),
-                       "detail": {"changes": written[:300], "held": held[:100], "error": err}}], actor)
+        else:   # applied for this NHS data month: the daily runs leave it alone until the next monthly load
+            rest.upsert("app_flags", [{"key": "list_size_sync", "value": {**flag, "last_month": month}, "updated_at": now}], "key")
+        if auto or held or err:
+            record(rest, [{"kind": "list_size_sync", "ok": not err, "summary": f"NHS {month}: updated {len(written):,} list sizes in HubSpot; {len(held)} held back for review" + (f"; stopped: {err}" if err else ""),
+                           "detail": {"month": month, "changes": written[:300], "held": held[:100], "error": err}}], actor)
     audit_all = audit_rows(raw, practices, now)
     conflicts = []
 

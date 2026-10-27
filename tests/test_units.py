@@ -563,3 +563,16 @@ def test_line_item_quantity_is_the_contract_basis():
     deals = {"d1": {"hs_is_closed_won": "true", "pipeline": "default", "closedate": "2026-01-01", "value_per_patient": "0.08"}}
     assert hsy.contract_terms(["d1"], deals, q)["line_qty"] == 9500
     assert hsy.deal_line_quantities(type("Bad", (), {"call": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("403"))})(), ["d1"]) == {}      # no scope: the figure is simply absent
+
+
+def test_list_size_sync_runs_once_per_nhs_month():
+    from src import hubspot_sync as hsy
+    assert hsy.list_size_due({"enabled": True}, "2026-10")                                  # switched on, this month not applied yet
+    assert not hsy.list_size_due({"enabled": True, "last_month": "2026-10"}, "2026-10")     # the daily runs after that leave it alone
+    assert hsy.list_size_due({"enabled": True, "last_month": "2026-09"}, "2026-10")         # a new monthly load makes it due again
+    assert not hsy.list_size_due({"enabled": False, "last_month": "2026-09"}, "2026-10") and not hsy.list_size_due({}, "2026-10") and not hsy.list_size_due({"enabled": True}, "")
+
+    class R:
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            return [dict(contact_urn=1), dict(key="list_size_sync", value={"enabled": True, "last_month": "2026-09"})]
+    assert hsy.list_size_flag(R()) == {"enabled": True, "last_month": "2026-09"}
