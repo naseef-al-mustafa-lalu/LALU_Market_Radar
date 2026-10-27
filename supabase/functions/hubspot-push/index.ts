@@ -262,8 +262,13 @@ Deno.serve(async (req) => {
       const toParent = async (childId: string, label: string) => {   // HubSpot's company hierarchy: typeId 14 is "Parent Company" from the child's side
         try {
           await hs(`/crm/v4/objects/companies/${childId}/associations/companies/${parentId}`, { method: "PUT", body: JSON.stringify([{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 14 }]) });
-          const after = await hs(`/crm/v3/objects/companies/${childId}?properties=hs_parent_company_id`);
-          if (String(Math.round(Number(after.properties?.hs_parent_company_id))) !== parentId) warnings.push(`${label}: HubSpot does not show the parent link yet; check it in HubSpot.`);
+          let linked = false;   // HubSpot fills in hs_parent_company_id a moment after the association is created, so read it back a few times before warning
+          for (let i = 0; i < 5 && !linked; i++) {
+            await new Promise((r) => setTimeout(r, i === 0 ? 400 : 900));
+            const after = await hs(`/crm/v3/objects/companies/${childId}?properties=hs_parent_company_id`);
+            linked = String(Math.round(Number(after.properties?.hs_parent_company_id))) === parentId;
+          }
+          if (!linked) warnings.push(`${label}: HubSpot does not show the parent link yet; check it in HubSpot.`);
         } catch (e) { warnings.push(`${label} could not be linked to its parent: ${(e as Error).message}`); }
       };
       const noteOn = async (id: string, text: string) => {
