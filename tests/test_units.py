@@ -508,3 +508,33 @@ def test_list_size_of_the_linked_company():
     from src import hubspot_sync as hsy
     cs = [{"id": "1", "patient_list_size": "9000"}, {"id": "3"}]
     assert hsy.list_size(cs, "1") == 9000 and hsy.list_size(cs, 3) is None and hsy.list_size(cs, "9") is None
+
+
+def test_list_size_plan_skips_customers_and_holds_big_jumps():
+    from src import hubspot_sync as hsy
+    pr = {c: dict(ods_code=c, practice_name=c, status="Active", merged_into=None, total_patients=n) for c, n in [("A", 10500), ("B", 10000), ("C", 20000), ("D", 9000), ("E", 8000), ("F", 0)]}
+    pr["E"]["merged_into"] = "A"
+    rows = [dict(ods_code="A", hubspot_company_id="1", hubspot_customer=False, hubspot_list_size=10000), dict(ods_code="B", hubspot_company_id="2", hubspot_customer=False, hubspot_list_size=10000),
+            dict(ods_code="C", hubspot_company_id="3", hubspot_customer=False, hubspot_list_size=10000), dict(ods_code="D", hubspot_company_id="4", hubspot_customer=True, hubspot_list_size=5000),
+            dict(ods_code="E", hubspot_company_id="5", hubspot_customer=False, hubspot_list_size=7000), dict(ods_code="F", hubspot_company_id="6", hubspot_customer=False, hubspot_list_size=7000)]
+    auto, held = hsy.plan_list_sizes(pr, rows)
+    assert [c["ods"] for c in auto] == ["A"] and auto[0]["to"] == 10500 and [c["ods"] for c in held] == ["C"]      # B unchanged, D a customer, E merged, F has no size
+
+
+def test_list_size_push_batches_and_stops_on_error():
+    from src import hubspot_sync as hsy
+    class R:
+        def __init__(self): self.up = []
+        def upsert(self, table, rows, on_conflict, batch=500): self.up += rows
+    class H:
+        def __init__(self, fail_at=None): self.calls, self.fail_at = [], fail_at
+        def call(self, method, path, **kw):
+            self.calls.append(kw["json"])
+            if self.fail_at == len(self.calls): raise RuntimeError("403 missing scope")
+    auto = [dict(ods=f"A{i}", id=str(i), name="n", **{"from": 1, "to": 2}) for i in range(150)]
+    r, h = R(), H()
+    done, err = hsy.push_list_sizes(r, h, auto)
+    assert len(done) == 150 and err is None and len(h.calls) == 2 and h.calls[0]["inputs"][0]["properties"] == {"patient_list_size": "2"} and len(r.up) == 150
+    r, h = R(), H(fail_at=2)
+    done, err = hsy.push_list_sizes(r, h, auto)
+    assert len(done) == 100 and "403" in err      # the first 100 are recorded, the failure stops the rest

@@ -138,6 +138,44 @@ def list_size(companies, company_id):
     return None
 
 
+SIZE_HOLD = 0.25   # a one-month jump bigger than this is almost always a merge, split or bad row: a person looks before HubSpot changes
+
+
+def plan_list_sizes(practices, rows):
+    """(auto, held): non-customer companies whose HubSpot Patient List Size differs from the NHS figure. Customers keep their contract size until renewal."""
+    auto, held = [], []
+    for r in rows:
+        p = practices.get(r["ods_code"])
+        if not p or not r.get("hubspot_company_id") or r.get("hubspot_customer") or p.get("status") != "Active" or p.get("merged_into"):
+            continue
+        now, base = int(p.get("total_patients") or 0), int(r.get("hubspot_list_size") or 0)
+        if now <= 0 or now == base:
+            continue
+        (held if base and abs(now - base) / base > SIZE_HOLD else auto).append({"ods": r["ods_code"], "id": str(r["hubspot_company_id"]), "name": p["practice_name"], "from": base or None, "to": now})
+    return auto, held
+
+
+def list_size_sync_enabled(rest):
+    try:
+        return any(r.get("key") == "list_size_sync" and (r.get("value") or {}).get("enabled") is True for r in rest.select_all("app_flags", "key,value", order="key"))
+    except Exception:  # noqa: BLE001 - the flag table is optional
+        return False
+
+
+def push_list_sizes(rest, hub, auto):
+    """Write the changed sizes to HubSpot in batches; returns (written, error). A token without the company write scope stops here and says so."""
+    done, err = [], None
+    for ch in chunks(auto, 100):
+        try:
+            hub.call("POST", "/crm/v3/objects/companies/batch/update", json={"inputs": [{"id": c["id"], "properties": {"patient_list_size": str(c["to"])}} for c in ch]})
+        except Exception as e:  # noqa: BLE001
+            err = str(e)[:300]
+            break
+        rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], "hubspot_list_size": c["to"]} for c in ch], "ods_code")
+        done += ch
+    return done, err
+
+
 def revenue_fields(deal_ids, deals, service_ids, services, customer, model):
     """Contracted ARR (live Service ACV, else closed-won deal amounts flagged 'deal') and the open deal pipeline for one practice."""
     live = [services[s] for s in service_ids if services.get(s, {}).get("hs_pipeline_stage") in LIVE_SERVICE_STAGES]
@@ -476,7 +514,7 @@ def record(rest, rows, actor):
 
 def sync(rest, hub, now=None, actor="daily sync"):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,postcode,status,merged_into,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
+    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,postcode,status,merged_into,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
     by_ods = {}
     for c in raw:
@@ -512,6 +550,15 @@ def sync(rest, hub, now=None, actor="daily sync"):
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
                          "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
+    auto, held = plan_list_sizes(practices, rows)
+    sizes = {"list_sizes_pending": len(auto), "list_sizes_held": len(held)}
+    if auto and list_size_sync_enabled(rest):
+        written, err = push_list_sizes(rest, hub, auto)
+        sizes["list_sizes_written"] = len(written)
+        if err:
+            sizes["list_size_error"] = err
+        record(rest, [{"kind": "list_size_sync", "ok": not err, "summary": f"Updated {len(written):,} list sizes in HubSpot; {len(held)} held back for review" + (f"; stopped: {err}" if err else ""),
+                       "detail": {"changes": written[:300], "held": held[:100], "error": err}}], actor)
     audit_all = audit_rows(raw, practices, now)
     conflicts = []
 
@@ -545,7 +592,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
     return {**nets, **pcn_stats, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
-            "contacts_updated": len(crow), **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
+            "contacts_updated": len(crow), **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
 
 
 def main():

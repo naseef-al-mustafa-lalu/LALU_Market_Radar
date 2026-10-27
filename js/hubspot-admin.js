@@ -71,7 +71,29 @@ async function hsCreateRun(action, extra) {
 /* ---------- Data > Overview: HubSpot integration panel (health, what needs attention, activity log, run sync now) ---------- */
 const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_check: ["Check", "bg-slate-100 text-slate-700"], create_company: ["Company created", "bg-emerald-100 text-emerald-800"], create_lead: ["Lead created", "bg-emerald-100 text-emerald-800"], add_contacts: ["Contacts added", "bg-emerald-100 text-emerald-800"],
   link_company: ["Company linked", "bg-emerald-100 text-emerald-800"], pcn_created: ["PCN created", "bg-violet-100 text-violet-800"], pcn_repaired: ["PCN corrected", "bg-violet-100 text-violet-800"],
-  pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"] };
+  pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"],
+  list_size_sync: ["List sizes synced", "bg-violet-100 text-violet-800"], list_size: ["List size set", "bg-blue-100 text-blue-800"] };
+let hsSizeOn = false;
+function hsSizePlan() {      // mirrors the sync: non-customers follow the NHS figure; a jump of more than 25% waits for a person; customers wait for renewal
+  const auto = [], held = [];
+  for (const p of practices) {
+    if (!p.hubspot_company_id || p.hubspot_customer || p.status !== "Active" || p.merged_into || !(p.total_patients > 0)) continue;
+    const base = Number(p.hubspot_list_size) || 0, now = Number(p.total_patients); if (now === base) continue;
+    (base && Math.abs(now - base) / base > 0.25 ? held : auto).push({ p, base, now });
+  }
+  return { auto, held, customers: practices.filter(p => sizeDrift(p) && sizeDrift(p).diff).length };
+}
+function hsSizeCard() {
+  const { auto, held, customers } = hsSizePlan();
+  return `<div class="mt-4 rounded-lg border border-slate-200 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div><div class="text-sm font-bold">List sizes in HubSpot</div><div class="text-xs text-slate-500">Non-customers follow the NHS figure after each monthly load. Customers keep their contract size until renewal.</div></div>
+    <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="hsp-size-auto" class="h-4 w-4 accent-lalu-teal-700" ${hsSizeOn ? "checked" : ""}> Update automatically</label></div>
+    <div class="mt-2 text-sm"><b>${auto.length.toLocaleString()}</b> would update · <b>${held.length.toLocaleString()}</b> held back (changed by more than 25%) · <b>${customers.toLocaleString()}</b> customers differ from NHS (review at renewal)</div>
+    <div class="mt-2 flex flex-wrap gap-2"><button type="button" id="hsp-size-prev" class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Preview changes</button>${held.length ? '<button type="button" id="hsp-size-held" class="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">Review held back</button>' : ""}</div></div>`;
+}
+function hsSizeList(rows, approve) {
+  const r = rows.slice(0, 200).map(({ p, base, now }) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${esc(p.practice_name)} <span class="font-mono text-xs text-slate-400">${esc(p.ods_code)}</span></td><td class="px-2 text-right font-mono">${base ? base.toLocaleString() : "blank"}</td><td class="px-2 text-right font-mono">${now.toLocaleString()}</td><td class="px-2 text-right font-mono ${base && Math.abs(now - base) / base > 0.25 ? "text-amber-700" : ""}">${base ? (now > base ? "+" : "−") + Math.round(Math.abs(now - base) / base * 1000) / 10 + "%" : ""}</td>${approve ? `<td class="pl-2 text-right"><button type="button" class="hsp-size-ok rounded-md border border-slate-300 px-2 py-0.5 text-xs font-semibold hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Approve</button></td>` : ""}</tr>`).join("");
+  return `<div class="max-h-96 overflow-y-auto"><table class="w-full text-sm"><thead class="text-left text-[11px] uppercase tracking-wider text-slate-500"><tr><th>Practice</th><th class="px-2 text-right">HubSpot</th><th class="px-2 text-right">NHS</th><th class="px-2 text-right">Change</th>${approve ? "<th></th>" : ""}</tr></thead><tbody>${r}</tbody></table></div>${rows.length > 200 ? `<p class="mt-2 text-xs text-slate-500">Showing 200 of ${rows.length.toLocaleString()}.</p>` : ""}`;
+}
 let hsLog = [], hsLogFilter = "all", hsLogQuery = "", hsPanelTimer = null;
 const hsAgo = iso => { if (!iso) return "never"; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago"; };
 const HS_CALL_LABEL = { hub: "Company page", deal_prefill: "Form data (owners, pipelines)", read: "Read a deal (profile strip, re-check)", write: "Push pricing", find: "Find company", create_deal: "Create deal", create_lead: "Create lead", create_company: "Create company", add_contacts: "Add contacts", log_check: "Log check", link_company: "Link company" };
@@ -87,7 +109,8 @@ function hsTimingHtml() {
 async function renderHubspotPanel() {
   const box = $("d-hubspot"); if (!box) return;
   if (!box.innerHTML) box.innerHTML = '<p class="text-sm text-slate-500">Loading HubSpot status…</p>';
-  const [{ data: act }, { data: links }] = await Promise.all([db.from("hubspot_activity").select("*").order("at", { ascending: false }).limit(300), fetchAll("hubspot_network_links", "org_id", "org_id").then(data => ({ data }))]);   // all rows: a plain select stops at 1,000
+  const [{ data: act }, { data: links }, { data: flags }] = await Promise.all([db.from("hubspot_activity").select("*").order("at", { ascending: false }).limit(300), fetchAll("hubspot_network_links", "org_id", "org_id").then(data => ({ data })), db.from("app_flags").select("key,value")]);   // all rows: a plain select stops at 1,000
+  hsSizeOn = ((flags || []).find(f => f.key === "list_size_sync") || {}).value?.enabled === true;
   hsLog = act || [];
   const run = hsLog.find(r => r.kind === "sync_run"), st = (run && run.detail) || {}, ok = run ? run.ok : null;
   const eligible = practices.filter(p => p.status === "Active" && p.total_patients > 0), missing = eligible.filter(p => !p.hubspot_company_id);
@@ -108,7 +131,7 @@ async function renderHubspotPanel() {
     <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">${tile("Last sync", run ? hsAgo(run.at) : "never", run ? esc(run.actor) : "")}
       ${tile("Practices linked", (eligible.length - missing.length).toLocaleString(), "of " + eligible.length.toLocaleString() + " active with a list size")}${tile("Customers", practices.filter(p => hsState(p) === "customer").length.toLocaleString(), practices.filter(p => hsState(p) === "freemium").length.toLocaleString() + " more are Freemium")}
       ${tile("Engaged", practices.filter(p => p.hubspot_engaged && !p.hubspot_customer).length.toLocaleString())}${tile("PCN / ICB records linked", linkedIds.size.toLocaleString(), (st.pcn_records_created ? st.pcn_records_created + " created last run" : ""))}</div>
-    <h3 class="mt-4 text-sm font-bold">Needs attention</h3><div id="hsp-attn">${items || '<p class="text-sm text-slate-500">Nothing needs attention.</p>'}</div>${hsTimingHtml()}
+    ${hsSizeCard()}<h3 class="mt-4 text-sm font-bold">Needs attention</h3><div id="hsp-attn">${items || '<p class="text-sm text-slate-500">Nothing needs attention.</p>'}</div>${hsTimingHtml()}
     <div class="mt-4 flex flex-wrap items-center justify-between gap-2"><h3 class="text-sm font-bold">Activity log <span class="font-normal text-xs text-slate-500">everything the tool has done to HubSpot</span></h3>
       <div class="flex flex-wrap items-center gap-2"><select id="hsp-filter" class="rounded-md border border-slate-300 px-2 py-1 text-xs" aria-label="Filter activity">${[["all", "All activity"], ["push", "Pricing pushes"], ["create", "Companies created or linked"], ["pcn", "PCN records"], ["sync", "Sync runs"], ["bad", "Needs attention"]].map(([k, l]) => `<option value="${k}" ${hsLogFilter === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <input id="hsp-q" value="${esc(hsLogQuery)}" placeholder="Search practice or text" class="rounded-md border border-slate-300 px-2 py-1 text-xs" aria-label="Search activity"><button id="hsp-csv" class="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold hover:bg-slate-50">Export CSV</button></div></div>
@@ -120,6 +143,14 @@ async function renderHubspotPanel() {
   $("hsp-filter").onchange = e => { hsLogFilter = e.target.value; hsLogRender(); };
   $("hsp-q").oninput = e => { hsLogQuery = e.target.value; hsLogRender(); };
   $("hsp-csv").onclick = () => downloadCsv("Lalu_HubSpot_Activity", ["Time", "Who", "Type", "Practice", "Record", "Summary", "OK"], hsLogRows().map(r => [r.at, r.actor, (HS_KINDS[r.kind] || [r.kind])[0], r.ods_code, r.target, r.summary, r.ok ? "yes" : "no"]));
+  $("hsp-size-auto").onchange = async e => {
+    const on = e.target.checked, n = hsSizePlan().auto.length;
+    if (on && !confirm(`Turn on automatic list-size updates?\n\nThe next sync (daily at 08:30 UTC, or Run sync now) will write ${n.toLocaleString()} list sizes to non-customer HubSpot companies. Customers are never changed this way, and jumps of more than 25% are held for review.`)) { e.target.checked = false; return; }
+    const { error } = await db.from("app_flags").upsert([{ key: "list_size_sync", value: { enabled: on }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) { e.target.checked = !on; $("hsp-msg").textContent = error.message; return; }
+    hsSizeOn = on; $("hsp-msg").textContent = on ? "Automatic list-size updates are on from the next sync." : "Automatic list-size updates are off.";
+  };
+  $("hsp-size-prev").onclick = () => { const { auto } = hsSizePlan(); audModal("Would update on the next sync", auto.length ? hsSizeList(auto, false) : '<p class="text-sm text-slate-600">Every non-customer list size already matches the NHS figure.</p>', null); };
+  const held = $("hsp-size-held"); if (held) held.onclick = () => audModal("Held back: changed by more than 25%", '<p class="mb-2 text-xs text-slate-500">Check these are real (not a merge, split or bad row), then approve to write the NHS figure to HubSpot.</p>' + hsSizeList(hsSizePlan().held, true), null);
   $("hsp-sizes").onclick = () => {      // active, unmerged practices already in HubSpot: Record ID matches the company, so the import updates it
     const rows = practices.filter(p => p.hubspot_company_id && p.status === "Active" && !p.merged_into && p.total_patients > 0).sort((a, b) => a.ods_code.localeCompare(b.ods_code));
     downloadCsv("Lalu_HubSpot_ListSizes", ["Record ID", "Company name", "GP ODS Code", "Patient List Size"], rows.map(p => [p.hubspot_company_id, p.practice_name, p.ods_code, p.total_patients]));
@@ -150,3 +181,10 @@ function hsLogRender() {
     : '<p class="py-3 text-sm italic text-slate-500">No activity matches.</p>';
   box.querySelectorAll("[data-hsp-open]").forEach(a => a.onclick = e => { e.preventDefault(); const p = practices.find(x => x.ods_code === a.dataset.hspOpen); if (p) { showTab("practices"); openDrawer(p); } });
 }
+
+document.addEventListener("click", async e => {      // approve one held-back list size: write the NHS figure to HubSpot now
+  const b = e.target.closest(".hsp-size-ok"); if (!b) return;
+  const p = byOds.get(b.dataset.ods); if (!p) return; b.disabled = true; b.textContent = "Writing…";
+  try { await hsCall({ action: "set_list_size", ods: p.ods_code, companyId: String(p.hubspot_company_id), size: Number(p.total_patients) }); p.hubspot_list_size = p.total_patients; b.closest("tr").remove(); }
+  catch (err) { b.disabled = false; b.textContent = "Failed"; b.title = err.message; }
+});
