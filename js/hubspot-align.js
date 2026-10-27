@@ -37,10 +37,9 @@ function alignHsRows(p) {      // inside the profile's HubSpot section: HubSpot'
   const rows = [];
   rows.push(kv("Org Type", val(a.org.hs, HS_ORG_LABEL) + (a.org.ok ? "" : " " + ALIGN_FLAG)), kv("Operating status", val(a.status.hs, HS_OPSTATUS_LABEL) + (a.status.ok ? "" : " " + ALIGN_FLAG)));
   if (a.link) rows.push(kv("Parent company", a.link.ok ? esc(a.link.parent.practice_name) : (a.link.hs ? '<span class="text-slate-600">A different company</span>' : '<span class="text-slate-500">Not linked</span>') + " " + ALIGN_FLAG + ` <span class="text-xs text-slate-400">${a.c.mode === "merged" ? "merged into " : "site operated by "}${esc(a.link.parent.practice_name)}</span>`));
-  const web = a.web.hs ? kv("Website", `<span class="break-all">${esc(a.web.hs)}</span>`) : a.web.atlas ? kv("Website", '<span class="text-slate-500">Blank</span> ' + ALIGN_FLAG) : "";
   const note = p.hubspot_change_note ? `<div class="mt-1 text-xs text-slate-500">${esc(p.hubspot_change_note)}</div>` : "";
   const act = alignNeeds(a) && a.c ? `<div class="mt-1"><button type="button" class="hs-entity rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Update HubSpot…</button></div>` : "";
-  return rows.join("") + web + act + note;
+  return rows.join("") + act + note;
 }
 function alignPlan() {
   const rows = practices.filter(p => p.hubspot_company_id), read = alignRead(), out = { rows, read, org: 0, status: 0, webMissing: 0, webDiffers: 0, autoN: 0, cases: [] };
@@ -58,7 +57,7 @@ function alignCard() {
     <div class="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-2"><label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="hsp-align-auto" class="h-4 w-4 accent-lalu-teal-700" ${hsAlignFlag.enabled ? "checked" : ""}> Keep these in step automatically</label>
       <span class="text-xs text-slate-500">${hsAlignFlag.enabled ? `After each daily NHS update the sync compares HubSpot and sets Operating status where it differs (and fills a blank Org Type); on a day with no differences it writes nothing. ${s.read ? `${n(s.autoN || 0)} companies to change.` : "Run the sync once to compare."}` : "Off. When on, each daily sync compares HubSpot with the latest NHS data and writes only the companies that differ."}</span>
       ${hsAlignFlag.enabled && (s.autoN || 0) > ALIGN_MAX && !hsAlignFlag.approve_once ? `<button type="button" id="hsp-align-ok" class="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">Approve this run (${n(s.autoN)} companies)</button>` : ""}${hsAlignFlag.approve_once ? '<span class="text-xs font-semibold text-emerald-700">Approved: applies at the next sync</span>' : ""}</div>
-    <div class="mt-2 text-sm">${s.read ? `<b>${n(s.org)}</b> Org Type differ · <b>${n(s.status)}</b> Operating status differ · <b>${n(s.webMissing)}</b> websites blank in HubSpot${s.webDiffers ? ` · ${n(s.webDiffers)} websites differ (not changed: HubSpot uses the website to identify companies)` : ""}`
+    <div class="mt-2 text-sm">${s.read ? `<b>${n(s.org)}</b> Org Type differ · <b>${n(s.status)}</b> Operating status differ`
       : "These have not been read from HubSpot yet. Run the sync once to compare them."}</div>
     ${s.cases.length ? `<div class="mt-1 text-xs text-slate-500">${s.cases.length} merged practices or moved sites are never changed automatically: each needs its parent company linked, so they are updated one by one.</div>` : ""}</div>`;
 }
