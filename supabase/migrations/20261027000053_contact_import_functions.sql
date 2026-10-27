@@ -4,7 +4,7 @@ declare n_new int := 0; n_chg int := 0; n_sup int := 0; n_prom int := 0; n_gen i
 begin
   if not private.is_allowed() then raise exception 'not authorised'; end if;
   if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) > 1000 then raise exception 'send at most 1000 rows per call'; end if;
-  if p_first then update public.contact_candidates set in_latest = false; end if;   -- the first chunk of an upload: everything is "missing" until it shows up again
+  if p_first then update public.contact_candidates set in_latest = false where in_latest; end if;   -- the first chunk of an upload: everything is "missing" until it shows up again
 
   create temp table if not exists _cc (id text primary key, company_id text, ods varchar(6), first text, last text, email text, phone text, title text, role text, quality text, tier text, status text, reason text, opted_out boolean, bounced boolean, hash text) on commit drop;
   truncate _cc;
