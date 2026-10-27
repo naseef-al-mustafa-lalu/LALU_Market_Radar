@@ -1,0 +1,25 @@
+name: Probe company associations (temporary)
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the company-to-company association labels (read-only)
+        env:
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          tok = os.environ["HUBSPOT_TOKEN"]
+          def get(url):
+              req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()[:300]
+          print("labels", get("https://api.hubapi.com/crm/v4/associations/companies/companies/labels"))
+          s, d = get("https://api.hubapi.com/crm/v3/properties/companies/hs_parent_company_id")
+          print("parent prop", s, json.dumps({k: d.get(k) for k in ("name", "label", "type", "calculated", "hubspotDefined", "modificationMetadata")}) if isinstance(d, dict) else d)
+          PY
