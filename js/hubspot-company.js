@@ -31,8 +31,8 @@ const hsHubCache = {};   // companyId -> { at, hub }: reopening a company shows 
 const hsTitle = (...parts) => { $("hs-title").textContent = ["Atlas", hs.p.practice_name, ...parts].join(" › "); };
 /* contacts Atlas holds for a practice: those that can be sent to HubSpot, and those that cannot (with the reason) */
 async function hsAtlasContacts(p, have = new Set()) {
-  const { data: cs } = await db.from("contacts").select("full_name,job_title,email,phone,email_opt_out").eq("ods_code", p.ods_code).limit(20);
-  const rows = (cs || []).map(c => ({ name: c.full_name, jobtitle: c.job_title, email: c.email, phone: c.phone, optout: c.email_opt_out }));
+  const { data: cs } = await db.from("contacts").select("full_name,job_title,email,phone,email_opt_out,hubspot_status").eq("ods_code", p.ods_code).limit(50);
+  const rows = (cs || []).filter(c => c.hubspot_status !== "Imported").map(c => ({ name: c.full_name, jobtitle: c.job_title, email: c.email, phone: c.phone, optout: c.email_opt_out }));
   if (!rows.length && p.manager_email) rows.push({ name: p.manager_name, jobtitle: p.manager_title, email: p.manager_email, phone: p.manager_phone, optout: p.manager_email_opt_out });
   const ok = [], skipped = [];
   for (const c of rows) {

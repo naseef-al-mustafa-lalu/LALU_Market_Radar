@@ -98,33 +98,66 @@ function audienceDetail(a) {
 function audContactsHtml(a, ods) {
   const c = audContacts.get(ods), p = byOds.get(ods);
   if (!p || !p.hubspot_company_id) return '<p class="py-2 text-sm text-slate-600">This practice is not in HubSpot yet, so its contacts cannot be listed. Add it to HubSpot from its profile first.</p>';
-  if (!c || c.loading) return '<p class="py-2 text-sm text-slate-500">Loading contacts from HubSpot…</p>';
+  if (!c || c.loading) return '<p class="py-2 text-sm text-slate-500">Loading contacts…</p>';
   if (c.error) return `<p class="py-2 text-sm text-rose-700">${esc(c.error)}</p>`;
-  if (!c.list.length) return '<p class="py-2 text-sm text-slate-600">HubSpot holds no contacts for this practice.</p>';
+  const more = c.all ? "" : `<div class="pt-2"><button type="button" class="aud-all text-xs font-semibold text-lalu-teal-700 hover:underline" data-ods="${esc(ods)}" ${c.loading2 ? "disabled" : ""}>${c.loading2 ? "Loading…" : "Show all HubSpot contacts"}</button>${c.error2 ? ` <span class="text-xs text-rose-700">${esc(c.error2)}</span>` : ""}</div>`;
+  if (!c.list.length) return '<p class="py-2 text-sm text-slate-600">No approved contacts for this practice yet.</p>' + more;
   const shown = c.list.filter(k => audRole === "all" || audRoleOf(k.title) === audRole), hidden = c.list.length - shown.length;
   const line = k => {
-    const m = audMember(a, k.id), lock = audLock(a, k.id), done = m && (m.state === "approved" || m.state === "enrolled"), fresh = m && m.state === "skipped" && audNewSignalSince(a, ods, m.state_at), skipped = m && m.state === "skipped" && !fresh, why = !k.email ? "No email address" : k.optout ? "Opted out of email" : k.bad ? "Email address is invalid" : null;
+    const m = audMember(a, k.id), lock = audLock(a, k.id), done = m && (m.state === "approved" || m.state === "enrolled"), fresh = m && m.state === "skipped" && audNewSignalSince(a, ods, m.state_at), skipped = m && m.state === "skipped" && !fresh, why = !k.email ? "No email address" : k.noHs ? "Not in HubSpot yet" : k.optout ? "Opted out of email" : k.bad ? "Email address is invalid" : null;
     const state = lock ? `<span class="text-xs font-semibold text-amber-700">Locked: ${esc(lock)}</span>` : why ? `<span class="text-xs font-semibold text-slate-500">${why}</span>` : done ? `<span class="text-xs font-bold text-emerald-700">${m.state === "enrolled" ? "Enrolled" : "Approved"}</span>` : fresh ? '<span class="text-xs font-semibold text-purple-700">New signal since you skipped</span>' : skipped ? '<span class="text-xs font-semibold text-slate-500">Skipped</span>' : "";
     const off = lock || why || done;
     return `<label class="flex items-center gap-3 border-t border-slate-200 py-2 first:border-0 ${off ? "opacity-70" : "cursor-pointer"}"><input type="checkbox" class="aud-chk h-4 w-4 accent-lalu-teal-700" data-id="${esc(k.id)}" ${off ? "disabled" : ""} ${audTicked.has(k.id) && !off ? "checked" : ""}>
       <span class="min-w-0 flex-1"><span class="block text-sm font-semibold leading-tight">${esc(k.name || k.email || "Unnamed contact")}</span><span class="block truncate text-xs text-slate-500">${esc(k.title || "No job title")}${k.email ? " · " + esc(k.email) : ""}</span></span>${state}</label>`;
   };
-  return `${shown.map(line).join("") || '<p class="py-2 text-sm text-slate-600">No contact here matches this role.</p>'}${hidden ? `<p class="pt-1 text-[11px] text-slate-400">${hidden} hidden by the role filter</p>` : ""}`;
+  return `${shown.map(line).join("") || '<p class="py-2 text-sm text-slate-600">No contact here matches this role.</p>'}${hidden ? `<p class="pt-1 text-[11px] text-slate-400">${hidden} hidden by the role filter</p>` : ""}${more}`;
 }
+// A practice's contacts for an audience: Atlas's approved contacts first (direct addresses for decision-makers, opted-out and bounced already removed); "Show all HubSpot contacts" adds everyone else HubSpot holds.
+// Opt-out, bounce and presence in HubSpot are re-checked live when the ticked contacts are approved (audLiveCheck).
+const audFromHubspot = k => ({ id: String(k.id), name: [k.firstname, k.lastname].filter(Boolean).join(" "), title: k.jobtitle || "", email: k.email || "", optout: String(k.hs_email_optout) === "true", bad: String(k.hs_email_bad_address) === "true", hs: true });
 async function audLoadContacts(ods) {
   const p = byOds.get(ods); if (!p || !p.hubspot_company_id || (audContacts.has(ods) && !audContacts.get(ods).error)) return;
   audContacts.set(ods, { loading: true }); renderAudiences();
   try {
-    const r = await hsCall({ action: "contacts", companyId: String(p.hubspot_company_id) });
-    audContacts.set(ods, { list: (r.contacts || []).map(k => ({ id: String(k.id), name: [k.firstname, k.lastname].filter(Boolean).join(" "), title: k.jobtitle || "", email: k.email || "", optout: String(k.hs_email_optout) === "true", bad: String(k.hs_email_bad_address) === "true" })) });
+    const { data, error } = await db.from("contacts").select("contact_urn,hubspot_contact_id,full_name,job_title,email,email_opt_out,role_tier").eq("ods_code", ods); if (error) throw error;
+    const tier = { A: 0, B: 1, "?": 2 };
+    audContacts.set(ods, { list: (data || []).sort((x, y) => ((tier[x.role_tier] ?? 3) - (tier[y.role_tier] ?? 3)) || String(x.full_name).localeCompare(String(y.full_name))).map(k => ({ id: k.hubspot_contact_id ? String(k.hubspot_contact_id) : "u" + k.contact_urn, name: k.full_name || "", title: k.job_title || "", email: k.email || "", optout: !!k.email_opt_out, bad: false, noHs: !k.hubspot_contact_id })), all: false });
   } catch (e) { audContacts.set(ods, { error: e.message }); }
   renderAudiences();
+}
+async function audLoadAllHubspot(ods) {      // add the practice's other HubSpot contacts (nurses, reception and so on) to its list
+  const p = byOds.get(ods), c = audContacts.get(ods); if (!p || !c || !c.list) return;
+  c.loading2 = true; renderAudiences();
+  try {
+    const r = await hsCall({ action: "contacts", companyId: String(p.hubspot_company_id) }), have = new Set(c.list.map(k => k.id)), seen = new Map(c.list.filter(k => !k.noHs).map(k => [k.id, k]));
+    for (const k of (r.contacts || []).map(audFromHubspot)) { if (seen.has(k.id)) Object.assign(seen.get(k.id), { optout: k.optout, bad: k.bad }); else if (!have.has(k.id)) c.list.push(k); }
+    c.all = true;
+  } catch (e) { c.error2 = e.message; }
+  c.loading2 = false; renderAudiences();
+}
+// Before anything is approved or enrolled: read the ticked contacts' practices live from HubSpot and drop anyone who has since opted out, bounced, or left HubSpot.
+async function audLiveCheck(ids) {
+  const keep = new Set(), dropped = [], by = new Map();
+  for (const [ods, c] of audContacts) for (const k of c.list || []) if (ids.has(k.id)) (by.get(ods) || by.set(ods, []).get(ods)).push(k);
+  for (const [ods, ks] of by) {
+    const p = byOds.get(ods); let live = null;
+    try { live = (await hsCall({ action: "contacts", companyId: String(p.hubspot_company_id) })).contacts || []; } catch (_) { /* HubSpot unreachable: the push itself will say so */ }
+    const m = new Map((live || []).map(x => [String(x.id), x]));
+    for (const k of ks) {
+      const h = m.get(k.id), who = k.name || k.email || "A contact";
+      if (live && !h) { dropped.push(`${who}: no longer in HubSpot`); k.noHs = true; }
+      else if (h && String(h.hs_email_optout) === "true") { dropped.push(`${who}: has opted out`); k.optout = true; }
+      else if (h && String(h.hs_email_bad_address) === "true") { dropped.push(`${who}: email address is invalid`); k.bad = true; }
+      else keep.add(k.id);
+    }
+  }
+  return { keep, dropped };
 }
 // Tick the eligible contacts (an email, not opted out, not locked, not decided yet) whose job title fits the chosen role, in every practice opened so far.
 function audTickRole() {
   audTicked.clear(); if (audRole === "all") return;
   const a = audiences.find(x => x.id === audOpen); if (!a) return;
-  for (const [ods, c] of audContacts) for (const k of c.list || []) if (audRoleOf(k.title) === audRole && k.email && !k.optout && !k.bad && !audLock(a, k.id) && !audMember(a, k.id)) audTicked.add(k.id);
+  for (const [ods, c] of audContacts) for (const k of c.list || []) if (audRoleOf(k.title) === audRole && k.email && !k.noHs && !k.optout && !k.bad && !audLock(a, k.id) && !audMember(a, k.id)) audTicked.add(k.id);
 }
 async function audDecideIds(a, ids, state) {
   const me = (await db.auth.getSession()).data.session?.user?.email || "unknown", now = new Date().toISOString(), rows = [];
@@ -163,14 +196,17 @@ async function audSequenceOpen(a) {
 // Approve into HubSpot: decisions are stored first, then the contacts go to the audience's list and (when asked) into its sequence.
 async function audApprove(a, ids, enrol) {
   if (!ids.size) return;
+  const chk = await audLiveCheck(ids), dropNote = chk.dropped.length ? "Left out after a live HubSpot check: " + chk.dropped.join("; ") : "";
+  ids = chk.keep; if (!ids.size) { audNotice = dropNote; audTicked.clear(); renderAudiences(); return; }
+  for (const id of [...audTicked]) if (!ids.has(id)) audTicked.delete(id);
   const n = ids.size, go = async () => {
-    audNotice = ""; await audDecideIds(a, ids, "approved");
+    audNotice = dropNote; await audDecideIds(a, ids, "approved");
     try {
       const r = await hsCall({ action: "audience_push", audienceId: a.id, contactIds: [...ids], enrol });
       if (r.listId && !a.hubspot_list_id) a.hubspot_list_id = r.listId;
       const bad = Object.entries(r.results || {}).filter(([, v]) => v !== "enrolled");
       for (const [id, v] of Object.entries(r.results || {})) { const m = audMembers.find(x => x.audience_id === a.id && x.contact_id === id); if (m) { m.state = v === "enrolled" ? "enrolled" : m.state; m.hubspot_note = v === "enrolled" ? null : v; } }
-      audNotice = [...(r.warnings || []), bad.length ? `${bad.length} contact${bad.length === 1 ? "" : "s"} could not be enrolled (${bad[0][1]})` : ""].filter(Boolean).join(" · ");
+      audNotice = [dropNote, ...(r.warnings || []), bad.length ? `${bad.length} contact${bad.length === 1 ? "" : "s"} could not be enrolled (${bad[0][1]})` : ""].filter(Boolean).join(" · ");
     } catch (e) { audNotice = "Saved here, but HubSpot did not accept it: " + e.message; }
     renderAudiences();
   };
@@ -269,6 +305,7 @@ document.addEventListener("click", e => {
   if (t.closest(".aud-delete") && a) { audModal("Delete audience", `<p class="text-sm">Delete “${esc(a.name)}”? Contacts you approved in it are kept on record, but they are no longer locked into this audience.</p>`,
     async () => { const { error } = await db.from("audiences").update({ archived: true }).eq("id", a.id); if (error) throw error; audiences = audiences.filter(x => x.id !== a.id); audMembers = audMembers.filter(m => m.audience_id !== a.id); audOpen = null; audModalClose(); renderAudiences(); }, "Delete"); return; }
   const row = t.closest(".aud-row"); if (row) { const o = row.dataset.ods; audExpanded.has(o) ? audExpanded.delete(o) : audExpanded.add(o); renderAudiences(); if (audExpanded.has(o)) audLoadContacts(o).then(() => { if (audRole !== "all") { audTickRole(); renderAudiences(); } }); return; }
+  const all = t.closest(".aud-all"); if (all) { audLoadAllHubspot(all.dataset.ods); return; }
   if (a && t.closest(".aud-skip-all")) { audDecideIds(a, new Set(audTicked), "skipped"); return; }
   if (a && t.closest(".aud-approve-all")) { audApprove(a, new Set(audTicked), false); return; }
   if (a && t.closest(".aud-enrol-all")) { audApprove(a, new Set(audTicked), true); return; }
