@@ -48,7 +48,7 @@ window.supabase = { createClient: () => {
       if (b.action === 'add_contacts') return { data: { ok: true, contacts: (b.contacts || []).map((c, i) => ({ email: c.email.toLowerCase(), id: 'n' + i, existed: false })), warnings: [] } };
       if (b.action === 'sequences') return { data: { sender: 'new@lalu.co.uk', sequences: [{ id: 's1', name: 'Hiring follow-up' }, { id: 's2', name: 'CQC change' }] } };
       if (b.action === 'sequence_status') return { data: { status: Object.fromEntries(b.sequences.map(x => [x.id, x.id === 's2' ? { state: 'empty', sender: 'new@lalu.co.uk' } : { state: 'ready', steps: 3, sender: 'new@lalu.co.uk' }])) } };
-      if (b.action === 'entity_change') return { data: { ok: true, warnings: [] } };
+      if (b.action === 'entity_change') return { data: { ok: true, warnings: [], branchId: '900', created: true, contactsLinked: 2 } };
       if (b.action === 'set_list_size') return { data: { ok: true, size: b.size } };
       if (b.action === 'audience_push') return { data: { ok: true, listId: '9001', listed: true, results: b.enrol ? Object.fromEntries(b.contactIds.map(i => [i, 'enrolled'])) : {}, warnings: [] } };
       if (b.action === 'audience_stats') return { data: { contacts: Object.fromEntries(b.contactIds.map(i => [i, { hs_sequences_is_enrolled: 'true', hs_sales_email_last_opened: '2099-01-01T00:00:00Z', hs_sales_email_last_replied: '2099-01-02T00:00:00Z', hs_sales_email_last_clicked: '2099-01-03T00:00:00Z', hs_v2_date_entered_marketingqualifiedlead: '2099-01-04T00:00:00Z' }])) } };
@@ -126,6 +126,14 @@ with sync_playwright() as p:
       const mk = (name, pc) => ({ ods_code: 'G82064', practice_name: name, status: 'Closed', postcode: pc }), r = [siteMove(mk('Dashwood Medical Centre', 'CT11 9PR')), siteMove(mk('Dr Gt Hendow Practice', 'CT11 9PR')), siteMove(mk('Dashwood Medical Centre', 'XX1 1XX'))].map(x => x && x.branch.branch_code);
       branches.pop(); return r; })()""")
     assert sm == ["T1R0M", None, None], sm      # a closed code whose site goes on as a branch: same postcode and the practice's own name, not just a shared building
+    pg.evaluate("""(() => { branches.push({ branch_code: 'T1R0M', branch_name: 'Test Annex A', address: '1 High St', town: 'Leeds', postcode: 'LS9 9AA', phone: '0113', resolution: 'branch', status: 'Active', practice_code: 'A10001', match_status: 'auto' });
+      Object.assign(byOds.get('A10009'), { status: 'Closed', hubspot_company_id: '449', postcode: 'LS9 9AA', hubspot_org_type: 'practice', hubspot_operating_status: 'active' }); openDrawer(byOds.get('A10009')); })()""")
+    pg.wait_for_selector(".hs-entity"); pg.click(".hs-entity"); pg.wait_for_selector("#ent-contacts"); bm = pg.inner_text("#aud-modal-body")
+    assert "Closed" in bm and "T1R0M" in bm and "No ODS code is changed" in bm and "Test Surgery 1" in bm and "emails and activity" in bm, bm      # option A: the old company stays as the closed record, the branch gets its own company
+    pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-modal').classList.contains('hidden')")
+    ebr = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'entity_change').pop()[1]"); assert ebr["mode"] == "branch" and ebr["ods"] == "A10009" and ebr["branch"]["code"] == "T1R0M" and ebr["moveContacts"] is True and ebr["parentCompanyId"] == "441" and "ods_code" not in ebr["branch"], ebr
+    assert "Closed; site continues as T1R0M" in pg.inner_text("#dr-body"), pg.inner_text("#dr-body")[-600:]      # the profile keeps a one-line record of what was done
+    pg.evaluate("branches.pop()"); pg.keyboard.press("Escape")
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector("#dr-body", state="visible"); ct = pg.inner_text("#dr-body")
     assert "List size now" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
     assert "List size in contract" in ct and "9,000" in ct and "13,000" in ct and "+4,000 (+44.4%)" in ct and "T4 → T3" in ct and "check whether a new contract is needed" in ct, ct      # contract basis against today's NHS figure, tier moved
