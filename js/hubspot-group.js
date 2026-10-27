@@ -52,7 +52,7 @@ async function hsGroupRun() {
       const w = want.line;
       await hsCall({ action: "write", ods: p.ods_code, companyId: String(companyId), dealId: d.dealId, company: { patient_list_size: p.total_patients },
         deal: { size_discount: hsPct(want.size), speed_discount: hsPct(want.speed), term_length_discount: hsPct(want.term), term_length_years: String(want.termYears), referral_discount: hsPct(want.referral), size_tier: want.tier, commercial_model: want.model, value_per_patient: want.vpp },
-        lineItem: { productId: w.productId, quantity: w.quantity, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
+        lineItem: { productId: w.productId, quantity: w.quantity, listUnit: w.listUnit, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
       done++; row(i, `<span class="text-emerald-700">✓ Created</span> ${hsLink("0-3", d.dealId, "Open deal")}`);
     } catch (e) { failed++; row(i, `<span class="text-rose-700" title="${esc(e.message)}">✗ ${esc(e.message.slice(0, 90))}</span>`); }
   }

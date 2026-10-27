@@ -124,13 +124,13 @@ async function hsDealForm(company) {
     const close = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10), amount = Math.round(p.total_patients * want.rate * 12 * 100) / 100;
     const field = hsField, inp = hsInp;
     const opts = hsOpts;
-    const w = want.line, mo = w.frequency === "monthly", annual = Math.round(p.total_patients * want.rate * 12 * 100) / 100;
+    const w = want.line, annual = Math.round(p.total_patients * want.rate * 12 * 100) / 100;
     const pt = (k, v, sub = "") => `<div class="rounded-lg bg-white px-2.5 py-1.5"><div class="text-[11px] uppercase tracking-wider text-slate-500">${k}</div><div class="font-mono font-semibold">${v}</div>${sub ? `<div class="text-[11px] text-slate-500">${sub}</div>` : ""}</div>`;
     const pricing = `<div class="mb-3 rounded-xl bg-slate-50 p-3"><div class="mb-2 flex items-center justify-between"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Pricing to be sent with this deal</h4><span class="text-xs text-slate-500">from the price card: ${esc(want.label)}</span></div>
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Patients", p.total_patients.toLocaleString(), esc(want.tier))}${pt("List price", "£" + rate3(want.list) + " /mo", "per patient")}
         ${pt("Total discount", pct(want.total), `size ${pct(want.size)} · term ${pct(want.term)} · speed ${pct(want.speed)}${want.referral > 0 ? " · referral " + pct(want.referral) : ""}`)}${pt("Net price", "£" + rate3(want.rate) + " /mo", "per patient")}</div>
-      <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Annual revenue", gbpFull(annual), "becomes the deal Amount")}${pt("Line item", esc(w.productName), mo ? "billed monthly" : "billed annually")}
-        ${pt("Unit discount", "£" + rate3(Math.max(0, w.listUnit - w.netUnit)), "off £" + rate3(w.listUnit) + (mo ? " /mo" : " /yr"))}${pt("Term", w.termMonths + " month" + (w.termMonths > 1 ? "s" : ""), mo ? "auto-renews" : w.payments + " payment" + (w.payments > 1 ? "s" : ""))}</div></div>`;
+      <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Annual revenue", gbpFull(annual), "becomes the deal Amount")}${pt("Line item", esc(w.productName), "billed monthly")}
+        ${pt("Unit discount", "£" + rate3(Math.max(0, w.listUnit - w.netUnit)), "off £" + rate3(w.listUnit) + " /mo")}${pt("Contract term", w.term + " month" + (w.term > 1 ? "s" : ""), "the product")}</div></div>`;
     box.innerHTML = `${pricing}<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New deal on ${esc(company.name)}</h4>
       <div class="grid gap-2 sm:grid-cols-2">
         <div class="sm:col-span-2">${field("Deal name", `<input id="nd-name" class="${inp}" value="${esc(lead ? lead + " - " + company.name : company.name)}">`)}</div>
@@ -200,7 +200,7 @@ async function hsLeadForm(company) {
 }
 
 /* step 2: preview exactly what will be written */
-const monthlyNote = w => w.frequency === "monthly" ? " per patient per month" : " per patient per year";
+const monthlyNote = () => " per patient per month";
 function hsPreview() {
   hsTitle(hs.auto ? "Create deal" : "Push pricing");
   const { p, want, company, deal } = hs, pctShow = v => v == null ? "not set" : pct(v / HS_PCT);
@@ -223,15 +223,15 @@ function hsPreview() {
     .map(([l, nowV, hv, tv]) => chg(l, pctShow(hsNum(nowV)), pct(tv), sameNum(nowV, hv))).join("") + chg("Term length (years)", esc(deal.term_length_years || "not set"), String(want.termYears), String(deal.term_length_years) === String(want.termYears));
   const nDeal = [sameNum(deal.size_discount, hsPct(want.size)), sameNum(deal.speed_discount, hsPct(want.speed)), sameNum(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), !refShown || sameNum(deal.referral_discount || 0, hsPct(want.referral))].filter(x => !x).length;
   const tile = (k, v, changed, sub = "") => `<div class="rounded-lg ${changed ? "bg-emerald-50 ring-1 ring-emerald-200" : "bg-slate-50"} px-3 py-2"><div class="text-[11px] uppercase tracking-wider text-slate-500">${k}</div><div class="font-mono font-semibold">${v}</div>${sub ? `<div class="text-[11px] text-slate-500">${sub}</div>` : ""}</div>`;
-  const cur = line.cur, unitNow = cur ? line.unit : w.listUnit, discNew = Math.max(0, unitNow - w.netUnit);
+  const cur = line.cur, discNew = Math.max(0, w.listUnit - w.netUnit);
   const lineCard = line.unreadable ? '<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Line items cannot be read with the current HubSpot token. Add the <b>crm.objects.line_items.read / write</b> scopes (and e-commerce) to include the line item in this push.</div>'
     : `<div class="mb-2 text-sm font-semibold">${esc(w.productName)} ${line.action === "create" ? '<span class="ml-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">new line</span>' : line.action === "replace" ? '<span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">replaces ' + esc(cur.name || "existing line") + '</span>' : ""}</div>
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">${tile("Quantity", w.quantity.toLocaleString() + " patients", !cur || Number(cur.quantity) !== w.quantity, cur ? "now " + Number(cur.quantity).toLocaleString() : "")}
-        ${tile("Unit price", "£" + rate3(w.listUnit) + (w.frequency === "monthly" ? " /mo" : " /yr"), false, "set on the HubSpot product")}
+        ${tile("Unit price", "£" + rate3(w.listUnit) + " /mo", !cur || Math.abs((Number(cur.price) || 0) - w.listUnit) >= 0.0006, cur ? "now £" + rate3(Number(cur.price) || 0) : "set by the tool")}
         ${tile("Unit discount", "£" + rate3(discNew), !cur || Math.abs((Number(cur.discount) || 0) - discNew) >= 0.0006, cur ? "now £" + rate3(Number(cur.discount) || 0) : "")}
-        ${tile("Net unit price", "£" + rate3(w.netUnit) + (w.frequency === "monthly" ? " /mo" : " /yr"), false, "£" + rate3(w.netUnit / (w.frequency === "monthly" ? 1 : 12)) + " per patient per month")}
-        ${tile("Term", w.termMonths + " month" + (w.termMonths > 1 ? "s" : ""), !cur || cur.hs_recurring_billing_period !== `P${w.termMonths}M`, cur ? "now " + esc(cur.hs_recurring_billing_period || "not set") : "")}
-        ${tile("Billing", w.frequency === "monthly" ? "Monthly" : "Annually", false, w.frequency === "monthly" ? "auto-renews" : w.payments + " payment" + (w.payments > 1 ? "s" : ""))}</div>`;
+        ${tile("Net unit price", "£" + rate3(w.netUnit) + " /mo", false, "per patient per month")}
+        ${tile("Contract term", w.term + " month" + (w.term > 1 ? "s" : ""), false, "the product (Annual or Monthly)")}
+        ${tile("Billing", "Monthly", !cur || cur.recurringbillingfrequency !== "monthly", cur ? "now " + esc(cur.recurringbillingfrequency || "not set") : "everyone is billed monthly")}</div>`;
   const nLine = line.unreadable || line.same ? 0 : 1;
   const g = want.group, removing = !g && !want.member && hsNum(deal.referral_discount) > 0, mg = !g && want.member;
   const groupCard = g ? sectionCard("Referral group", '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Conditional</span>', `<div class="text-sm text-slate-700">${g.members.map(m => esc(m.name) + " · " + m.patients.toLocaleString()).join("<br>")}</div>
@@ -272,7 +272,7 @@ async function hsWrite(checks) {
   $("hs-write").disabled = true; $("hs-write").textContent = "Writing…"; msg.innerHTML = "";
   try {
     const w = want.line, wr = await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps, referral,
-      lineItem: hs.lineItems == null ? undefined : { productId: w.productId, quantity: w.quantity, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
+      lineItem: hs.lineItems == null ? undefined : { productId: w.productId, quantity: w.quantity, listUnit: w.listUnit, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
     hs.lineItems = wr.lineItems ?? hs.lineItems; hs.warnings = wr.warnings || [];
     refSaved.delete(p.ods_code); refGroups = null; repaintPriceCards();   // the saved group strip reloads
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
@@ -309,7 +309,7 @@ async function hsValidate(tries) {
     msg.innerHTML = `<div class="space-y-2">${line(okT, "Total Discount %", last.total_discount == null ? "not set" : pct(hsNum(last.total_discount) / HS_PCT), pct(want.total))}
       ${line(okV, "Actual Value per Patient (Calculated)", blankV ? "not set" : "£" + rate3(last.actual_value_per_patient_calculated), "£" + rate3(want.rate))}
       ${okA === null ? "" : line(okA, "Deal amount = line item per year", "£" + amt.toLocaleString(undefined, { maximumFractionDigits: 2 }), "£" + lineAmt.toLocaleString(undefined, { maximumFractionDigits: 2 }))}
-      ${lineNow || hs.lineItems != null ? line(okL, "Line item net unit price", lineNow ? "£" + rate3(lineNet) + (lw.frequency === "monthly" ? " /mo" : " /yr") : "none", "£" + rate3(lw.netUnit) + (lw.frequency === "monthly" ? " /mo" : " /yr")) : ""}</div>
+      ${lineNow || hs.lineItems != null ? line(okL, "Line item net unit price", lineNow ? "£" + rate3(lineNet) + " /mo" : "none", "£" + rate3(lw.netUnit) + " /mo") : ""}</div>
       <p class="mt-2 text-xs text-slate-500">${done ? "HubSpot matches the tool. The link is saved for next time." : okT && okV === null ? "Total Discount % matches. HubSpot has not filled in Actual Value per Patient (Calculated) yet, so it could not be compared. The link is saved." : "HubSpot's calculated fields do not match the tool yet. Re-check in a moment, or check the deal's workflow and whether the price floor applies in the tool but not in HubSpot."}</p>
       ${(hs.warnings || []).map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
       ${done ? "" : '<div class="mt-2 text-right"><button id="hs-recheck" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Re-check HubSpot</button></div>'}`;

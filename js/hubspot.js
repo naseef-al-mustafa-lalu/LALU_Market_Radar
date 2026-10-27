@@ -27,10 +27,10 @@ const hsClose = () => { $("hs-modal").classList.add("hidden"); hs = null; };
 const HS_PRODUCTS = { "all|annual": ["440423339237", "ReportSure - All Report - Annual"], "all|monthly": ["440425147578", "ReportSure - All Report - Monthly"],
   "sar|annual": ["440434162881", "ReportSure - SAR Only - Annual"], "sar|monthly": ["440498134244", "ReportSure - SAR Only - Monthly"] };
 const HS_PRODUCT_IDS = new Set(Object.values(HS_PRODUCTS).map(x => x[0]));
-function hsLineWanted(p, monthly, yrs, rate, list) {
-  const [productId, productName] = HS_PRODUCTS[`${product}|${monthly ? "monthly" : "annual"}`], k = monthly ? 1 : 12;
-  return { productId, productName, quantity: p.total_patients, listUnit: Math.round(list * k * 10000) / 10000, netUnit: Math.round(rate * k * 10000) / 10000, termMonths: monthly ? 1 : 12 * yrs,
-    frequency: monthly ? "monthly" : "annually", terms: monthly ? "AUTOMATICALLY_RENEW" : "FIXED", payments: monthly ? null : yrs };
+function hsLineWanted(p, monthly, yrs, rate, list) {      // Annual / Monthly name the contract TERM (and the product); everyone is billed monthly, so prices are always per patient per month
+  const [productId, productName] = HS_PRODUCTS[`${product}|${monthly ? "monthly" : "annual"}`];
+  return { productId, productName, quantity: p.total_patients, listUnit: Math.round(list * 10000) / 10000, netUnit: Math.round(rate * 10000) / 10000, term: monthly ? 1 : 12 * yrs, termMonths: null,
+    frequency: "monthly", terms: "AUTOMATICALLY_RENEW", payments: null };
 }
 const hsOurLine = pair => (pair?.lineItems || []).find(l => HS_PRODUCT_IDS.has(String(l.hs_product_id)));
 // How the deal's current tool line item compares with the wanted one (null when there is none or the token cannot read line items).
@@ -39,7 +39,7 @@ function hsLineStatus(want, pair) {
   const cur = hsOurLine(pair), w = want.line;
   if (!cur) return { action: "create", same: false, cur: null };
   const sameProduct = String(cur.hs_product_id) === w.productId, unit = Number(cur.price) || w.listUnit;
-  const same = sameProduct && Number(cur.quantity) === w.quantity && Math.abs((Number(cur.discount) || 0) - Math.max(0, unit - w.netUnit)) < 0.0006 && cur.hs_recurring_billing_period === `P${w.termMonths}M`;
+  const same = sameProduct && Number(cur.quantity) === w.quantity && Math.abs(unit - w.listUnit) < 0.0006 && Math.abs((Number(cur.discount) || 0) - Math.max(0, w.listUnit - w.netUnit)) < 0.0006 && cur.recurringbillingfrequency === "monthly";
   return { action: sameProduct ? "update" : "replace", same, cur, unit };
 }
 
@@ -101,7 +101,7 @@ function hsShowBar(p) { const html = p ? hsBarHtml(p) : ""; $("dr-hs").innerHTML
 function hsAdoptLine(p, pair) {
   const cur = hsOurLine(pair); if (!cur || pricingTouched || !document.querySelector(".price-card")) return;
   const hit = Object.entries(HS_PRODUCTS).find(([, v]) => v[0] === String(cur.hs_product_id)); if (!hit) return;
-  const prod = hit[0].split("|")[0], bill = cur.recurringbillingfrequency === "monthly" ? "monthly" : cur.recurringbillingfrequency === "annually" ? "annual" : hit[0].split("|")[1];
+  const [prod, bill] = hit[0].split("|");      // the product names the term (annual or monthly plan); billing is monthly either way
   if (prod === product && bill === billing) return;
   product = prod; billing = bill; repaintPriceCards();
 }

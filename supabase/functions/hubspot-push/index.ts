@@ -327,10 +327,10 @@ Deno.serve(async (req) => {
       if (li) {
         if (!LINE_PRODUCTS.has(String(li.productId))) throw new Fail("Unsupported product for the line item");
         if (!(Number.isInteger(li.quantity) && li.quantity > 0 && li.quantity <= 2000000)) throw new Fail("Invalid line item quantity");
-        if (!(Number(li.netUnit) > 0 && Number(li.netUnit) < 100)) throw new Fail("Invalid line item unit price");
-        if (![1, 12, 24, 36].includes(Number(li.termMonths))) throw new Fail("Term must be 1, 12, 24 or 36 months");
+        if (!(Number(li.netUnit) > 0 && Number(li.netUnit) < 100) || !(Number(li.listUnit) > 0 && Number(li.listUnit) < 100)) throw new Fail("Invalid line item unit price");
+        if (li.termMonths != null && ![1, 12, 24, 36].includes(Number(li.termMonths))) throw new Fail("Term must be 1, 12, 24 or 36 months");
         if (!["annually", "monthly"].includes(String(li.frequency)) || !["FIXED", "AUTOMATICALLY_RENEW"].includes(String(li.terms))) throw new Fail("Invalid billing settings");
-        if (li.payments != null && !(Number.isInteger(li.payments) && li.payments >= 1 && li.payments <= 3)) throw new Fail("Invalid number of payments");
+        if (li.payments != null && !(Number.isInteger(li.payments) && li.payments >= 1 && li.payments <= 36)) throw new Fail("Invalid number of payments");
       }
       const before = await readPair(companyId, dealId);   // also proves the deal belongs to the company
       if (li && before.lineItems == null) throw new Fail("The HubSpot token cannot read line items: add the crm.objects.line_items.read and write scopes (and e-commerce for products). Nothing was written.");
@@ -341,22 +341,21 @@ Deno.serve(async (req) => {
       if (li) {
         const ours = before.lineItems.filter((x: any) => LINE_PRODUCTS.has(String(x.hs_product_id)));
         if (ours.length > 1) throw new Fail("This deal has more than one Lalu Care line item. Remove the extras in HubSpot first.");
-        const billing = { hs_recurring_billing_period: `P${Number(li.termMonths)}M`, recurringbillingfrequency: String(li.frequency), hs_recurring_billing_terms: String(li.terms),
+        const billing = { ...(li.termMonths != null ? { hs_recurring_billing_period: `P${Number(li.termMonths)}M` } : {}), recurringbillingfrequency: String(li.frequency), hs_recurring_billing_terms: String(li.terms),   // everyone is billed monthly; Annual or Monthly is the product, so no period is set unless one is sent
+         
           ...(li.payments != null ? { hs_recurring_billing_number_of_payments: String(li.payments) } : {}) };
         let lineId: string, action: string;
         if (ours.length && String(ours[0].hs_product_id) === String(li.productId)) {
           lineId = ours[0].id; action = "updated";
-          await hs(`/crm/v3/objects/line_items/${lineId}`, { method: "PATCH", body: JSON.stringify({ properties: { quantity: String(li.quantity), ...billing } }) });
+          await hs(`/crm/v3/objects/line_items/${lineId}`, { method: "PATCH", body: JSON.stringify({ properties: { quantity: String(li.quantity), price: String(li.listUnit), ...billing } }) });
         } else {
           if (ours.length) { await hs(`/crm/v3/objects/line_items/${ours[0].id}`, { method: "DELETE" }); }   // the tool's own line, for a different product
-          const c = await hs(`/crm/v3/objects/line_items`, { method: "POST", body: JSON.stringify({ properties: { hs_product_id: String(li.productId), quantity: String(li.quantity), ...billing },
+          const c = await hs(`/crm/v3/objects/line_items`, { method: "POST", body: JSON.stringify({ properties: { hs_product_id: String(li.productId), quantity: String(li.quantity), price: String(li.listUnit), ...billing },
             associations: [{ to: { id: dealId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: LINE_TO_DEAL }] }] }) });
           lineId = String(c.id); action = ours.length ? "replaced" : "created";
         }
-        const cur = await hs(`/crm/v3/objects/line_items/${lineId}?properties=price,quantity`);
-        const unit = Number(cur.properties?.price);
-        if (!(unit > 0)) throw new Fail("The line item has no unit price; check the product's price in HubSpot");
-        const discount = Math.max(0, Math.round((unit - Number(li.netUnit)) * 10000) / 10000);   // flat per-unit discount: HubSpot's unit price less the calculator's net price
+        const unit = Number(li.listUnit);   // the price is written explicitly, per patient per month, so it never depends on the product's own price or on what someone later edited
+        const discount = Math.max(0, Math.round((unit - Number(li.netUnit)) * 10000) / 10000);   // flat per-unit discount: the tool's list price less the calculator's net price
         await hs(`/crm/v3/objects/line_items/${lineId}`, { method: "PATCH", body: JSON.stringify({ properties: { discount: String(discount), hs_discount_percentage: "" } }) });
         lineResult = { id: lineId, action, unit, discount };
       }
