@@ -104,7 +104,7 @@ async function renderHubspotPanel() {
     attn(badChecks.length, "recent pricing pushes where HubSpot's calculated values did not match the tool", '<button id="hsp-bad" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Show</button>')].join("");
   box.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3"><div class="flex items-center gap-2"><h2 class="font-bold">HubSpot integration</h2>
       ${chip(ok === null ? "Never synced" : ok ? "Healthy" : "Last sync failed", ok === null ? "bg-slate-100 text-slate-700" : ok ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800")}</div>
-      <div class="flex items-center gap-3"><span id="hsp-msg" class="text-xs text-slate-500" role="status"></span><button id="hsp-run" class="rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Run sync now</button></div></div>
+      <div class="flex items-center gap-3"><span id="hsp-msg" class="text-xs text-slate-500" role="status"></span><button id="hsp-sizes" class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50" title="A CSV for HubSpot's company import that updates Patient List Size">List-size import file</button><button id="hsp-run" class="rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Run sync now</button></div></div>
     <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">${tile("Last sync", run ? hsAgo(run.at) : "never", run ? esc(run.actor) : "")}
       ${tile("Practices linked", (eligible.length - missing.length).toLocaleString(), "of " + eligible.length.toLocaleString() + " active with a list size")}${tile("Customers", practices.filter(p => hsState(p) === "customer").length.toLocaleString(), practices.filter(p => hsState(p) === "freemium").length.toLocaleString() + " more are Freemium")}
       ${tile("Engaged", practices.filter(p => p.hubspot_engaged && !p.hubspot_customer).length.toLocaleString())}${tile("PCN / ICB records linked", linkedIds.size.toLocaleString(), (st.pcn_records_created ? st.pcn_records_created + " created last run" : ""))}</div>
@@ -120,6 +120,11 @@ async function renderHubspotPanel() {
   $("hsp-filter").onchange = e => { hsLogFilter = e.target.value; hsLogRender(); };
   $("hsp-q").oninput = e => { hsLogQuery = e.target.value; hsLogRender(); };
   $("hsp-csv").onclick = () => downloadCsv("Lalu_HubSpot_Activity", ["Time", "Who", "Type", "Practice", "Record", "Summary", "OK"], hsLogRows().map(r => [r.at, r.actor, (HS_KINDS[r.kind] || [r.kind])[0], r.ods_code, r.target, r.summary, r.ok ? "yes" : "no"]));
+  $("hsp-sizes").onclick = () => {      // active, unmerged practices already in HubSpot: Record ID matches the company, so the import updates it
+    const rows = practices.filter(p => p.hubspot_company_id && p.status === "Active" && !p.merged_into && p.total_patients > 0).sort((a, b) => a.ods_code.localeCompare(b.ods_code));
+    downloadCsv("Lalu_HubSpot_ListSizes", ["Record ID", "Company name", "GP ODS Code", "Patient List Size"], rows.map(p => [p.hubspot_company_id, p.practice_name, p.ods_code, p.total_patients]));
+    $("hsp-msg").textContent = rows.length.toLocaleString() + " companies in the file (list sizes as of " + (rows[0]?.data_month || "the latest load") + ")";
+  };
   $("hsp-run").onclick = async () => {
     const b = $("hsp-run"), msg = $("hsp-msg"); b.disabled = true; msg.textContent = "Starting…";
     const { data, error } = await db.functions.invoke("hubspot-sync-trigger");

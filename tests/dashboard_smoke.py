@@ -337,6 +337,8 @@ with sync_playwright() as p:
     pg.fill("#au-q", "zzz"); assert "Nothing matches" in pg.inner_text("#au-list"); pg.fill("#au-q", "")
     pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#hsp-run")   # HubSpot integration panel
     hp = pg.inner_text("#d-hubspot"); assert "HubSpot integration" in hp and "Healthy" in hp and "Needs attention" in hp and "not in HubSpot" in hp and "manual sync" in hp and "Pushed pricing to Deal X" in hp and "did not match" in hp, hp
+    with pg.expect_download() as dls: pg.click("#hsp-sizes")
+    sz = open(dls.value.path(), encoding="utf-8-sig").read().splitlines(); assert sz[0] == '"Record ID","Company name","GP ODS Code","Patient List Size"' and len(sz) >= 2 and all(l.split(",")[0].strip('"').isdigit() for l in sz[1:]), sz[:4]      # list-size import file: only practices already in HubSpot
     tt = pg.evaluate("document.querySelector('#d-hubspot').textContent"); assert "Create company" in tt and "Median" in tt and "Find company" in tt, tt[-600:]   # every edge call is timed
     pg.select_option("#hsp-filter", "sync"); assert "Pushed pricing" not in pg.inner_text("#hsp-log") and "practices linked" in pg.inner_text("#hsp-log"); pg.select_option("#hsp-filter", "all")
     pg.screenshot(path=SHOTS + "/hubspot_panel.png", full_page=True); pg.click("#hsp-run"); pg.wait_for_function("document.querySelector('#hsp-msg').innerText.includes('Sync started')"); assert pg.evaluate("window.__rpc.some(c => c[0] === 'fn:hubspot-sync-trigger')")
