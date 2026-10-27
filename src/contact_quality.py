@@ -59,8 +59,8 @@ def role_tier(title, role=""):
     return "?", "unclear role"
 
 
-def suggest(quality, tier, has_practice=True, opted_out=False, bounce=""):
-    """(status, reason) for the staging table: approved | review | generic | rejected | suppressed."""
+def suggest(quality, tier, has_practice=True, opted_out=False, bounce="", why=""):
+    """(status, reason) for the staging table: approved | review (held back, an optional check) | generic | rejected | suppressed. Nothing has to be reviewed by hand."""
     if opted_out or bounce in SUPPRESSING_BOUNCES:
         return "suppressed", "opted out" if opted_out else "email bounced"
     if not has_practice:
@@ -71,6 +71,10 @@ def suggest(quality, tier, has_practice=True, opted_out=False, bounce=""):
         return "generic", "shared mailbox: kept as the practice's generic address"
     if tier == "x":
         return "rejected", "not a decision-maker"
-    if quality == "direct" and tier == "A":
-        return "approved", "direct address, decision-maker"
-    return "review", "needs a person to check " + ("the role" if quality == "direct" else "the address" if tier in ("A", "B") else "address and role")
+    if tier == "A" and quality in ("direct", "likely_direct"):
+        return "approved", "decision-maker with an address that matches their name"
+    if tier == "?":
+        return "review", "held back: role unknown (no job title)"
+    if tier == "B":
+        return "review", "held back: secondary role (deputy, finance, PCN lead)"
+    return "review", "held back: " + ("address does not match the name" if "differs" in why else "address unclear")

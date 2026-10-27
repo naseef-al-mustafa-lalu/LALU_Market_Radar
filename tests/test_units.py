@@ -642,7 +642,8 @@ def test_contact_email_quality_and_role():
 def test_contact_status_suggestion():
     from src import contact_quality as cq
     s = cq.suggest
-    assert s("direct", "A")[0] == "approved" and s("direct", "?")[0] == "review" and s("direct", "x")[0] == "rejected" and s("shared", "A")[0] == "generic" and s("likely_direct", "A")[0] == "review"
+    assert s("direct", "A")[0] == "approved" and s("likely_direct", "A")[0] == "approved" and s("direct", "x")[0] == "rejected" and s("shared", "A")[0] == "generic"
+    assert s("direct", "?")[0] == "review" and "role unknown" in s("direct", "?")[1] and "secondary" in s("direct", "B")[1] and s("check", "A", why="personal-style address, name differs")[1].endswith("does not match the name") and s("check", "A", why="unclear")[1].endswith("unclear")
     assert s("direct", "A", opted_out=True)[0] == "suppressed" and s("direct", "A", bounce="Unknown user")[0] == "suppressed" and s("direct", "A", bounce="Mailbox full")[0] == "approved"
     assert s("direct", "A", has_practice=False)[0] == "rejected" and s("no_email", "A")[0] == "rejected"
 

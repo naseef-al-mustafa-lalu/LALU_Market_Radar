@@ -32,14 +32,16 @@ function cqRoleTier(title, role = "") {
   if (!t && CQ.roleA.has(r)) return ["A", "role field"];
   return ["?", "unclear role"];
 }
-function cqSuggest(quality, tier, hasCompany = true, optedOut = false, bounce = "") {
+function cqSuggest(quality, tier, hasCompany = true, optedOut = false, bounce = "", why = "") {
   if (optedOut || CQ.badBounce.has(bounce)) return ["suppressed", optedOut ? "opted out" : "email bounced"];
   if (!hasCompany) return ["rejected", "no company on the HubSpot contact"];
   if (["no_email", "invalid", "reject"].includes(quality)) return ["rejected", { no_email: "no email", invalid: "bad email syntax", reject: "test address" }[quality]];
   if (quality === "shared") return ["generic", "shared mailbox: kept as the practice's generic address"];
   if (tier === "x") return ["rejected", "not a decision-maker"];
-  if (quality === "direct" && tier === "A") return ["approved", "direct address, decision-maker"];
-  return ["review", "needs a person to check " + (quality === "direct" ? "the role" : tier === "A" || tier === "B" ? "the address" : "address and role")];
+  if (tier === "A" && (quality === "direct" || quality === "likely_direct")) return ["approved", "decision-maker with an address that matches their name"];
+  if (tier === "?") return ["review", "held back: role unknown (no job title)"];
+  if (tier === "B") return ["review", "held back: secondary role (deputy, finance, PCN lead)"];
+  return ["review", "held back: " + (why.includes("differs") ? "address does not match the name" : "address unclear")];
 }
 // Rows of a HubSpot contacts export -> what load_contact_candidates takes. Contacts without an email are not stored.
 function readHubspotContacts(text) {
@@ -50,7 +52,7 @@ function readHubspotContacts(text) {
     if (!x.length || !g(x, "Record ID")) continue;
     if (!g(x, "Email")) { noEmail++; continue; }
     const first = g(x, "First Name"), last = g(x, "Last Name"), title = g(x, "Job Title"), role = g(x, "Job Role"), email = g(x, "Email").toLowerCase(), optedOut = g(x, "Opted out of email: One to One") === "Yes", bounce = g(x, "Email hard bounce reason");
-    const [quality] = cqEmailQuality(email, first, last), [tier] = cqRoleTier(title, role), [status, reason] = cqSuggest(quality, tier, !!g(x, "Primary Associated Company ID"), optedOut, bounce);
+    const [quality, why] = cqEmailQuality(email, first, last), [tier] = cqRoleTier(title, role), [status, reason] = cqSuggest(quality, tier, !!g(x, "Primary Associated Company ID"), optedOut, bounce, why);
     const bounced = CQ.badBounce.has(bounce), phone = g(x, "Phone Number");
     out.push({ id: g(x, "Record ID"), company_id: g(x, "Primary Associated Company ID"), first, last, email, phone, title, role, quality: quality === "reject" || quality === "invalid" || quality === "no_email" ? null : quality, tier, status, reason, opted_out: optedOut, bounced,
       hash: [first, last, email, phone, title, role, g(x, "Primary Associated Company ID"), optedOut, bounced].join("|") });
@@ -73,12 +75,12 @@ async function contactFileText(file) {
   }
   throw new Error("No CSV inside the zip.");
 }
-const CI_LABEL = { approved: "Approved", review: "To review", generic: "Generic address", rejected: "Rejected", suppressed: "Suppressed (opted out or bounced)" };
-let ciParsed = null, ciReview = [];
+const CI_LABEL = { approved: "Approved", review: "Held back", generic: "Generic address", rejected: "Rejected", suppressed: "Suppressed (opted out or bounced)" };
+let ciParsed = null, ciReview = [], ciWhy = "";
 function renderContactImport() {
   const box = $("contact-import"); if (!box || box.dataset.ready) return; box.dataset.ready = "1";
   box.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><h2 class="font-bold">Contacts from HubSpot <span class="text-xs font-normal text-slate-500">(export all contacts, choose the zip or CSV, check the counts, press Load)</span></h2>
-    <p class="mt-1 text-xs text-slate-500">Only direct email addresses for decision-makers (practice, business and operations managers, partners, directors) are approved. Shared mailboxes such as enquiries@ become the practice's single generic address, never a contact. Anything unclear waits for you below. Opted-out and bounced addresses are suppressed. Upload a fresh export any time: known contacts are updated, new ones go through the same checks.</p>
+    <p class="mt-1 text-xs text-slate-500">Only direct email addresses for decision-makers (practice, business and operations managers, partners, directors) are approved. Shared mailboxes such as enquiries@ become the practice's single generic address, never a contact. Anything unclear (no job title, a secondary role, an address that does not match the name) is held back: you do not have to review it, it is there for spot checks and is picked up automatically when a later export or Oscar supplies a title. Opted-out and bounced addresses are suppressed. Upload a fresh export any time: known contacts are updated, new ones go through the same checks.</p>
     <div class="mt-3 flex flex-wrap items-center gap-2"><input type="file" id="ci-file" accept=".zip,.csv,text/csv" class="max-w-[22rem] text-xs"><button type="button" id="ci-load" disabled class="rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">Load</button></div>
     <p id="ci-msg" class="mt-2 min-h-[1rem] whitespace-pre-line text-xs text-slate-600"></p><div id="ci-state" class="mt-3"></div></div>`;
   const say = t => { $("ci-msg").textContent = t; };
@@ -111,21 +113,25 @@ async function contactImportState() {
   const count = async (tbl, f) => { let q = db.from(tbl).select("*", { count: "exact", head: true }); if (f) q = f(q); const { count: n } = await q; return n || 0; };
   const [st, gen, changed, missing] = await Promise.all([Promise.all(Object.keys(CI_LABEL).map(k => count("contact_candidates", q => q.eq("status", k)))), count("practice_generic_emails"), count("contact_candidates", q => q.not("change_note", "is", null)), count("contact_candidates", q => q.eq("in_latest", false))]);
   const total = st.reduce((a, b) => a + b, 0); if (!total) { el.innerHTML = '<p class="text-sm text-slate-500">Nothing loaded yet.</p>'; return; }
-  const { data } = await db.from("contact_candidates").select("hubspot_contact_id,email,ods_code,first_name,last_name,job_title,job_role,email_quality,role_tier,reason,change_note").eq("status", "review").order("ods_code").limit(200);
+  let rq = db.from("contact_candidates").select("hubspot_contact_id,email,ods_code,first_name,last_name,job_title,job_role,email_quality,role_tier,reason,change_note").eq("status", "review");
+  if (ciWhy) rq = ciWhy.startsWith("Email") ? rq.ilike("change_note", "Email changed%") : rq.ilike("reason", ciWhy + "%");
+  const { data } = await rq.order("ods_code").limit(200);
   ciReview = data || [];
   el.innerHTML = `<div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">${Object.keys(CI_LABEL).map((k, i) => `<div class="rounded-lg border border-slate-200 p-2"><div class="text-[11px] uppercase tracking-wider text-slate-500">${CI_LABEL[k]}</div><div class="text-lg font-bold">${st[i].toLocaleString()}</div></div>`).join("")}
       <div class="rounded-lg border border-slate-200 p-2"><div class="text-[11px] uppercase tracking-wider text-slate-500">Practices with a generic address</div><div class="text-lg font-bold">${gen.toLocaleString()}</div></div></div>
     ${changed ? `<p class="mt-2 text-xs text-slate-600"><b>${changed.toLocaleString()}</b> contacts changed in the last export${missing ? `; <b>${missing.toLocaleString()}</b> are no longer in the latest export (kept, not deleted)` : ""}.</p>` : missing ? `<p class="mt-2 text-xs text-slate-600"><b>${missing.toLocaleString()}</b> are no longer in the latest export (kept, not deleted).</p>` : ""}
-    ${ciReview.length ? `<div class="mt-3 flex flex-wrap items-center gap-2"><span class="text-sm font-bold">To review</span><span class="text-xs text-slate-500">${st[1].toLocaleString()} waiting; showing the first ${ciReview.length}. Approve only people with a direct address who make decisions.</span>
+    <div class="mt-3 flex flex-wrap items-center gap-2"><label class="text-xs font-semibold text-slate-600" for="ci-why">Show</label><select id="ci-why" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs">${[["", "All held back"], ["held back: role unknown", "Role unknown"], ["held back: secondary role", "Secondary role"], ["held back: address does not match", "Address does not match the name"], ["held back: address unclear", "Address unclear"], ["Email changed", "Email changed in HubSpot"]].map(([v, l]) => `<option value="${esc(v)}" ${ciWhy === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    ${ciReview.length ? `<div class="mt-2 flex flex-wrap items-center gap-2"><span class="text-sm font-bold">Held back</span><span class="text-xs text-slate-500">${st[1].toLocaleString()} held; nothing here needs doing. Showing the first ${ciReview.length}: approve only people you know make decisions and have a direct address.</span>
       <span class="ml-auto flex gap-2"><button type="button" id="ci-approve" class="rounded-md bg-lalu-navy px-3 py-1 text-xs font-semibold text-white">Approve ticked</button><button type="button" id="ci-reject" class="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-semibold">Reject ticked</button></span></div>
       <div class="mt-1 max-h-96 overflow-y-auto rounded-lg border border-slate-200">${ciReview.map(r => { const p = byOds.get(r.ods_code), nm = [r.first_name, r.last_name].filter(Boolean).join(" ") || "No name";
         return `<label class="flex cursor-pointer items-start gap-3 border-t border-slate-100 px-3 py-2 first:border-0 hover:bg-slate-50"><input type="checkbox" class="ci-chk mt-1 h-4 w-4 accent-lalu-teal-700" value="${esc(r.hubspot_contact_id)}">
           <span class="min-w-0 flex-1"><span class="block text-sm font-semibold">${esc(nm)} <span class="font-normal text-slate-500">${esc(r.job_title || r.job_role || "no title")}</span></span><span class="block truncate text-xs text-slate-600">${esc(r.email || "")} · ${esc(p ? p.practice_name : r.ods_code || "")}</span>
-          <span class="block text-[11px] text-amber-700">${esc(r.change_note || r.reason || "")}</span></span></label>`; }).join("")}</div>` : '<p class="mt-3 text-sm text-slate-500">Nothing is waiting for review.</p>'}`;
+          <span class="block text-[11px] text-amber-700">${esc(r.change_note || r.reason || "")}</span></span></label>`; }).join("")}</div>` : '<p class="mt-2 text-sm text-slate-500">Nothing held back here.</p>'}`;
   const decide = async decision => {
     const ids = [...el.querySelectorAll(".ci-chk:checked")].map(c => c.value); if (!ids.length) return;
     const { data: r, error } = await db.rpc("review_contact_candidates", { p_ids: ids, p_decision: decision }); if (error) { $("ci-msg").textContent = error.message; return; }
     $("ci-msg").textContent = `${r.decided} contact${r.decided === 1 ? "" : "s"} ${decision}.`; contactImportState();
   };
+  const w = $("ci-why"); if (w) w.onchange = () => { ciWhy = w.value; contactImportState(); };
   const a = $("ci-approve"), r = $("ci-reject"); if (a) { a.onclick = () => decide("approved"); r.onclick = () => decide("rejected"); }
 }
