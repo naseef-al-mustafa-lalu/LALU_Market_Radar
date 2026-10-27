@@ -12,8 +12,8 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.bare{background:transparent;padding:0}.atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}.atlas-chip.bare,.atlas-chip.lg.bare{background:transparent;padding:0}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261027z"></script>
-<link rel="stylesheet" href="assets/tailwind.css?v=20261027z">
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261028a"></script>
+<link rel="stylesheet" href="assets/tailwind.css?v=20261028a">
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
 <body class="bg-lalu-mist text-lalu-navy antialiased">
@@ -76,6 +76,7 @@
     <div id="net-kinds" class="hidden flex flex-wrap"></div>
     <div id="sig-sub" class="hidden flex flex-wrap"><button data-s="feed" class="px-3 py-1 rounded-md bg-white shadow-sm">Feed</button><button data-s="mergers" class="px-3 py-1 rounded-md text-slate-500">Closures &amp; mergers <span id="merge-badge" title="Practices that look closed or merged and need a decision" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-s="jobs" class="px-3 py-1 rounded-md text-slate-500">Job matches <span id="jobs-badge" title="Employers waiting for a link that have a report / records advert" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button></div>
     <div id="aud-sub" class="hidden flex flex-wrap"><button data-a="signals" class="px-3 py-1 rounded-md bg-white shadow-sm">Signal audiences <span class="ml-1 rounded-full bg-slate-200 px-1.5 text-[11px] text-slate-600"></span></button><button data-a="custom" class="px-3 py-1 rounded-md text-slate-500">Custom audiences <span class="ml-1 rounded-full bg-slate-200 px-1.5 text-[11px] text-slate-600"></span></button><button data-a="tests" class="px-3 py-1 rounded-md text-slate-500">A/B tests <span class="ml-1 rounded-full bg-slate-200 px-1.5 text-[11px] text-slate-600"></span></button><button data-a="performance" class="px-3 py-1 rounded-md text-slate-500">Performance <span></span></button></div>
+    <div id="rev-sub" class="hidden flex flex-wrap"><button data-r="est" class="px-3 py-1 rounded-md bg-white shadow-sm">Estimates</button><button data-r="pum" class="px-3 py-1 rounded-md text-slate-500">Patients under management</button></div>
     <div id="data-sub" class="hidden flex flex-wrap"><button data-d="overview" class="px-3 py-1 rounded-md bg-white shadow-sm">Overview</button><button data-d="sources" class="px-3 py-1 rounded-md text-slate-500">Data sources</button><button data-d="audit" class="px-3 py-1 rounded-md text-slate-500">HubSpot audit</button><button data-d="branches" class="px-3 py-1 rounded-md text-slate-500">Branch sites <span id="br-badge" title="ODS branch matches waiting for a decision" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-d="signals" class="px-3 py-1 rounded-md text-slate-500">Signal settings</button><button data-d="pricing" class="px-3 py-1 rounded-md text-slate-500">Pricing &amp; rate card</button></div>
   </div>
 
@@ -154,6 +155,7 @@
 
     <!-- Revenue -->
     <section id="view-revenue" class="hidden space-y-4">
+      <div id="rev-est" class="space-y-4">
       <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
         <h2 class="font-bold">Estimated annual recurring revenue (ARR) by route <span class="info-slot align-middle" data-text="Patients under management × the annual-plan tier price per patient per month × 12 (size discount only, no term or speed discount). Use the scenario switch to price everyone as All reports, SAR only, or a mix. A network route is the aggregate of its linked practices' patients. Routes are alternative ways to sell to the same patients, so do not add them together."></span></h2>
         <div class="flex flex-wrap items-center gap-3 mt-3"><div id="rev-scen" class="flex gap-1 bg-slate-100 rounded-lg p-1 text-xs font-semibold" role="group" aria-label="Product scenario"></div><label id="rev-share-wrap" class="hidden items-center gap-2 text-xs text-slate-600">SAR-only share of customers <input id="rev-share" type="number" min="0" max="100" step="5" value="30" class="w-16 border border-slate-300 rounded-md px-2 py-1 text-sm"> %</label></div>
@@ -170,6 +172,8 @@
         <h3 class="font-bold mb-2 mt-4 text-sm">By HubSpot status <span class="info-slot align-middle" data-text="Customers are shown at their contracted value (their estimate in brackets); every other status is shown at the estimate."></span></h3>
         <div id="rev-pipeline" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
       </div>
+    </div>
+      <div id="rev-pum" class="hidden space-y-4"></div>
     </section>
 
     <!-- Signals -->
@@ -289,27 +293,28 @@
     <div id="hs-body" class="flex-1 overflow-y-auto px-5 pb-5 pt-4 text-sm"></div>
   </div>
 </div>
-<script src="js/core.js?v=20261027z"></script>
-<script src="js/data-load.js?v=20261027z"></script>
-<script src="js/practices.js?v=20261027z"></script>
-<script src="js/referral.js?v=20261027z"></script>
-<script src="js/networks.js?v=20261027z"></script>
-<script src="js/signals.js?v=20261027z"></script>
-<script src="js/mergers.js?v=20261027z"></script>
-<script src="js/audiences.js?v=20261027z"></script>
-<script src="js/audience-tests.js?v=20261027z"></script>
-<script src="js/hubspot-align.js?v=20261027z"></script>
-<script src="js/data-tab.js?v=20261027z"></script>
-<script src="js/data-connections.js?v=20261027z"></script>
-<script src="js/data-uploads.js?v=20261027z"></script>
-<script src="js/contact-import.js?v=20261027z"></script>
-<script src="js/data-audit.js?v=20261027z"></script>
-<script src="js/data-branches.js?v=20261027z"></script>
-<script src="js/hubspot.js?v=20261027z"></script>
-<script src="js/hubspot-company.js?v=20261027z"></script>
-<script src="js/hubspot-admin.js?v=20261027z"></script>
-<script src="js/hubspot-group.js?v=20261027z"></script>
-<script src="js/export.js?v=20261027z"></script>
-<script src="js/main.js?v=20261027z"></script>
+<script src="js/core.js?v=20261028a"></script>
+<script src="js/data-load.js?v=20261028a"></script>
+<script src="js/practices.js?v=20261028a"></script>
+<script src="js/referral.js?v=20261028a"></script>
+<script src="js/networks.js?v=20261028a"></script>
+<script src="js/revenue-pum.js?v=20261028a"></script>
+<script src="js/signals.js?v=20261028a"></script>
+<script src="js/mergers.js?v=20261028a"></script>
+<script src="js/audiences.js?v=20261028a"></script>
+<script src="js/audience-tests.js?v=20261028a"></script>
+<script src="js/hubspot-align.js?v=20261028a"></script>
+<script src="js/data-tab.js?v=20261028a"></script>
+<script src="js/data-connections.js?v=20261028a"></script>
+<script src="js/data-uploads.js?v=20261028a"></script>
+<script src="js/contact-import.js?v=20261028a"></script>
+<script src="js/data-audit.js?v=20261028a"></script>
+<script src="js/data-branches.js?v=20261028a"></script>
+<script src="js/hubspot.js?v=20261028a"></script>
+<script src="js/hubspot-company.js?v=20261028a"></script>
+<script src="js/hubspot-admin.js?v=20261028a"></script>
+<script src="js/hubspot-group.js?v=20261028a"></script>
+<script src="js/export.js?v=20261028a"></script>
+<script src="js/main.js?v=20261028a"></script>
 </body>
 </html>

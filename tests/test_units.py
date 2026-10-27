@@ -711,3 +711,16 @@ def test_audit_name_matching_ignores_abbreviations_and_skips_northern_ireland():
     pr = {"Z00017": dict(ods_code="Z00017", practice_name="Dr. Large & Partners", status="Active", merged_into=None, postcode="BT1 1AA"), "S62986": dict(ods_code="S62986", practice_name="Burnbrae Medical Practice", status="Active", merged_into=None, postcode="G1 1AA")}
     raw = [dict(id=1, properties=dict(name="Holywood Road Surgery", partner_organisation_code="Z00017", zip="BT9 9ZZ")), dict(id=2, properties=dict(name="Scarva Street Surgery", partner_organisation_code="S62986", zip="BT8 8ZZ"))]
     assert [(r["issue"], r["ods_code"]) for r in hsy.audit_rows(raw, pr, "2026-10-27")] == [("name_mismatch", "S62986")]      # NI names are the partners' names, so only the Scottish mismatch is flagged
+
+
+def test_lifecycle_fields_for_customers_and_churned_practices():
+    from src import hubspot_sync as hsy
+    sv = {"s1": {"hs_name": "ReportSure - MS - SAR Only", "current_subscription": "eMR+ SAR Only", "contract_start_date": "2024-03-01", "hs_start_date": None, "date_churned": None},
+          "s2": {"hs_name": "ReportSure - MS - All reports", "current_subscription": None, "contract_start_date": "2022-05-01", "hs_start_date": "2022-04-20", "date_churned": "2025-06-30"},
+          "s3": {"hs_name": "ReportSure Freemium", "current_subscription": "Freemium", "contract_start_date": "2021-01-01", "hs_start_date": None, "date_churned": None}}
+    deals = {"d1": {"hs_is_closed_won": "true", "pipeline": next(iter(hsy.PIPELINE_WON)), "closedate": "2024-02-20", "product___service": "eMR+"}}
+    live = hsy.lifecycle_fields([{"id": "1", "company_status": "Current Customer"}], ["d1"], deals, ["s1", "s3"], sv, {"d1": 9000}, 8800)
+    assert (live["hubspot_product"], live["hubspot_product_service"], live["hubspot_first_start"], live["hubspot_churned_date"], live["hubspot_signed_size"], live["hubspot_company_status"]) == ("sar", "eMR+", "2024-03-01", None, 9000, "Current Customer")
+    gone = hsy.lifecycle_fields([{"id": "2", "company_status": "Ex-Customer"}], [], {}, ["s2"], sv, {}, 7000)
+    assert (gone["hubspot_product"], gone["hubspot_product_service"], gone["hubspot_first_start"], gone["hubspot_churned_date"], gone["hubspot_signed_size"]) == ("all", "eMR+", "2022-04-20", "2025-06-30", 7000)
+    assert hsy.service_product({"hs_name": "ReportSure Self Service"}) == "self" and hsy.service_product({"hs_name": "x", "current_subscription": "PAYG"}) == "payg"

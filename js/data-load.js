@@ -19,7 +19,7 @@ async function fetchAll(table, columns, order, hint = "planned") {
   }
 }
 // only the columns the screens read (the full table has ~60; fetching all of them for ~8,000 rows was most of the login wait)
-const PRACTICE_COLS = "ods_code,hubspot_company_id,hubspot_list_size,hubspot_org_type,hubspot_operating_status,hubspot_website,hubspot_parent_company_id,hubspot_change_note,operational_start_date,operational_end_date,hubspot_commercial_model,hubspot_contracted_arr,hubspot_contract_terms,hubspot_contracted_src,hubspot_contract_start,hubspot_contract_end,hubspot_pipeline,hubspot_conversion_pipeline,hubspot_renewal_pipeline,practice_name,postcode,website,pcn_code,pcn_name,icb_name,total_patients,status,clinical_software,manager_name,manager_title,manager_email,manager_phone,manager_email_opt_out,lead_status,data_month,address,town,county,region,main_phone,main_email,main_email_opt_out,num_employees,annual_spend,org_notes,nhs_num_gp,gp_federation,oscar_categories,cqc_location_id,cqc_provider_id,cqc_status,cqc_rating,cqc_last_inspection,cqc_manager_absent_date,group_name,group_size,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer,hubspot_synced_at,country,network_locked,merged_into,merged_note,merged_at,merged_by,merge_dismissed,closure_confirmed_at,closure_note,closed_by";
+const PRACTICE_COLS = "ods_code,hubspot_company_id,hubspot_list_size,hubspot_org_type,hubspot_operating_status,hubspot_website,hubspot_parent_company_id,hubspot_change_note,hubspot_company_status,hubspot_service_name,hubspot_product,hubspot_product_service,hubspot_first_start,hubspot_churned_date,hubspot_signed_size,operational_start_date,operational_end_date,hubspot_commercial_model,hubspot_contracted_arr,hubspot_contract_terms,hubspot_contracted_src,hubspot_contract_start,hubspot_contract_end,hubspot_pipeline,hubspot_conversion_pipeline,hubspot_renewal_pipeline,practice_name,postcode,website,pcn_code,pcn_name,icb_name,total_patients,status,clinical_software,manager_name,manager_title,manager_email,manager_phone,manager_email_opt_out,lead_status,data_month,address,town,county,region,main_phone,main_email,main_email_opt_out,num_employees,annual_spend,org_notes,nhs_num_gp,gp_federation,oscar_categories,cqc_location_id,cqc_provider_id,cqc_status,cqc_rating,cqc_last_inspection,cqc_manager_absent_date,group_name,group_size,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer,hubspot_synced_at,country,network_locked,merged_into,merged_note,merged_at,merged_by,merge_dismissed,closure_confirmed_at,closure_note,closed_by";
 const PRICING_COLS = "ods_code,price_tier,tier_label,base_price,year1_price,est_arr,est_arr_year1,base_price_sar,est_arr_sar";
 const HS_COLS = "ods_code,hs_contacts,hs_imported,hs_primary_imported,hs_last_imported_at,hs_primary_imported_at";
 const NET_COLS = "id,kind,name,source_key,practices,patients,tier1,tier2,tier3,tier4,tier5,emis,systmone,cqc_concern,engaged,customers,hs_imported,arr_single,arr_customers,arr_single_sar,arr_customers_sar,arr_network_sar,confirmed,network_tier,network_tier_label,network_base_price,arr_network";
@@ -126,7 +126,7 @@ window.addEventListener("popstate", () => { if (!$("app").classList.contains("hi
 
 /* ---------- tabs ---------- */
 const TABS = ["practices", "networks", "revenue", "signals", "audiences", "data"]; let currentTab = "practices";
-const SUBNAV = { networks: "net-kinds", signals: "sig-sub", audiences: "aud-sub", data: "data-sub" };   // tab -> its sub-tab strip in the second row (#subnav)
+const SUBNAV = { networks: "net-kinds", revenue: "rev-sub", signals: "sig-sub", audiences: "aud-sub", data: "data-sub" };   // tab -> its sub-tab strip in the second row (#subnav)
 window.addEventListener("resize", () => { if (!$("subnav").classList.contains("hidden")) $("subnav").style.top = document.querySelector("#app > nav").offsetHeight + "px"; });
 function showTab(which, fromUrl) {
   if (which === "data" && currentTab !== "data") setDataSub("overview");
@@ -135,7 +135,7 @@ function showTab(which, fromUrl) {
   const strip = SUBNAV[which]; $("subnav").classList.toggle("hidden", !strip);      // each tab with sub tabs shows its own strip in the second row
   for (const id of Object.values(SUBNAV)) $(id).classList.toggle("hidden", id !== strip);
   if (strip) $("subnav").style.top = document.querySelector("#app > nav").offsetHeight + "px";
-  if (which === "revenue") renderRevenue();
+  if (which === "revenue") { renderRevenue(); if (revSub === "pum") renderPum(); }
   if (which === "audiences") loadAudiences();
   if (which === "data") renderData();
   if (which !== "practices") closeDrawer();

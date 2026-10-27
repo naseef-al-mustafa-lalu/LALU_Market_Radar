@@ -112,7 +112,7 @@ def _date(v):
     return None
 
 
-TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "total_discount", "term_length_years", "value_per_patient", "actual_value_per_patient_calculated"]
+TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "total_discount", "term_length_years", "value_per_patient", "actual_value_per_patient_calculated", "product___service", "commercial_model"]
 
 
 LALU_PRODUCTS = {"440423339237", "440425147578", "440434162881", "440498134244"}   # the four Lalu Care products: a deal's line item quantity is the patients it bills
@@ -352,6 +352,43 @@ def push_alignment(rest, hub, auto):
         rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], **{"hubspot_" + k: v for k, v in c["props"].items()}} for c in ch], "ods_code")
         done += ch
     return done, err
+
+
+def service_product(sv):
+    """all | sar | self | payg | freemium from a Service's name and commercial model (the name is written at Closed Won, and the model is cleared at churn, so the name is the one to trust)."""
+    t = f"{sv.get('hs_name') or ''} {sv.get('current_subscription') or ''}".lower()
+    if "freemium" in t:
+        return "freemium"
+    if "payg" in t:
+        return "payg"
+    if "sar" in t:
+        return "sar"
+    if "self" in t or "gp emr" in t:
+        return "self"
+    return "all" if ("report" in t or "emr" in t or "ms" in t.split() or "managed" in t) else None
+
+
+def lifecycle_fields(companies, deal_ids, deals, service_ids, services, line_qty, list_size_value):
+    """What the Patients under management page needs for one practice: company status, its main Service (paid ones first, then the latest start), Product / Service from the latest won deal,
+    when the first Service started, when it churned, and the size signed for (the won deal's line item quantity, else the company's list size)."""
+    primary = sorted(companies, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]
+    svs = [services[i] for i in service_ids if i in services]
+    for sv in svs:
+        sv["_product"], sv["_start"] = service_product(sv), min((d for d in (_date(sv.get("contract_start_date")), _date(sv.get("hs_start_date"))) if d), default=None)
+    paid = [sv for sv in svs if sv["_product"] in ("all", "sar", "self") or sv["_product"] is None]
+    main = max(paid or svs, key=lambda sv: (sv["_start"] or "", sv.get("hs_name") or ""), default=None)
+    won = [(i, deals[i]) for i in deal_ids if i in deals and deals[i].get("hs_is_closed_won") == "true" and deals[i].get("pipeline") in PIPELINE_WON]
+    last = max(won, key=lambda x: _date(x[1].get("closedate")) or "", default=(None, {}))
+    churned = [d for d in (_date(sv.get("date_churned")) for sv in (paid or svs)) if d]
+    starts = [sv["_start"] for sv in paid if sv["_start"]] or [_date(d.get("closedate")) for _, d in won if _date(d.get("closedate"))]
+    ps = last[1].get("product___service") or None
+    product = main["_product"] if main else None
+    qty = (line_qty or {}).get(last[0]) if last[0] else None
+    return {"hubspot_company_status": primary.get("company_status") or None, "hubspot_service_name": (main or {}).get("hs_name") or None, "hubspot_product": product,
+            "hubspot_product_service": ps or ({"self": "eMR"}.get(product, "eMR+") if product in ("all", "sar", "self") else None),
+            "hubspot_first_start": min(starts) if starts else None, "hubspot_churned_date": max(churned) if churned and (primary.get("company_status") == "Ex-Customer" or not any(
+                sv.get("current_subscription") for sv in paid)) else None,
+            "hubspot_signed_size": int(qty) if qty else (int(list_size_value) if list_size_value else None)}
 
 
 def revenue_fields(deal_ids, deals, service_ids, services, customer, model, line_qty=None):
@@ -713,7 +750,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     to_services, services, service_error = {}, {}, None
     try:   # Service ACV is the contracted-ARR source; if the token cannot read Services, fall back to deals and say so in the run summary
         to_services = associations(hub, SERVICE_OBJECT, cids)
-        services = read_objects(hub, SERVICE_OBJECT, [i for v in to_services.values() for i in v], ["hs_pipeline_stage", "actual_annual_contract_value__acv_", "contract_start_date", "contract_end_date"])
+        services = read_objects(hub, SERVICE_OBJECT, [i for v in to_services.values() for i in v], ["hs_pipeline_stage", "actual_annual_contract_value__acv_", "contract_start_date", "contract_end_date", "hs_start_date", "hs_name", "current_subscription", "date_churned"])
     except Exception as e:  # noqa: BLE001
         service_error = str(e)[:300]
 
@@ -726,13 +763,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
         f = classify(cs, contact_ids, contacts, deal_ids, deals)
         flags["customers"] += f["hubspot_customer"]; flags["engaged"] += f["hubspot_engaged"]
         service_ids = sorted({i for c in cset for i in to_services.get(c, [])})
-        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"], line_qty), "hubspot_list_size": list_size(cs, f.get("hubspot_company_id")), **linked_properties(cs, f.get("hubspot_company_id")), "hubspot_synced_at": now})
+        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"], line_qty), **lifecycle_fields(cs, deal_ids, deals, service_ids, services, line_qty, list_size(cs, f.get("hubspot_company_id"))), "hubspot_list_size": list_size(cs, f.get("hubspot_company_id")), **linked_properties(cs, f.get("hubspot_company_id")), "hubspot_synced_at": now})
         hs_contacts[ods] = {(contacts[i].get("email") or "").strip().lower(): (i, contacts[i].get("createdate")) for i in contact_ids if contacts.get(i, {}).get("email")}
     for ods, p in practices.items():   # a practice that had a company before but no longer does: clear the link and flags
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
-                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
+                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_company_status": None, "hubspot_service_name": None, "hubspot_product": None, "hubspot_product_service": None, "hubspot_first_start": None, "hubspot_churned_date": None, "hubspot_signed_size": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     auto, held = plan_list_sizes(practices, rows)
     sizes = {"list_sizes_pending": len(auto), "list_sizes_held": len(held)}
