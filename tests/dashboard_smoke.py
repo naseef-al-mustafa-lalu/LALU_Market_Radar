@@ -369,7 +369,7 @@ with sync_playwright() as p:
     assert "Keep these in step automatically" in hp, hp[:1500]      # the alignment switch: off by default, then on
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-align-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync')")
     fa = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync').pop()[1][0]"); assert fa["value"] == {"enabled": True, "approve_once": False}, fa
-    pg.wait_for_function("document.querySelector('#d-hubspot').innerText.includes('Each daily sync sets Operating status')")
+    pg.wait_for_function("document.querySelector('#d-hubspot').innerText.includes('sets Operating status where it differs')")
     assert "List sizes in HubSpot" in hp and "would update" in hp and "customers differ from NHS" in hp, hp[:900]      # the list-size sync card
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-size-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags')")
     fl = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0]"); assert fl["key"] == "list_size_sync" and fl["value"] == {"enabled": True, "last_month": None}, fl
