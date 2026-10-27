@@ -119,29 +119,25 @@ function cqcCell(p) {
 }
 // A paying customer with a real contract value: the profile leads with the contract, not the list-price estimate. Freemium and customers with no value yet keep the pricing section.
 const isPaying = p => p.hubspot_customer && p.hubspot_commercial_model !== "Freemium" && Number(p.hubspot_contracted_arr) > 0;
-// The deal's price build-up for a paying customer: list rate, each discount as % and annual £, and the resulting price. Discounts are fractions in HubSpot (tolerate whole percents).
+// A dotted-underline value whose detail sits in a hover tooltip, so the profile stays one row per fact
+const tipped = (text, tip) => `<span class="cursor-help border-b border-dotted border-slate-400" title="${esc(tip)}">${text}</span>`;
+// The deal's pricing for a paying customer as two rows (price, discount), with the build-up (list rate, each discount as % and annual £) in the tooltips. Discounts are fractions in HubSpot (tolerate whole percents).
 function termsBlock(p) {
   const t = p.hubspot_contract_terms, pat = Number(p.total_patients);
   if (!t) {   // most older deals carry no discount properties: show what the contract value implies against list instead
     const arr = Number(p.hubspot_contracted_arr), list = setting("list_price_per_patient");
     if (!(pat > 0) || !(arr > 0) || !(list > 0)) return "";
-    const eff = arr / pat / 12, off = 1 - eff / list;
-    return `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-700"><div class="font-semibold text-slate-600 mb-1">Effective price</div>
-      <div class="flex justify-between gap-3 py-0.5"><span>Contracted ARR ÷ ${pat.toLocaleString()} patients ÷ 12</span><span class="font-mono">£${eff.toFixed(3)} per patient per month</span></div>
-      <div class="flex justify-between gap-3 py-0.5"><span>Against the £${list.toFixed(2)} list price</span><span class="font-mono ${off > 0.0005 ? "text-amber-700" : ""}">${off > 0.0005 ? "−" + Math.round(off * 1000) / 10 + "%" : off < -0.0005 ? "+" + Math.round(-off * 1000) / 10 + "%" : "list"}</span></div>
-      <div class="text-[11px] text-slate-400 mt-1">Worked out from the contract value. The HubSpot deal has no discount breakdown (size, speed, term), so it cannot be itemised.</div></div>`;
+    const eff = arr / pat / 12, off = 1 - eff / list, vs = off > 0.0005 ? "−" + Math.round(off * 1000) / 10 + "%" : off < -0.0005 ? "+" + Math.round(-off * 1000) / 10 + "%" : "list";
+    return kv("Effective price", tipped(`<span class="font-mono">£${eff.toFixed(3)}</span> <span class="text-slate-400">per patient per month</span>`, `Contracted ARR ÷ ${pat.toLocaleString()} patients ÷ 12.\nThe HubSpot deal has no discount breakdown (size, speed, term), so it cannot be itemised.`)) +
+      kv("Against list", tipped(`<span class="${off > 0.0005 ? "text-amber-700" : ""}">${vs}</span>`, `Against the £${list.toFixed(2)} list price per patient per month.`));
   }
   const fr = v => v == null ? null : (Math.abs(v) > 1 ? v / 100 : v), list = Number(t.list_rate) || 0.08, a = pat * list * 12;
   const rows = [["Size", t.size], ["Speed to sign", t.speed], ["Term length" + (t.years ? " (" + t.years + " yr)" : ""), t.term_length], ["Referral group", t.referral]].map(([l, v]) => [l, fr(v)]).filter(([, v]) => v);
-  const tot = fr(t.total) ?? rows.reduce((x, [, v]) => x + v, 0), net = Number(t.net_rate) || list * (1 - tot);
-  const line = (l, r, c = "") => `<div class="flex justify-between gap-3 py-0.5 ${c}"><span>${l}</span><span class="font-mono">${r}</span></div>`;
-  return `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-700">` +
-    `<div class="font-semibold text-slate-600 mb-1">Price build-up${t.closed ? ` <span class="font-normal text-slate-400">· deal closed ${esc(fmtDate(t.closed))}</span>` : ""}</div>` +
-    line(`List price <span class="text-slate-400">${"£" + list.toFixed(3)} per patient per month × ${pat.toLocaleString()} patients</span>`, gbpFull(a)) +
-    rows.map(([l, v]) => line(`${l} discount <span class="text-slate-400">−${Math.round(v * 1000) / 10}%</span>`, "−" + gbpFull(a * v), "text-amber-700")).join("") +
-    line(`<b>Total discount</b> <span class="text-slate-400">−${Math.round(tot * 1000) / 10}%</span>`, "−" + gbpFull(a * tot), "border-t border-slate-200 mt-1 pt-1 text-amber-700") +
-    line(`<b>Price</b> <span class="text-slate-400">${"£" + net.toFixed(3)} per patient per month</span>`, `<b class="text-teal-700">${gbpFull(a * (1 - tot))}</b>`) +
-    `<div class="text-[11px] text-slate-400 mt-1">At today's list size${t.amount ? `; the deal amount is ${gbpFull(t.amount)}` : ""}. Contracted ARR above is the figure to rely on.</div></div>`;
+  const tot = fr(t.total) ?? rows.reduce((x, [, v]) => x + v, 0), net = Number(t.net_rate) || list * (1 - tot), pc = v => Math.round(v * 1000) / 10;
+  const build = `List price £${list.toFixed(3)} per patient per month × ${pat.toLocaleString()} patients = ${gbpFull(a)} a year\n` + rows.map(([l, v]) => `${l} discount −${pc(v)}% (−${gbpFull(a * v)})`).join("\n") +
+    `${rows.length ? "\n" : ""}Total discount −${pc(tot)}% (−${gbpFull(a * tot)})\nPrice £${net.toFixed(3)} per patient per month = ${gbpFull(a * (1 - tot))} a year at today's list size` + (t.amount ? `\nDeal amount ${gbpFull(t.amount)}` : "") + (t.closed ? `\nDeal closed ${fmtDate(t.closed)}` : "");
+  return kv("Price", tipped(`<span class="font-mono">£${net.toFixed(3)}</span> <span class="text-slate-400">per patient per month</span>`, build)) +
+    kv("Discount", tot > 0 ? tipped(`<span class="text-amber-700">−${pc(tot)}%</span>${rows.length > 1 ? ` <span class="text-slate-400">${rows.map(([l, v]) => l.split(" ")[0].toLowerCase() + " " + pc(v) + "%").join(" · ")}</span>` : ""}`, build) : "");
 }
 function driftRows(p) {      // what the customer signed for against today's NHS figure (the review flag is in expandRows)
   const d = sizeDrift(p); if (!d) return "";
@@ -150,19 +146,19 @@ function driftRows(p) {      // what the customer signed for against today's NHS
   return kv(`List size signed for <span class='text-slate-400'>(${src})</span>`, `<span class="font-mono">${d.base.toLocaleString()}</span> ${chip(d.tb.replace("Tier ", "T"), TIER_CLS[d.tb] || "")}`) +
     kv("Change since", `${flag}<span class="font-mono ${d.pct >= EXPAND_PCT ? "text-amber-700 font-semibold" : ""}">${sign}${Math.abs(d.diff).toLocaleString()} (${sign}${pct}%)</span>`);
 }
-function expandRows(p) {      // the expansion review flag, shown beneath the signed size
+function expandRows(p) {      // the expansion review flag as one row; the detail is in the tooltip
   const e = expansionFlag(p); if (!e) return "";
   const pct = Math.round(e.pct * 1000) / 10, when = e.from ? fmtDate(e.from.toISOString().slice(0, 10)) : "";
-  return kv("Expansion review", e.due ? chip("Contract review due", "bg-red-100 text-red-800") : chip("Over 5%, review from " + when, "bg-amber-100 text-amber-800")) +
-    `<div class="mt-1 rounded-lg ${e.due ? "bg-red-50 text-red-900" : "bg-amber-50 text-amber-900"} px-3 py-2 text-xs">The list is ${pct}% (+${e.diff.toLocaleString()}) above the ${e.base.toLocaleString()} patients signed for.` +
-    (e.tierChanged ? ` The size tier has moved from ${esc(e.tb)} to ${esc(e.tn)}.` : "") + (e.due ? " Customer Success can review the contract for an expansion." : ` A contract review can be raised from ${esc(when)}, 3 months after the contract was signed (${esc(fmtDate(e.signed))}).`) + (e.due && !e.signed ? " No signed date is on file, so the 3-month wait could not be checked." : "") + `</div>`;
+  const tip = `The list is ${pct}% (+${e.diff.toLocaleString()}) above the ${e.base.toLocaleString()} patients signed for.` + (e.tierChanged ? ` The size tier has moved from ${e.tb} to ${e.tn}.` : "") +
+    (e.due ? (e.signed ? "" : " No signed date is on file, so the 3-month wait could not be checked.") + " Customer Success can review the contract for an expansion." : ` A contract review can be raised from ${when}, 3 months after the contract was signed (${fmtDate(e.signed)}).`);
+  return kv("Expansion review", `<span title="${esc(tip)}">${e.due ? chip("Contract review due", "bg-red-100 text-red-800") : chip("Over 5%, review from " + when, "bg-amber-100 text-amber-800")}</span>`);
 }
 function contractSection(p) {
   const c = Number(p.hubspot_contracted_arr), est = Number(p.est_arr), end = p.hubspot_contract_end, days = end ? Math.round((new Date(end) - Date.now()) / 864e5) : null;
   const renew = end ? esc(fmtDate(end)) + " " + (days < 0 ? chip("Past renewal date", "bg-red-100 text-red-800") : days <= 90 ? chip("Renews in " + days + " days", "bg-amber-100 text-amber-800") : "") : "";
-  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + driftRows(p) + expandRows(p) + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
+  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + driftRows(p) + expandRows(p) + kv("Contracted ARR", tipped(`<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}${p.hubspot_contracted_src === "deal" ? "*" : ""}</span>`, (p.hubspot_contracted_src === "deal" ? "From closed-won deals, unverified: there is no live Service ACV." : "Live Service ACV in HubSpot.") + (est > 0 ? `\nList-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.` : ""))) +
     kv("Contract start", p.hubspot_contract_start ? esc(fmtDate(p.hubspot_contract_start)) : "") + kv("Renewal date", renew) +
-    termsBlock(p) + (est > 0 ? `<div class="text-xs text-slate-500 mt-1">List-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.</div>` : ""));
+    termsBlock(p));
 }
 // Operational period from the ODS API: opened date, and the closed date once it has one
 const opPeriod = p => p.operational_start_date || p.operational_end_date ? esc((p.operational_start_date ? "Opened " + fmtDate(p.operational_start_date) : "") + (p.operational_end_date ? (p.operational_start_date ? " · " : "") + "Closed " + fmtDate(p.operational_end_date) : "")) : "";
@@ -328,7 +324,7 @@ async function openDrawer(p) {
   const st = hsState(p);
   $("dr-sub").innerHTML = `<span class="font-mono">${esc(p.ods_code)}</span>${p.merged_into ? " " + chip("Merged", "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : ""}${p.town ? " · " + esc(p.town) : ""} ${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${p.cqc_rating && CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : ""}${p.cqc_status === "Deregistered" ? " " + chip("CQC deregistered", "bg-amber-100 text-amber-800", "CQC lists this location as deregistered; check whether the practice still operates") : ""} ${st === "customer" || st === "engaged" ? chip(HS_LABEL[st], HS_CLS[st]) : ""} ${p.status === "Active" ? `<button type="button" class="aud-add rounded-full border border-white/30 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-white/10" data-ods="${esc(p.ods_code)}">+ Audience</button>` : ""}`;
   const link = (label, kind, key) => `<a href="#" class="text-lalu-teal-700 hover:underline" data-net="${kind}|${esc(key)}|${esc(label)}">${esc(label)}</a>`;
-  const site = p.website || p.hubspot_website, web = site ? `<a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${esc(/^https?:/.test(site) ? site : "https://" + site)}">${esc(site)}</a>${p.website ? "" : ' <span class="text-xs text-slate-400">from HubSpot</span>'}` : "";
+  const site = p.website || p.hubspot_website, web = site ? `<a class="text-lalu-teal-700 hover:underline" ${p.website ? "" : 'title="Website from the HubSpot company"'} target="_blank" rel="noopener" href="${esc(/^https?:/.test(site) ? site : "https://" + site)}">${esc(site)}</a>` : "";
   const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
   const body = $("dr-body");
   body.innerHTML = mergeSection(p) + `<div id="dr-contacts" class="text-sm text-slate-500">Loading contacts…</div><div id="dr-signals"></div>` +

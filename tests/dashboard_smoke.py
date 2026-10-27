@@ -140,11 +140,12 @@ with sync_playwright() as p:
     mb = pg.evaluate("""(() => { const p = byOds.get('A10008'); branches.push({ branch_code: 'T9X9X', branch_name: 'Test Old Surgery', postcode: p.postcode, resolution: 'branch', status: 'Active', practice_code: 'A10001', match_status: 'auto' }); const c = hsCase(p), t = atlasOrgType(p); branches.pop(); return [c.mode, !!c.site, t, atlasOrgType(p)]; })()""")
     assert mb == ["merged", True, "branch_site", "practice"], mb      # a merged practice whose site goes on as a branch of its successor is a Branch (Site); without that branch it stays a Practice
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector("#dr-body", state="visible"); ct = pg.inner_text("#dr-body")
-    assert "List size now" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
+    tip = pg.evaluate("[...document.querySelectorAll('#dr-body [title]')].map(e => e.title).join('|')")
+    assert "List size now" in ct and "Price build-up" not in ct and "Price" in ct and "−14.5%" in ct and "£0.068" in ct and "Referral group discount −2%" in tip and "from HubSpot" not in ct, (ct, tip)       # customers: the discounts and total price in the Contract section
     assert "List size signed for" in ct and "line item" in ct and "9,500" in ct and "13,000" in ct and "+3,500 (+36.8%)" in ct and "Renew in HubSpot" not in ct, ct      # contract basis against today's NHS figure, tier moved
     pg.keyboard.press("Escape"); pg.evaluate("document.getElementById('f-drift').value = 'tier'; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
     assert pg.locator("#rows tr").count() == 1 and "Test Surgery 4" in pg.inner_text("#rows"), pg.inner_text("#rows")      # customers whose size tier moved since the contract
-    assert "Contract review due" in ct and "9,500 patients signed for" in ct, ct      # 5%+ over the signed (line item) size, more than 3 months after signing
+    assert "Contract review due" in ct and "9,500 patients signed for" in pg.evaluate("[...document.querySelectorAll('#dr-body [title]')].map(e => e.title).join('|')"), ct      # 5%+ over the signed (line item) size, more than 3 months after signing
     ex = pg.evaluate("""(() => { const p = byOds.get('A10004'), keep = p.hubspot_contract_terms.closed, r = [];
       const at = d => { p.hubspot_contract_terms.closed = d; const e = expansionFlag(p); return e && e.due; };
       const ago = m => { const d = new Date(); d.setMonth(d.getMonth() - m); return d.toISOString().slice(0, 10); };
@@ -168,7 +169,7 @@ with sync_playwright() as p:
     pg.click("#hs-cancel"); pg.keyboard.press("Escape")
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     pg.keyboard.press("Escape"); pg.wait_for_selector("#drawer.translate-x-full", state="attached"); pg.click("#rows tr:has-text('Test Surgery 7')"); pg.wait_for_selector("#drawer:not(.translate-x-full)"); pg.wait_for_function("document.querySelector('#dr-body').innerText.includes('Effective price')")
-    ep = pg.inner_text("#dr-body"); assert "£0.068 per patient per month" in ep and "−15%" in ep and "no discount breakdown" in ep, ep       # a customer with no deal discounts still shows what the contract implies
+    ep = pg.inner_text("#dr-body"); assert "£0.068" in ep and "Against list" in ep and "−15%" in ep and "no discount breakdown" in pg.evaluate("[...document.querySelectorAll('#dr-body [title]')].map(e => e.title).join('|')"), ep       # a customer with no deal discounts still shows what the contract implies
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     for w in (1024, 1180, 1280, 1440):      # the main bar stays one row as tabs are added
         pg.set_viewport_size({"width": w, "height": 900}); h = pg.evaluate("document.querySelector('#app > nav').offsetHeight"); assert h < 70, (w, h)
