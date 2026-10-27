@@ -18,7 +18,7 @@ def test_oscar_parse(oscar_rows):
     contacts, info, rejects, suppressed = oscar.parse(make_oscar(oscar_rows))
     assert suppressed == 1 and len(rejects) == 2
     prim = info["A10000"]["primary"]
-    assert prim["contact_urn"] == 1 and prim["email"] == "casper@nhs.net" and prim["full_name"] == "Casper Fons"
+    assert prim["contact_urn"] == 1 and prim["email"] == "casper.fons@nhs.net" and prim["full_name"] == "Casper Fons"
     assert info["A10001"]["primary"]["email_opt_out"] is True
     assert sum(c["is_primary"] for c in contacts) == 2
     assert info["A10000"]["website"] == "https://a.example" and info["A10000"]["icb"] == "ICB One"
@@ -626,3 +626,46 @@ def test_zeroing_a_merged_company_leaves_a_note_with_the_old_size():
     h = H(); done, err = hsy.push_list_sizes(R(), h, auto)
     note = [c for c in h.calls if c[0] == "/crm/v3/objects/notes"][0][1]
     assert err is None and "was 3,717" in note["properties"]["hs_note_body"] and "Parent Practice" in note["properties"]["hs_note_body"] and note["associations"][0]["to"]["id"] == "1"
+
+
+def test_contact_email_quality_and_role():
+    from src import contact_quality as cq
+    assert cq.email_quality("alex.sample@nhs.net", "Alex", "Sample")[0] == "direct" and cq.email_quality("s.example2@nhs.net", "Samuel", "Example")[0] == "direct"
+    assert cq.email_quality("enquiries@nhs.net", "Anne", "Lee")[0] == "shared" and cq.email_quality("practicemanager.z00001@nhs.net", "Pat", "Example")[0] == "shared"
+    assert cq.email_quality("examplemedicalcentre@nhs.net", "Kim", "Example")[0] == "shared" and cq.email_quality("test@x.nhs.uk")[0] == "reject"
+    assert cq.email_quality("pat.example@nhs.net", "", "")[0] == "likely_direct" and cq.email_quality("charlotte.other@nhs.net", "Charlotte", "Sample")[0] == "likely_direct"
+    assert cq.email_quality("", "A", "B")[0] == "no_email" and cq.email_quality("not-an-email")[0] == "invalid"
+    assert [cq.role_tier(*a)[0] for a in [("Practice Manager", ""), ("Senior Partner", ""), ("Deputy Practice Manager", ""), ("Practice Nurse", ""), ("Advanced Nurse Practitioner", ""), ("", "Practice Manager"),
+            ("Receptionist", ""), ("dropped on 2019-06-11", ""), ("", ""), ("Salaried GP", "")]] == ["A", "A", "B", "x", "x", "A", "x", "x", "?", "x"]
+
+
+def test_contact_status_suggestion():
+    from src import contact_quality as cq
+    s = cq.suggest
+    assert s("direct", "A")[0] == "approved" and s("direct", "?")[0] == "review" and s("direct", "x")[0] == "rejected" and s("shared", "A")[0] == "generic" and s("likely_direct", "A")[0] == "review"
+    assert s("direct", "A", opted_out=True)[0] == "suppressed" and s("direct", "A", bounce="Unknown user")[0] == "suppressed" and s("direct", "A", bounce="Mailbox full")[0] == "approved"
+    assert s("direct", "A", has_practice=False)[0] == "rejected" and s("no_email", "A")[0] == "rejected"
+
+
+def test_oscar_contacts_step_keeps_hubspot_contacts_adopts_by_email_and_gates_new_ones():
+    from src import ingest
+    class R:
+        def __init__(self, rows, generic): self.rows, self.generic, self.up, self.deleted = rows, generic, {}, []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else self.generic
+        def upsert(self, table, rows, on_conflict, batch=500): self.up.setdefault(table, []).extend(rows)
+        def delete_in(self, table, column, values, chunk=200, extra=None): self.deleted += [(table, v) for v in values]
+    base = dict(ods_code="A1", seniority=None, phone=None, email_opt_out=False, is_primary=False, org_urn=None, title=None, quals=None, dept=None, categories=None, data_types=None, main_site=False)
+    db = [dict(base, contact_urn=-1, source="hubspot", email="jane.doe@nhs.net", full_name="Jane Doe", job_title="Practice Manager", first_name="Jane", last_name="Doe", hubspot_contact_id="777", hubspot_imported_at="2026-10-27"),
+          dict(base, contact_urn=-2, source="hubspot", email="other.person@nhs.net", full_name="Other Person", job_title="Practice Manager", first_name="Other", last_name="Person", hubspot_contact_id="778")]
+    def oc(urn, first, last, email, title="Practice Manager"):
+        return dict(base, contact_urn=urn, full_name=f"{first} {last}", first_name=first, last_name=last, email=email, job_title=title)
+    feed = [oc(10, "Jane", "Doe", "jane.doe@nhs.net", "Business Manager"), oc(11, "Sam", "Lee", "sam.lee@nhs.net"), oc(12, "A", "B", "enquiries@nhs.net"), oc(13, "C", "D", "reception@nhs.net"), oc(14, "Dan", "Roe", "d.r@nhs.net")]
+    rest, stats, rejects = R(db, []), {}, []
+    ingest.contacts_step(rest, feed, {"A1": {}}, [], stats, rejects)
+    up = {c["contact_urn"]: c for c in rest.up["contacts"]}
+    assert set(up) == {10, 11} and up[10]["hubspot_contact_id"] == "777" and up[10]["hubspot_status"] == "Imported" and up[10]["job_title"] == "Business Manager"      # Oscar's details win; the HubSpot id is kept
+    assert rest.deleted == [("contacts", -1)] and stats["contacts_adopted"] == 1      # the adopted HubSpot row goes; the other HubSpot-sourced contact is never touched, never deleted as "stale"
+    assert [g["email"] for g in rest.up["practice_generic_emails"]] == ["enquiries@nhs.net"] and stats["generic_emails_added"] == 1      # one generic address per practice
+    assert stats["contacts_held"] == 2 and sorted(r[1] for r in rejects if "held back" in r[2]) == ["13", "14"], rejects      # the second shared mailbox and the unclear address are held back
+    rest2 = R(db, [dict(ods_code="A1", email="old@nhs.net", source="oscar")]); ingest.contacts_step(rest2, [oc(12, "A", "B", "enquiries@nhs.net")], {"A1": {}}, [], {}, [])
+    assert "practice_generic_emails" not in rest2.up      # the practice already has an Oscar generic address: nothing more is ingested

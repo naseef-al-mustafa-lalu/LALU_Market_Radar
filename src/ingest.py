@@ -4,7 +4,7 @@ import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
 
-from . import branches, cqc, jobs, maintenance, oscar, software, sources
+from . import branches, contact_quality, cqc, jobs, maintenance, oscar, software, sources
 from .common import Rest, need_env, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
@@ -268,18 +268,51 @@ def cqc_step(rest, env, existing, records, now, stats):
 
 
 def contacts_step(rest, contacts, existing, records, stats, rejects):
+    """Oscar updates the contacts it already owns, adopts a HubSpot-sourced contact with the same email (Oscar's details win, the HubSpot id is kept), and adds a new contact only
+    when its email is a direct address. A shared mailbox becomes the practice's generic address (one per practice, never more when it already has one); any other new address is held back."""
     known = set(existing) | {r["ods_code"] for r in records}
     feed = [c for c in contacts if c["ods_code"] in known]
     rejects += [("oscar", str(c["contact_urn"]), f"practice {c['ods_code']} not in NHS GP list") for c in contacts if c["ods_code"] not in known]
     db = {r["contact_urn"]: r for r in rest.select_all("contacts", order="contact_urn")}
-    changed = [c for c in feed if c["contact_urn"] not in db or any(c[k] != db[c["contact_urn"]][k] for k in CONTACT_FIELDS)]
+    oscar_db = {u: r for u, r in db.items() if r.get("source", "oscar") == "oscar"}
+    by_email = {(r["ods_code"], r["email"].lower()): r for r in db.values() if r.get("source") == "hubspot" and r.get("email")}
+    try:
+        generic = {r["ods_code"]: r for r in rest.select_all("practice_generic_emails", "ods_code,email,source", order="ods_code")}
+    except Exception:  # noqa: BLE001 - the table arrives with migration 52
+        generic = {}
+    keep, adopted, held, new_generic = [], [], 0, {}
+    for c in sorted(feed, key=lambda c: c["contact_urn"]):
+        quality, _ = contact_quality.email_quality(c.get("email"), c.get("first_name"), c.get("last_name"))
+        c.update(email_quality=quality if quality in ("direct", "likely_direct", "check", "shared") else None, role_tier=contact_quality.role_tier(c.get("job_title"))[0], source="oscar")
+        mine = by_email.get((c["ods_code"], (c.get("email") or "").lower()))
+        if c["contact_urn"] in oscar_db:
+            keep.append(c)
+        elif mine:
+            c.update(hubspot_status="Imported", hubspot_contact_id=mine.get("hubspot_contact_id"), hubspot_imported_at=mine.get("hubspot_imported_at"))
+            adopted.append(mine["contact_urn"]); keep.append(c)
+        elif quality == "direct":
+            keep.append(c)
+        elif quality == "shared" and generic.get(c["ods_code"], {}).get("source") != "oscar" and c["ods_code"] not in new_generic:
+            new_generic[c["ods_code"]] = {"ods_code": c["ods_code"], "email": c["email"], "source": "oscar"}
+        else:
+            held += 1
+            rejects.append(("oscar", str(c["contact_urn"]), "new contact held back: " + ("practice already has a generic address" if quality == "shared" else f"email is not a direct address ({quality})")))
+    cols = CONTACT_FIELDS + ["email_quality", "role_tier", "source"]
+    changed = [c for c in keep if c["contact_urn"] not in db or any(c.get(k) != db[c["contact_urn"]].get(k) for k in cols)]
     rest.upsert("contacts", changed, "contact_urn")
-    stale = sorted(set(db) - {c["contact_urn"] for c in feed})
-    if stale and len(feed) >= 0.5 * len(db):
+    if adopted:
+        rest.delete_in("contacts", "contact_urn", sorted(adopted))
+    if new_generic:
+        try:
+            rest.upsert("practice_generic_emails", list(new_generic.values()), "ods_code")
+        except Exception as e:  # noqa: BLE001
+            stats["generic_error"] = str(e)[:200]
+    stale = sorted(set(oscar_db) - {c["contact_urn"] for c in feed})
+    if stale and len(feed) >= 0.5 * len(oscar_db):
         rest.delete_in("contacts", "contact_urn", stale)
     elif stale:
         stats["contacts_delete_skipped"] = len(stale)
-    stats.update(contacts_changed=len(changed), contacts_removed=len(stale))
+    stats.update(contacts_changed=len(changed), contacts_removed=len(stale), contacts_adopted=len(adopted), contacts_held=held, generic_emails_added=len(new_generic))
 
 
 JOBS_MIN_INTERVAL = timedelta(hours=18)   # the feed is ~125 requests: never rescan within a day, however often the pipeline is run (JOBS_FORCE=1 overrides)

@@ -42,9 +42,9 @@ def zipped(name, data):
 @pytest.fixture
 def oscar_rows():
     return [
-        "1,Casper,FONS,,Executive Manager,Chief Officer,01934 1,,Casper@NHS.net ,No,No,https://a.example,ICB One,No,a10000",
-        "2,Pat,Lee,,Receptionist,,,,pat@nhs.net,No,No,,ICB One,No,A10000",
-        "3,Ann,Boe,,Practice Manager,Manager,,0200,ann@nhs.net,Yes,No,,ICB One,No,A10001",
+        "1,Casper,FONS,,Executive Manager,Chief Officer,01934 1,,Casper.Fons@NHS.net ,No,No,https://a.example,ICB One,No,a10000",
+        "2,Pat,Lee,,Receptionist,,,,pat.lee@nhs.net,No,No,,ICB One,No,A10000",
+        "3,Ann,Boe,,Practice Manager,Manager,,0200,ann.boe@nhs.net,Yes,No,,ICB One,No,A10001",
         "4,Sup,Pressed,,Practice Manager,,,,s@nhs.net,No,No,,ICB One,Yes,A10002",
         "5,Bad,Code,,Practice Manager,,,,b@nhs.net,No,No,,ICB One,No,ZZZ",
         "x,Bad,Urn,,Practice Manager,,,,b@nhs.net,No,No,,ICB One,No,A10003",
