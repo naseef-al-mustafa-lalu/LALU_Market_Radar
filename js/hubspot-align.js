@@ -35,11 +35,10 @@ function alignHsRows(p) {      // inside the profile's HubSpot section: HubSpot'
   const a = alignOf(p); if (!a || !alignRead()) return "";
   const val = (v, labels) => v ? esc(labels[v] || v) : '<span class="text-slate-500">Blank</span>';
   const rows = [];
-  rows.push(kv("Org Type", val(a.org.hs, HS_ORG_LABEL) + (a.org.ok ? "" : " " + ALIGN_FLAG)), kv("Operating status", val(a.status.hs, HS_OPSTATUS_LABEL) + (a.status.ok ? "" : " " + ALIGN_FLAG)));
+  rows.push(kv("Org Type", val(a.org.hs, HS_ORG_LABEL) + (a.org.ok ? "" : " " + ALIGN_FLAG)), kv("Operating status", val(a.status.hs, HS_OPSTATUS_LABEL) + (a.status.ok ? "" : " " + ALIGN_FLAG) + (p.hubspot_change_note ? ` <span class="inline-flex cursor-help align-middle text-slate-400 hover:text-slate-600" title="${esc(p.hubspot_change_note)}" aria-label="${esc(p.hubspot_change_note)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></span>` : "")));
   if (a.link) rows.push(kv("Parent company", a.link.ok ? esc(a.link.parent.practice_name) : (a.link.hs ? '<span class="text-slate-600">A different company</span>' : '<span class="text-slate-500">Not linked</span>') + " " + ALIGN_FLAG + ` <span class="text-xs text-slate-400">${a.c.mode === "merged" ? "merged into " : "site operated by "}${esc(a.link.parent.practice_name)}</span>`));
-  const note = p.hubspot_change_note ? `<div class="mt-1 text-xs text-slate-500">${esc(p.hubspot_change_note)}</div>` : "";
   const act = alignNeeds(a) && a.c ? `<div class="mt-1"><button type="button" class="hs-entity rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Update HubSpot…</button></div>` : "";
-  return rows.join("") + act + note;
+  return rows.join("") + act;
 }
 function alignPlan() {
   const rows = practices.filter(p => p.hubspot_company_id), read = alignRead(), out = { rows, read, org: 0, status: 0, webMissing: 0, webDiffers: 0, autoN: 0, cases: [] };
