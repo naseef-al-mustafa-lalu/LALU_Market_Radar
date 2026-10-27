@@ -46,7 +46,7 @@ def role_tier(title, role=""):
     t, r = (title or "").strip(), (role or "").strip()
     if "dropped on" in t.lower():
         return "x", "dropped"
-    if re.search(r"deputy|assistant", t, re.I) and TIER_B.search(t):
+    if re.search(r"deputy|assistant", t, re.I) and TIER_B.search(t) and not re.search(r"(practice|business)\s*(/\s*business\s*)?manager", t, re.I):   # deputy and assistant practice or business managers count as decision-makers
         return "B", "secondary decision-maker"
     if (TIER_A.search(t) or (not t and TIER_A.search(r))) and not re.search(r"nurse|anp|practitioner", t, re.I):
         return "A", "decision-maker"

@@ -25,7 +25,7 @@ function cqEmailQuality(email, first = "", last = "") {
 function cqRoleTier(title, role = "") {
   const t = (title || "").trim(), r = (role || "").trim();
   if (/dropped on/i.test(t)) return ["x", "dropped"];
-  if (/deputy|assistant/i.test(t) && CQ.tierB.test(t)) return ["B", "secondary decision-maker"];
+  if (/deputy|assistant/i.test(t) && CQ.tierB.test(t) && !/(practice|business)\s*(\/\s*business\s*)?manager/i.test(t)) return ["B", "secondary decision-maker"];   // deputy and assistant practice or business managers count as decision-makers
   if ((CQ.tierA.test(t) || (!t && CQ.tierA.test(r))) && !/nurse|anp|practitioner/i.test(t)) return ["A", "decision-maker"];
   if (CQ.tierB.test(t) || (!t && CQ.tierB.test(r))) return ["B", "secondary decision-maker"];
   if (CQ.exclude.test(`${t} | ${r}`)) return ["x", "not a decision-maker"];
