@@ -252,6 +252,7 @@ Deno.serve(async (req) => {
       if (!["merged", "branch"].includes(mode)) throw new Fail("Unknown change");
       if (![ods, parentOds].every((c) => /^[A-Z0-9]{3,12}$/.test(c))) throw new Fail("Invalid ODS code");
       if (companyId === parentId) throw new Fail("A company cannot be its own parent");
+      const orgType = String(b.orgType ?? "practice"); if (!["practice", "branch_site"].includes(orgType)) throw new Fail("Unsupported Org Type");   // a merged practice whose site goes on as a branch of its successor is a Branch (Site)
       const br = mode === "branch" ? (b.branch ?? {}) : null, branchCode = String(br?.code ?? "").trim().toUpperCase();
       if (br && (!/^[A-Z0-9]{3,12}$/.test(branchCode) || !String(br.name ?? "").trim())) throw new Fail("The branch needs a code and a name");
       const props = "name,partner_organisation_code,org_type,operating_status,hs_parent_company_id";
@@ -275,7 +276,7 @@ Deno.serve(async (req) => {
         try { await hs(`/crm/v3/objects/notes`, { method: "POST", body: JSON.stringify({ properties: { hs_timestamp: new Date().toISOString(), hs_note_body: text }, associations: [{ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 190 }] }] }) }); }
         catch (e) { warnings.push(`Note not added: ${(e as Error).message}`); }
       };
-      await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { org_type: "practice", operating_status: mode === "merged" ? "merged" : "closed" } }) });
+      await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { org_type: mode === "merged" ? orgType : "practice", operating_status: mode === "merged" ? "merged" : "closed" } }) });
       await toParent(companyId, oldName);
       let branchId: string | null = null, created = false, moved = 0;
       if (br) {
@@ -297,12 +298,12 @@ Deno.serve(async (req) => {
           } catch (e) { warnings.push(`Contacts were not linked to the branch: ${(e as Error).message}`); }
         }
       }
-      const text = mode === "merged" ? `Atlas, ${day}, by ${who}: practice ${ods} has merged into ${parentName} (${parentOds}). Operating status set to Merged and linked to ${parentName} as its parent company. The company and its history stay here.`
+      const text = mode === "merged" ? `Atlas, ${day}, by ${who}: practice ${ods} has merged into ${parentName} (${parentOds}). Operating status set to Merged${orgType === "branch_site" ? ", Org Type set to Branch (Site) because its site continues as a branch of the successor," : ""} and linked to ${parentName} as its parent company. The company and its history stay here.`
         : `Atlas, ${day}, by ${who}: practice code ${ods} has closed, but its site continues as ${br.name} (${branchCode}), a branch of ${parentName} (${parentOds}). This company is marked Closed and linked to ${parentName} as its parent and to the branch company${created ? " (created by Atlas)" : ""}. Its history stays here.`;
       await noteOn(companyId, text);
       if (branchId) await noteOn(branchId, `Atlas, ${day}, by ${who}: this branch site took over from the closed practice code ${ods} (${oldName}), which is linked to this company for history. Parent: ${parentName} (${parentOds}).`);
-      const changeNote = (mode === "merged" ? `Merged into ${parentName} (${parentOds}); marked Merged and linked to its parent in HubSpot` : `Closed; site continues as ${branchCode}, a branch of ${parentName} (${parentOds}); marked Closed in HubSpot and linked to the parent and the branch company`) + ` on ${day} by ${who}`;
-      await admin.from("gp_practices").update({ hubspot_operating_status: mode === "merged" ? "merged" : "closed", hubspot_org_type: "practice", hubspot_parent_company_id: parentId, hubspot_change_note: changeNote }).eq("ods_code", ods);
+      const changeNote = (mode === "merged" ? `Merged into ${parentName} (${parentOds}); marked Merged${orgType === "branch_site" ? " and as a Branch (Site)" : ""} and linked to its parent in HubSpot` : `Closed; site continues as ${branchCode}, a branch of ${parentName} (${parentOds}); marked Closed in HubSpot and linked to the parent and the branch company`) + ` on ${day} by ${who}`;
+      await admin.from("gp_practices").update({ hubspot_operating_status: mode === "merged" ? "merged" : "closed", hubspot_org_type: mode === "merged" ? orgType : "practice", hubspot_parent_company_id: parentId, hubspot_change_note: changeNote }).eq("ods_code", ods);
       if (branchId) await admin.from("practice_branches").update({ hubspot_company_id: branchId }).eq("branch_code", branchCode);
       await log({ actor: who, kind: "entity_change", ods_code: ods, target: oldName, hubspot_type: "company", hubspot_id: companyId, summary: changeNote.replace(/ on \d{4}-\d{2}-\d{2} by .*$/, ""),
         detail: { mode, companyId, parentId, branchCode: branchCode || null, branchId, created, contactsLinked: moved, before: co.properties, warnings } });

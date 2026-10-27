@@ -120,7 +120,7 @@ with sync_playwright() as p:
     mg = pg.inner_text("#dr-body"); assert "Merged into" in mg or "merged into" in mg, mg[-700:]
     pg.click(".hs-entity"); pg.wait_for_selector("#aud-modal-ok"); mm = pg.inner_text("#aud-modal-body"); assert "Merged" in mm and "Test Surgery 1" in mm and "Parent company" in mm, mm
     pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-modal').classList.contains('hidden')")
-    ec = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'entity_change').pop()[1]"); assert ec["mode"] == "merged" and ec["ods"] == "A10008" and ec["parentOds"] == "A10001" and ec["parentCompanyId"] == "441" and ec["companyId"] == "448", ec
+    ec = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'entity_change').pop()[1]"); assert ec["mode"] == "merged" and ec["orgType"] == "practice" and ec["ods"] == "A10008" and ec["parentOds"] == "A10001" and ec["parentCompanyId"] == "441" and ec["companyId"] == "448", ec
     pg.keyboard.press("Escape")
     sm = pg.evaluate("""(() => { const br = { branch_code: 'T1R0M', branch_name: 'Dashwood Medical Centre', postcode: 'CT11 9PR', resolution: 'branch', status: 'Active', practice_code: 'A10001', match_status: 'auto' }; branches.push(br);
       const mk = (name, pc) => ({ ods_code: 'G82064', practice_name: name, status: 'Closed', postcode: pc }), r = [siteMove(mk('Dashwood Medical Centre', 'CT11 9PR')), siteMove(mk('Dr Gt Hendow Practice', 'CT11 9PR')), siteMove(mk('Dashwood Medical Centre', 'XX1 1XX'))].map(x => x && x.branch.branch_code);
@@ -134,6 +134,8 @@ with sync_playwright() as p:
     ebr = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'entity_change').pop()[1]"); assert ebr["mode"] == "branch" and ebr["ods"] == "A10009" and ebr["branch"]["code"] == "T1R0M" and ebr["moveContacts"] is True and ebr["parentCompanyId"] == "441" and "ods_code" not in ebr["branch"], ebr
     assert "Closed; site continues as T1R0M" in pg.inner_text("#dr-body"), pg.inner_text("#dr-body")[-600:]      # the profile keeps a one-line record of what was done
     pg.evaluate("branches.pop()"); pg.keyboard.press("Escape")
+    mb = pg.evaluate("""(() => { const p = byOds.get('A10008'); branches.push({ branch_code: 'T9X9X', branch_name: 'Test Old Surgery', postcode: p.postcode, resolution: 'branch', status: 'Active', practice_code: 'A10001', match_status: 'auto' }); const c = hsCase(p), t = atlasOrgType(p); branches.pop(); return [c.mode, !!c.site, t, atlasOrgType(p)]; })()""")
+    assert mb == ["merged", True, "branch_site", "practice"], mb      # a merged practice whose site goes on as a branch of its successor is a Branch (Site); without that branch it stays a Practice
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector("#dr-body", state="visible"); ct = pg.inner_text("#dr-body")
     assert "List size now" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
     assert "List size in contract" in ct and "9,000" in ct and "13,000" in ct and "+4,000 (+44.4%)" in ct and "T4 → T3" in ct and "check whether a new contract is needed" in ct, ct      # contract basis against today's NHS figure, tier moved
