@@ -398,13 +398,14 @@ def lifecycle_fields(companies, deal_ids, deals, service_ids, services, line_qty
     primary = sorted(companies, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]
     svs = [services[i] for i in service_ids if i in services]
     for sv in svs:
-        sv["_product"], sv["_start"] = service_product(sv), min((d for d in (_date(sv.get("contract_start_date")), _date(sv.get("hs_start_date"))) if d), default=None)
+        sv["_product"] = service_product(sv)
+        sv["_start"] = min((d for d in (_date(sv.get("contract_start_date")), _date(sv.get("hs_start_date"))) if d), default=None) or _date(sv.get("hs_createdate"))   # Freemium and PAYG Services have no start date: when the Service record was created
     paid = [sv for sv in svs if sv["_product"] in ("all", "sar", "self") or sv["_product"] is None]
     main = max(paid or svs, key=lambda sv: (sv["_start"] or "", sv.get("hs_name") or ""), default=None)
     won = [(i, deals[i]) for i in deal_ids if i in deals and deals[i].get("hs_is_closed_won") == "true" and deals[i].get("pipeline") in PIPELINE_WON]
     last = max(won, key=lambda x: _date(x[1].get("closedate")) or "", default=(None, {}))
     churned = [d for d in (_date(sv.get("date_churned")) for sv in (paid or svs)) if d]
-    starts = [sv["_start"] for sv in paid if sv["_start"]] or [_date(d.get("closedate")) for _, d in won if _date(d.get("closedate"))]
+    starts = [sv["_start"] for sv in (paid or svs) if sv["_start"]] or [_date(d.get("closedate")) for _, d in won if _date(d.get("closedate"))]
     ps = last[1].get("product___service") or None
     product = main["_product"] if main else None
     hist = sorted(((_date(d.get("closedate")), contract_patients(d, (line_qty or {}).get(i), list_size_value)) for i, d in ((i, deals[i]) for i in deal_ids if i in deals and deals[i].get("hs_is_closed_won") == "true"
@@ -777,7 +778,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     to_services, services, service_error = {}, {}, None
     try:   # Service ACV is the contracted-ARR source; if the token cannot read Services, fall back to deals and say so in the run summary
         to_services = associations(hub, SERVICE_OBJECT, cids)
-        services = read_objects(hub, SERVICE_OBJECT, [i for v in to_services.values() for i in v], ["hs_pipeline_stage", "actual_annual_contract_value__acv_", "contract_start_date", "contract_end_date", "hs_start_date", "hs_name", "current_subscription", "date_churned"])
+        services = read_objects(hub, SERVICE_OBJECT, [i for v in to_services.values() for i in v], ["hs_pipeline_stage", "actual_annual_contract_value__acv_", "contract_start_date", "contract_end_date", "hs_start_date", "hs_createdate", "hs_name", "current_subscription", "date_churned"])
     except Exception as e:  # noqa: BLE001
         service_error = str(e)[:300]
 
