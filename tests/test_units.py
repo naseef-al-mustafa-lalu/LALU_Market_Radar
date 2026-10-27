@@ -538,3 +538,28 @@ def test_list_size_push_batches_and_stops_on_error():
     r, h = R(), H(fail_at=2)
     done, err = hsy.push_list_sizes(r, h, auto)
     assert len(done) == 100 and "403" in err      # the first 100 are recorded, the failure stops the rest
+
+
+def test_linked_company_properties():
+    from src import hubspot_sync as hsy
+    cs = [{"id": "1", "org_type": "practice", "operating_status": "active", "website": " https://x.nhs.uk "}, {"id": "2"}]
+    assert hsy.linked_properties(cs, "1") == {"hubspot_org_type": "practice", "hubspot_operating_status": "active", "hubspot_website": "https://x.nhs.uk"}
+    assert hsy.linked_properties(cs, "2") == {"hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None}
+
+
+def test_line_item_quantity_is_the_contract_basis():
+    from src import hubspot_sync as hsy
+
+    class H:
+        def call(self, method, path, **kw):
+            if "associations/deals/line_items" in path:
+                return {"results": [{"from": {"id": "d1"}, "to": [{"toObjectId": 11}, {"toObjectId": 12}]}, {"from": {"id": "d2"}, "to": [{"toObjectId": 13}]}]}
+            if "objects/line_items/batch/read" in path:
+                return {"results": [{"id": "11", "properties": {"quantity": "9500", "hs_product_id": "440423339237"}}, {"id": "12", "properties": {"quantity": "1", "hs_product_id": "999"}},
+                                    {"id": "13", "properties": {"quantity": "5", "hs_product_id": "999"}}]}
+            raise AssertionError(path)
+    q = hsy.deal_line_quantities(H(), ["d1", "d2"])
+    assert q == {"d1": 9500}      # only the Lalu Care product counts
+    deals = {"d1": {"hs_is_closed_won": "true", "pipeline": "default", "closedate": "2026-01-01", "value_per_patient": "0.08"}}
+    assert hsy.contract_terms(["d1"], deals, q)["line_qty"] == 9500
+    assert hsy.deal_line_quantities(type("Bad", (), {"call": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("403"))})(), ["d1"]) == {}      # no scope: the figure is simply absent

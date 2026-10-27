@@ -51,7 +51,7 @@ def fetch_companies(hub):
     out, after = [], None
     while True:
         body = {"filterGroups": [{"filters": [{"propertyName": "partner_organisation_code", "operator": "HAS_PROPERTY"}]}], "limit": 100,
-                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate", "patient_list_size"], "sorts": ["createdate"]}
+                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate", "patient_list_size", "org_type", "operating_status", "website"], "sorts": ["createdate"]}
         if after:
             body["after"] = after
         d = hub.call("POST", "/crm/v3/objects/companies/search", json=body)
@@ -115,14 +115,40 @@ def _date(v):
 TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "total_discount", "term_length_years", "value_per_patient", "actual_value_per_patient_calculated"]
 
 
-def contract_terms(deal_ids, deals):
+LALU_PRODUCTS = {"440423339237", "440425147578", "440434162881", "440498134244"}   # the four Lalu Care products: a deal's line item quantity is the patients it bills
+
+
+def won_deal_ids(deals):
+    return [i for i, d in deals.items() if d.get("hs_is_closed_won") == "true" and d.get("pipeline") in PIPELINE_WON]
+
+
+def deal_line_quantities(hub, deal_ids):
+    """{deal id: patients on its Lalu Care line item}, read with the line item scope. A token without it (or any read failure) gives {} and the Contract section just omits the figure."""
+    out = {}
+    try:
+        lines_of = {}
+        for ch in chunks(sorted(set(deal_ids)), 1000):
+            d = hub.call("POST", "/crm/v4/associations/deals/line_items/batch/read", json={"inputs": [{"id": i} for i in ch]})
+            for r in d.get("results", []):
+                lines_of[str(r["from"]["id"])] = [str(t["toObjectId"]) for t in r.get("to", [])]
+        lines = read_objects(hub, "line_items", [i for v in lines_of.values() for i in v], ["quantity", "hs_product_id"])
+        for deal, ids in lines_of.items():
+            q = sum(_num(lines[i].get("quantity")) or 0 for i in ids if lines.get(i, {}).get("hs_product_id") in LALU_PRODUCTS)
+            if q > 0:
+                out[deal] = int(q)
+    except Exception as e:  # noqa: BLE001
+        print("Line item quantities skipped:", str(e)[:200])
+    return out
+
+
+def contract_terms(deal_ids, deals, line_qty=None):
     """Pricing of the latest closed-won deal (discount fractions and £ per patient per month), for the practice's Contract section."""
-    won = [deals[d] for d in deal_ids if d in deals and deals[d].get("hs_is_closed_won") == "true" and deals[d].get("pipeline") in PIPELINE_WON]
+    won = [(i, deals[i]) for i in deal_ids if i in deals and deals[i].get("hs_is_closed_won") == "true" and deals[i].get("pipeline") in PIPELINE_WON]
     if not won:
         return None
-    d = max(won, key=lambda x: _date(x.get("closedate")) or "")
+    did, d = max(won, key=lambda x: _date(x[1].get("closedate")) or "")
     out = {"deal": d.get("dealname"), "closed": _date(d.get("closedate")), "amount": _num(d.get("amount")), "years": _num(d.get("term_length_years")),
-           "list_rate": _num(d.get("value_per_patient")), "net_rate": _num(d.get("actual_value_per_patient_calculated"))}
+           "list_rate": _num(d.get("value_per_patient")), "net_rate": _num(d.get("actual_value_per_patient_calculated")), "line_qty": (line_qty or {}).get(did)}
     for k in ("size", "speed", "term_length", "referral"):
         out[k] = _num(d.get(f"{k}_discount"))
     out["total"] = _num(d.get("total_discount"))
@@ -136,6 +162,12 @@ def list_size(companies, company_id):
             n = _num(c.get("patient_list_size"))
             return int(n) if n and n > 0 else None
     return None
+
+
+def linked_properties(companies, company_id):
+    """Org Type, Operating status and Website URL of the practice's linked HubSpot company, kept beside the NHS-derived values so the two can be compared."""
+    c = next((c for c in companies if str(c.get("id")) == str(company_id)), {})
+    return {"hubspot_org_type": c.get("org_type") or None, "hubspot_operating_status": c.get("operating_status") or None, "hubspot_website": (c.get("website") or "").strip() or None}
 
 
 SIZE_HOLD = 0.25   # a one-month jump bigger than this is almost always a merge, split or bad row: a person looks before HubSpot changes
@@ -176,7 +208,7 @@ def push_list_sizes(rest, hub, auto):
     return done, err
 
 
-def revenue_fields(deal_ids, deals, service_ids, services, customer, model):
+def revenue_fields(deal_ids, deals, service_ids, services, customer, model, line_qty=None):
     """Contracted ARR (live Service ACV, else closed-won deal amounts flagged 'deal') and the open deal pipeline for one practice."""
     live = [services[s] for s in service_ids if services.get(s, {}).get("hs_pipeline_stage") in LIVE_SERVICE_STAGES]
     acv = sum(_num(sv.get("actual_annual_contract_value__acv_")) or 0 for sv in live)
@@ -189,7 +221,7 @@ def revenue_fields(deal_ids, deals, service_ids, services, customer, model):
             "hubspot_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_SALES) or None,
             "hubspot_conversion_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_CONVERSION) or None,
             "hubspot_renewal_pipeline": sum(_num(d.get("amount")) or 0 for d in open_ if d.get("pipeline") == PIPELINE_RENEWALS) or None,
-            "hubspot_contract_terms": contract_terms(deal_ids, deals) if src else None}
+            "hubspot_contract_terms": contract_terms(deal_ids, deals, line_qty) if src else None}
 
 
 PCN_OBJECT, ICB_OBJECT = "p145802630_pcns", "p145802630_icbs"
@@ -526,6 +558,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     to_contacts, to_deals = associations(hub, "contacts", cids), associations(hub, "deals", cids)
     contacts = read_objects(hub, "contacts", [i for v in to_contacts.values() for i in v], ["lifecyclestage", "email", "createdate"])
     deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won", "hs_is_closed", "amount", "pipeline", *TERM_PROPS])
+    line_qty = deal_line_quantities(hub, won_deal_ids(deals))
     to_services, services, service_error = {}, {}, None
     try:   # Service ACV is the contracted-ARR source; if the token cannot read Services, fall back to deals and say so in the run summary
         to_services = associations(hub, SERVICE_OBJECT, cids)
@@ -542,13 +575,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
         f = classify(cs, contact_ids, contacts, deal_ids, deals)
         flags["customers"] += f["hubspot_customer"]; flags["engaged"] += f["hubspot_engaged"]
         service_ids = sorted({i for c in cset for i in to_services.get(c, [])})
-        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"]), "hubspot_list_size": list_size(cs, f.get("hubspot_company_id")), "hubspot_synced_at": now})
+        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"], line_qty), "hubspot_list_size": list_size(cs, f.get("hubspot_company_id")), **linked_properties(cs, f.get("hubspot_company_id")), "hubspot_synced_at": now})
         hs_contacts[ods] = {(contacts[i].get("email") or "").strip().lower(): (i, contacts[i].get("createdate")) for i in contact_ids if contacts.get(i, {}).get("email")}
     for ods, p in practices.items():   # a practice that had a company before but no longer does: clear the link and flags
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
-                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
+                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     auto, held = plan_list_sizes(practices, rows)
     sizes = {"list_sizes_pending": len(auto), "list_sizes_held": len(held)}

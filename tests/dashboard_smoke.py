@@ -9,7 +9,7 @@ def prac(i, **kw):
              cqc_last_inspection="2025-01-02", org_notes="Good client", data_month="2026-09")
     d.update(kw); return d
 PR = [prac(i) for i in range(12)]
-PR[1].update(hubspot_company_id="441"); PR[3].update(hubspot_company_id="443")
+PR[1].update(hubspot_company_id="441", hubspot_org_type="branch_site", hubspot_operating_status="active", hubspot_website=""); PR[3].update(hubspot_company_id="443")
 PR[8].update(practice_name="Test Old Surgery", total_patients=0, merged_into="A10001", merged_note="Merged 2025", merged_at="2026-01-01T00:00:00Z", merged_by="boss@lalu.co.uk")
 PR[9].update(practice_name="Test Annex A", total_patients=0)
 PR[10].update(practice_name="Test Annex B", total_patients=0)
@@ -21,7 +21,7 @@ for p_ in PR:
     p_.update(hubspot_customer=False, hubspot_engaged=False, hubspot_stage=None)
 PR[2].update(hubspot_customer=True, hubspot_stage="customer"); PR[1].update(hubspot_engaged=True, hubspot_stage="opportunity")
 PR[7].update(hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=13056, hubspot_contracted_src="service")
-PR[4].update(hubspot_list_size=9000, hubspot_company_id="444", hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=9000, hubspot_contracted_src="service", hubspot_contract_terms=dict(deal="Test Surgery 4", closed="2025-03-04", amount=9000, years=2, list_rate=0.08, net_rate=0.0684, size=0.05, speed=0.05, term_length=0.025, referral=0.02, total=0.145))
+PR[4].update(hubspot_list_size=9000, hubspot_company_id="444", hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=9000, hubspot_contracted_src="service", hubspot_contract_terms=dict(line_qty=9500, deal="Test Surgery 4", closed="2025-03-04", amount=9000, years=2, list_rate=0.08, net_rate=0.0684, size=0.05, speed=0.05, term_length=0.025, referral=0.02, total=0.145))
 HS = [dict(ods_code=p_["ods_code"], hs_contacts=1, hs_imported=1 if i < 3 else 0, hs_primary_imported=i < 3, hs_last_imported_at="2026-10-12T09:00:00Z", hs_primary_imported_at="2026-10-12T09:00:00Z" if i < 3 else None) for i, p_ in enumerate(PR)]
 PP = [dict(ods_code=p["ods_code"], price_tier=3, tier_label="Tier 3 (Medium-Large)", base_price=0.076, year1_price=0.072, est_arr=round(p["total_patients"] * 0.076 * 12), est_arr_year1=round(p["total_patients"] * 0.072 * 12), base_price_sar=0.0475, est_arr_sar=round(p["total_patients"] * 0.0475 * 12)) for p in PR]
 TIERS = [dict(route="practice", tier=i + 1, label=l, threshold=t, size_discount=d, speed_discount=0.05) for i, (l, t, d) in enumerate([("Very Large", 20000, 0.1), ("Large", 15000, 0.075), ("Medium-Large", 10000, 0.05), ("Medium", 5000, 0), ("Solo", 0, 0)])] + \
@@ -114,6 +114,7 @@ with sync_playwright() as p:
     # drawer
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
+    assert "hubspot record" in body.lower() and "Branch (Site)" in body, body[-900:]      # linked HubSpot properties: Org Type differs from the NHS data
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector("#dr-body", state="visible"); ct = pg.inner_text("#dr-body")
     assert "List size now" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
     assert "List size in contract" in ct and "9,000" in ct and "13,000" in ct and "+4,000 (+44.4%)" in ct and "T4 → T3" in ct and "check whether a new contract is needed" in ct, ct      # contract basis against today's NHS figure, tier moved
@@ -121,8 +122,8 @@ with sync_playwright() as p:
     assert pg.locator("#rows tr").count() == 1 and "Test Surgery 4" in pg.inner_text("#rows"), pg.inner_text("#rows")      # customers whose size tier moved since the contract
     pg.evaluate("document.getElementById('f-drift').value = ''; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
     pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector(".hs-size-push")
-    pg.once("dialog", lambda d: d.accept()); pg.click(".hs-size-push"); pg.wait_for_function("!document.querySelector('#dr-body').innerText.includes('Update HubSpot to')")
-    sl = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'set_list_size').pop()[1]"); assert sl["ods"] == "A10004" and sl["size"] == 13000 and sl["companyId"], sl
+    assert "Billed on" in ct and "9,500" in ct and "differ" in ct, ct      # the line item quantity against the company's list size
+    pg.click(".hs-size-push"); pg.wait_for_selector("#hs-modal:not(.hidden)"); pg.click("#hs-close")      # renewal opens the pricing push, which updates size, tier and quantity together
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 5')"); pg.wait_for_selector("#dr-body [data-rg]", state="visible"); pg.wait_for_function("document.querySelector('#dr-body').innerText.includes('referral group')")
     mb = pg.inner_text("#dr-body"); assert "Part of Test Surgery 3's referral group" in mb and "Group price" in mb and "Referral group discount" in mb and "10%" in mb, mb       # a member is quoted at the group rate by default
@@ -347,6 +348,9 @@ with sync_playwright() as p:
     hp = pg.inner_text("#d-hubspot"); assert "HubSpot integration" in hp and "Healthy" in hp and "Needs attention" in hp and "not in HubSpot" in hp and "manual sync" in hp and "Pushed pricing to Deal X" in hp and "did not match" in hp, hp
     with pg.expect_download() as dls: pg.click("#hsp-sizes")
     sz = open(dls.value.path(), encoding="utf-8-sig").read().splitlines(); assert sz[0] == '"Record ID","Company name","GP ODS Code","Patient List Size"' and len(sz) >= 2 and all(l.split(",")[0].strip('"').isdigit() for l in sz[1:]), sz[:4]      # list-size import file: only practices already in HubSpot
+    assert "Alignment with NHS data" in hp and "Org Type differ" in hp, hp[:1200]
+    with pg.expect_download() as dal: pg.click("#hsp-align")
+    al = open(dal.value.path(), encoding="utf-8-sig").read().splitlines(); assert al[0] == '"Record ID","Company name","GP ODS Code","Org Type","Operating status","Website URL"' and any('"Practice","Active"' in l and "A10001" in l for l in al), al[:4]      # Org Type and status from NHS data, website only where HubSpot is blank
     assert "List sizes in HubSpot" in hp and "would update" in hp and "customers differ from NHS" in hp, hp[:900]      # the list-size sync card
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-size-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags')")
     fl = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0]"); assert fl["key"] == "list_size_sync" and fl["value"] == {"enabled": True}, fl

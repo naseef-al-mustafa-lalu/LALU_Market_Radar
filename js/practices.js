@@ -135,18 +135,24 @@ function termsBlock(p) {
     line(`<b>Price</b> <span class="text-slate-400">${"£" + net.toFixed(3)} per patient per month</span>`, `<b class="text-teal-700">${gbpFull(a * (1 - tot))}</b>`) +
     `<div class="text-[11px] text-slate-400 mt-1">At today's list size${t.amount ? `; the deal amount is ${gbpFull(t.amount)}` : ""}. Contracted ARR above is the figure to rely on.</div></div>`;
 }
+function billedRows(p) {      // what the contract bills (the Lalu Care line item's quantity) against the company's list size: they should match
+  const q = p.hubspot_customer ? Number((p.hubspot_contract_terms || {}).line_qty) || 0 : 0, base = Number(p.hubspot_list_size) || 0; if (!q) return "";
+  const off = base && base !== q;
+  return kv("Billed on <span class='text-slate-400'>(line item)</span>", `<span class="font-mono">${q.toLocaleString()}</span>` + (off ? " " + chip("≠ company size", "bg-amber-100 text-amber-800") : "")) +
+    (off ? `<div class="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">The company's list size in HubSpot (${base.toLocaleString()}) and the billed quantity (${q.toLocaleString()}) differ. They should match; renewing from here updates both.</div>` : "");
+}
 function driftRows(p) {      // the contract basis against today's NHS figure, and the renewal action
   const d = sizeDrift(p); if (!d) return "";
   const sign = d.diff > 0 ? "+" : d.diff < 0 ? "−" : "", pct = Math.round(Math.abs(d.pct) * 1000) / 10, flag = d.tierChanged ? chip(`${d.tb.replace("Tier ", "T")} → ${d.tn.replace("Tier ", "T")}`, "bg-amber-100 text-amber-800") + " " : "";
   return kv("List size in contract <span class='text-slate-400'>(HubSpot)</span>", `<span class="font-mono">${d.base.toLocaleString()}</span> ${chip(d.tb.replace("Tier ", "T"), TIER_CLS[d.tb] || "")}`) +
     kv("Change since", `${flag}<span class="font-mono ${d.review ? "text-amber-700 font-semibold" : ""}">${sign}${Math.abs(d.diff).toLocaleString()} (${sign}${pct}%)</span>`) +
     (d.review ? `<div class="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">${d.tierChanged ? `The size tier has moved from ${esc(d.tb)} to ${esc(d.tn)}` : `The list has changed by ${pct}%`}: Customer Success should check whether a new contract is needed at renewal.</div>` : "") +
-    (d.diff ? `<div class="mt-1 flex items-center gap-2 text-xs text-slate-500"><button type="button" class="hs-size-push rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Update HubSpot to ${d.now.toLocaleString()}</button><span>Do this at renewal; a customer's size is not changed automatically.</span></div>` : "");
+    (d.diff ? `<div class="mt-1 flex items-center gap-2 text-xs text-slate-500"><button type="button" class="hs-size-push rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Renew in HubSpot…</button><span>Updates the list size, size tier and billed quantity together, after you review the changes. A customer's size is not changed automatically.</span></div>` : "");
 }
 function contractSection(p) {
   const c = Number(p.hubspot_contracted_arr), est = Number(p.est_arr), end = p.hubspot_contract_end, days = end ? Math.round((new Date(end) - Date.now()) / 864e5) : null;
   const renew = end ? esc(fmtDate(end)) + " " + (days < 0 ? chip("Past renewal date", "bg-red-100 text-red-800") : days <= 90 ? chip("Renews in " + days + " days", "bg-amber-100 text-amber-800") : "") : "";
-  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + driftRows(p) + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
+  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + billedRows(p) + driftRows(p) + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
     kv("Contract start", p.hubspot_contract_start ? esc(fmtDate(p.hubspot_contract_start)) : "") + kv("Renewal date", renew) +
     termsBlock(p) + (est > 0 ? `<div class="text-xs text-slate-500 mt-1">List-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.</div>` : ""));
 }
@@ -328,7 +334,7 @@ async function openDrawer(p) {
       `<div class="text-xs text-slate-500 mt-1">List size ${p.data_month ? "from " + esc(p.data_month) : ""}.</div>` + routeComparison(p) : `<p class="text-sm text-slate-600">No list size, so no price. ${esc(p.merged_into ? "Its patients are counted under the practice it merged into." : isClosed(p) ? "This practice has closed." : noSizeReason(p))}</p>`)) +
     sec("Quality and system", kv("CQC rating", p.cqc_rating ? (CQC_CHIP[p.cqc_rating] ? chip(p.cqc_rating, CQC_CHIP[p.cqc_rating]) : esc(p.cqc_rating)) : p.cqc_location_id ? '<span class="text-slate-500">Not rated yet</span>' : '<span class="text-slate-500" title="No CQC location could be matched to this practice by postcode and ODS code, so there is no rating, registration status or inspection date.">Not matched to a CQC location</span>') + kv("Registration", esc(p.cqc_status)) + kv("Last inspection", esc(p.cqc_last_inspection)) +
       kv("Manager absent since", esc(p.cqc_manager_absent_date)))  +
-    hsSection(p, st) +
+    hsSection(p, st) + alignSection(p) +
     sec("Notes (Oscar)", p.org_notes ? `<div class="text-sm text-slate-700 whitespace-pre-wrap">${esc(p.org_notes)}</div>` : "");
   body.scrollTop = 0;
   body.onclick = ev => { const a = ev.target.closest("a[data-net]"); if (a) { ev.preventDefault(); const [kind, key, label] = a.dataset.net.split("|"); openNetwork(kind, key, label); } };
@@ -370,12 +376,5 @@ function sigTiles(sg, jobs) {
   return (sg.length ? head("Signals", sg.length) + `<div class="space-y-1.5">${sg.map(sigTile).join("")}</div>` : "") + (jobs.length ? `<div class="${sg.length ? "mt-3" : ""}">${head("Hiring: report / records roles (NHS Jobs)", jobs.length)}<div class="space-y-1.5">${jobs.map(jobTile).join("")}</div></div>` : "");
 }
 
-// At renewal: write today's NHS list size to the customer's HubSpot company (the only place a customer's size is changed from here).
-document.addEventListener("click", async e => {
-  const b = e.target.closest(".hs-size-push"); if (!b) return;
-  const p = byOds.get(b.dataset.ods); if (!p || !p.hubspot_company_id) return;
-  if (!confirm(`Update ${p.practice_name} in HubSpot from ${Number(p.hubspot_list_size).toLocaleString()} to ${Number(p.total_patients).toLocaleString()} patients?\n\nDo this when the contract renews. HubSpot recalculates the size tier, which can start its renewal workflows.`)) return;
-  b.disabled = true; b.textContent = "Updating…";
-  try { await hsCall({ action: "set_list_size", ods: p.ods_code, companyId: String(p.hubspot_company_id), size: Number(p.total_patients) }); p.hubspot_list_size = p.total_patients; openDrawer(p); }
-  catch (err) { b.disabled = false; b.textContent = "Update failed: " + err.message; }
-});
+// At renewal: the pricing push writes the new list size, size tier and line item quantity together (the user reviews the preview first).
+document.addEventListener("click", e => { const b = e.target.closest(".hs-size-push"); if (!b) return; const p = byOds.get(b.dataset.ods); if (p) hsOpen(p); });
