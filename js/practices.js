@@ -14,13 +14,23 @@ function sizeDrift(p) {
   const pct = (now - base) / base, tb = tierOfSize(base), tn = tierOfSize(now);
   return { base, now, diff: now - base, pct, tb, tn, tierChanged: tb !== tn, review: tb !== tn || Math.abs(pct) >= 0.1 };
 }
+// Expansion review flag: a customer whose NHS list is 5% or more above the size they signed for (the Lalu Care line item's quantity, else the company's list size).
+// It can only be raised 3 months after the latest closed-won deal; a practice that crosses 5% earlier shows as waiting until then. Resolving it (an expansion deal closing) comes later.
+const EXPAND_PCT = 0.05, EXPAND_WAIT_MONTHS = 3;
+function expansionFlag(p) {
+  const t = p.hubspot_contract_terms || {}, base = Number(t.line_qty) || Number(p.hubspot_list_size), now = Number(p.total_patients);
+  if (!p.hubspot_customer || !(base > 0) || !(now > 0)) return null;
+  const pct = (now - base) / base; if (pct < EXPAND_PCT) return null;
+  const signed = t.closed ? new Date(t.closed + "T00:00:00") : null, from = signed ? new Date(signed.getFullYear(), signed.getMonth() + EXPAND_WAIT_MONTHS, signed.getDate()) : null;
+  return { base, now, diff: now - base, pct, signed: t.closed || null, from, due: !from || from <= new Date() };
+}
 const readFilters = () => ({ drift: $("f-drift").value, q: $("f-search").value.trim().toLowerCase(), tier: $("f-tier").value, sw: $("f-sw").value, hs: $("f-hs").value, cqc: $("f-cqc").value, icb: $("f-icb").value, country: $("f-country").value,
   size: $("f-size").value, st: $("f-status").value, sig: $("f-sig").checked, grp: $("f-grp").checked, net: netFilter });
 function matchPractice(p, f, hits) {
   return (f.st === "all" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : p.status === "Active" && !p.merged_into && !isClosed(p))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
     (!f.sw || p.clinical_software === f.sw) && (!f.hs || (f.hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === f.hs)) &&
     (!f.cqc || (f.cqc === "None" ? !p.cqc_rating : p.cqc_rating === f.cqc)) && (!f.icb || p.icb_name === f.icb) && (!f.country || (p.country || "England") === f.country) && (!f.size || (f.size === "yes") === (p.total_patients > 0)) &&
-    (!f.drift || (d => d && (f.drift === "tier" ? d.tierChanged : d.review))(sizeDrift(p))) && (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
+    (!f.drift || (f.drift === "expand" ? !!(expansionFlag(p) || {}).due : (d => d && (f.drift === "tier" ? d.tierChanged : d.review))(sizeDrift(p)))) && (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
     (!f.q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(f.q)) || !!(hits && hits.has(p.ods_code)));
 }
 function applyFilters() {
@@ -149,10 +159,17 @@ function driftRows(p) {      // the contract basis against today's NHS figure, a
     (d.review ? `<div class="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">${d.tierChanged ? `The size tier has moved from ${esc(d.tb)} to ${esc(d.tn)}` : `The list has changed by ${pct}%`}: Customer Success should check whether a new contract is needed at renewal.</div>` : "") +
     (d.diff ? `<div class="mt-1 flex items-center gap-2 text-xs text-slate-500"><button type="button" class="hs-size-push rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Renew in HubSpot…</button><span>Updates the list size, size tier and billed quantity together, after you review the changes. A customer's size is not changed automatically.</span></div>` : "");
 }
+function expandRows(p) {      // the expansion review flag, shown above the renewal figures
+  const e = expansionFlag(p); if (!e) return "";
+  const pct = Math.round(e.pct * 1000) / 10, when = e.from ? fmtDate(e.from.toISOString().slice(0, 10)) : "";
+  return kv("Expansion review", e.due ? chip("Contract review due", "bg-red-100 text-red-800") : chip("Over 5%, review from " + when, "bg-amber-100 text-amber-800")) +
+    `<div class="mt-1 rounded-lg ${e.due ? "bg-red-50 text-red-900" : "bg-amber-50 text-amber-900"} px-3 py-2 text-xs">The list is ${pct}% (+${e.diff.toLocaleString()}) above the ${e.base.toLocaleString()} patients signed for.` +
+    (e.due ? " Customer Success can review the contract for an expansion." : ` A contract review can be raised from ${esc(when)}, 3 months after the contract was signed (${esc(fmtDate(e.signed))}).`) + (e.due && !e.signed ? " No signed date is on file, so the 3-month wait could not be checked." : "") + `</div>`;
+}
 function contractSection(p) {
   const c = Number(p.hubspot_contracted_arr), est = Number(p.est_arr), end = p.hubspot_contract_end, days = end ? Math.round((new Date(end) - Date.now()) / 864e5) : null;
   const renew = end ? esc(fmtDate(end)) + " " + (days < 0 ? chip("Past renewal date", "bg-red-100 text-red-800") : days <= 90 ? chip("Renews in " + days + " days", "bg-amber-100 text-amber-800") : "") : "";
-  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + billedRows(p) + driftRows(p) + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
+  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + billedRows(p) + driftRows(p) + expandRows(p) + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
     kv("Contract start", p.hubspot_contract_start ? esc(fmtDate(p.hubspot_contract_start)) : "") + kv("Renewal date", renew) +
     termsBlock(p) + (est > 0 ? `<div class="text-xs text-slate-500 mt-1">List-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.</div>` : ""));
 }

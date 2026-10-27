@@ -144,6 +144,14 @@ with sync_playwright() as p:
     assert "List size in contract" in ct and "9,000" in ct and "13,000" in ct and "+4,000 (+44.4%)" in ct and "T4 → T3" in ct and "check whether a new contract is needed" in ct, ct      # contract basis against today's NHS figure, tier moved
     pg.keyboard.press("Escape"); pg.evaluate("document.getElementById('f-drift').value = 'tier'; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
     assert pg.locator("#rows tr").count() == 1 and "Test Surgery 4" in pg.inner_text("#rows"), pg.inner_text("#rows")      # customers whose size tier moved since the contract
+    assert "Contract review due" in ct and "9,500 patients signed for" in ct, ct      # 5%+ over the signed (line item) size, more than 3 months after signing
+    ex = pg.evaluate("""(() => { const p = byOds.get('A10004'), keep = p.hubspot_contract_terms.closed, r = [];
+      const at = d => { p.hubspot_contract_terms.closed = d; const e = expansionFlag(p); return e && e.due; };
+      const ago = m => { const d = new Date(); d.setMonth(d.getMonth() - m); return d.toISOString().slice(0, 10); };
+      r.push(at(ago(1)), at(ago(4))); p.total_patients = 9700; r.push(expansionFlag(p) === null); p.total_patients = 13000; p.hubspot_contract_terms.closed = keep; return r; })()""")
+    assert ex == [False, True, True], ex      # waiting inside the 3 months, due after, and no flag under 5%
+    pg.evaluate("document.getElementById('f-drift').value = 'expand'; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
+    assert pg.locator("#rows tr").count() == 1 and "Test Surgery 4" in pg.inner_text("#rows"), pg.inner_text("#rows")
     pg.evaluate("document.getElementById('f-drift').value = ''; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
     pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector(".hs-size-push")
     assert "Billed on" in ct and "9,500" in ct and "differ" in ct, ct      # the line item quantity against the company's list size
