@@ -555,22 +555,26 @@ def sync_networks(rest, hub, now):
             "networks_unmatched": len(orgs) - len(rows)}
 
 
-AUDIT_NOISE = {"the", "and", "surgery", "practice", "medical", "centre", "center", "health", "group", "gp", "partners", "partnership", "dr", "drs", "clinic", "ltd", "limited", "nhs"}
+AUDIT_NOISE = {"the", "and", "surgery", "practice", "medical", "centre", "center", "health", "group", "gp", "partners", "partnership", "dr", "drs", "clinic", "ltd", "limited", "nhs", "ctr", "ctre", "med", "hc", "mc", "family"}
+
+
+def _stem(w):
+    return re.sub(r"(ies|es|s)$", "", w) if len(w) > 5 else w   # surgeries and surgery, practices and practice compare equal
 
 
 def name_tokens(name):
-    t = re.sub(r"[^a-z0-9 ]+", " ", (name or "").lower().replace("&", " and "))
-    words = t.split()
-    return [w for w in words if w not in AUDIT_NOISE] or words
+    words = [_stem(w) for w in re.sub(r"[^a-z0-9 ]+", " ", (name or "").lower().replace("&", " and ")).split()]
+    noise = AUDIT_NOISE | {_stem(w) for w in AUDIT_NOISE}
+    return [w for w in words if w not in noise] or words
 
 
 def names_match(a, b):
-    """True when two practice names plausibly refer to the same place (ignores filler words, order and small spelling differences)."""
+    """True when two practice names plausibly refer to the same place (ignores filler words, abbreviations such as Ctr, plurals, order and small spelling differences; two shared distinctive words is enough)."""
     ta, tb = name_tokens(a), name_tokens(b)
     if not ta or not tb:
         return True   # nothing to compare
     sa, sb = set(ta), set(tb)
-    if sa <= sb or sb <= sa:
+    if sa <= sb or sb <= sa or len({w for w in sa & sb if len(w) > 3}) >= 2:
         return True
     return difflib.SequenceMatcher(None, " ".join(sorted(ta)), " ".join(sorted(tb))).ratio() >= 0.72
 
@@ -579,6 +583,7 @@ def norm_postcode(pc):
     return re.sub(r"[^A-Z0-9]", "", str(pc or "").upper())
 
 
+NI_CODE = re.compile(r"^Z\d{5}$")   # Northern Ireland practices are named after their partners in ODS ("Dr. Large & Partners"), so a trading name never matches
 WELSH_CODE = re.compile(r"^W9\d{4}$")   # Welsh GP practice codes; Atlas holds Welsh practices only once the Wales files are loaded
 
 
@@ -608,7 +613,7 @@ def audit_rows(raw, practices, now):
             if (pr.get("status") != "Active" or pr.get("merged_into")) and (c.get("operating_status") or "").lower() != expected_status(pr):   # already marked Closed or Merged in HubSpot: resolved
                 add("closed_practice", c, ods, pr, "Merged into " + str(pr["merged_into"]) if pr.get("merged_into") else f"NHS status: {pr.get('status')}")
             same_place = norm_postcode(c.get("zip")) and norm_postcode(c.get("zip")) == norm_postcode(pr.get("postcode"))
-            if not names_match(c.get("name"), pr.get("practice_name")) and not same_place:   # a different name at the same postcode is the same practice under another name
+            if not names_match(c.get("name"), pr.get("practice_name")) and not same_place and not NI_CODE.match(ods):   # a different name at the same postcode is the same practice under another name
                 add("name_mismatch", c, ods, pr, "Names and postcodes both differ" if c.get("zip") else "Names differ and the company has no postcode")
     return rows
 

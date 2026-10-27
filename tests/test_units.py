@@ -700,3 +700,14 @@ def test_audit_skips_closed_practices_already_marked_in_hubspot():
            dict(id=3, properties=dict(name="Other Shut", partner_organisation_code="C10002", zip="LS1 1AC", operating_status="active"))]
     rows = hsy.audit_rows(raw, pr, "2026-10-27")
     assert [(r["issue"], r["company_id"]) for r in rows] == [("closed_practice", "3")]      # merged and closed companies already marked as such are resolved; an Active one is still flagged
+
+
+def test_audit_name_matching_ignores_abbreviations_and_skips_northern_ireland():
+    from src import hubspot_sync as hsy
+    same = [("MPA Group Practices - Princes Park Medical Centre", "Princes Park Medical Ctr"), ("King Street Medical Centre - Dr Bello's Surgery", "King Street Medical Ctr"),
+            ("Pike View Medical Centre & Westhoughton Surgery", "Pike View, Dr Malhotra & Partners"), ("Sidda Family Practice", "Dr Sidda's Surgery, Waters Meeting HC"), ("The Eston Surgery", "Eston Surgery")]
+    diff = [("Scarva Street Surgery", "Burnbrae Medical Practice"), ("Valens Medical Partnership", "Npc Central Northumberland"), ("Chorley Health Centre", "Dr Jacobs Surgery"), ("Chapel Street Surgery", "Newhaven Medical Centre")]
+    assert all(hsy.names_match(a, b) for a, b in same) and not any(hsy.names_match(a, b) for a, b in diff)
+    pr = {"Z00017": dict(ods_code="Z00017", practice_name="Dr. Large & Partners", status="Active", merged_into=None, postcode="BT1 1AA"), "S62986": dict(ods_code="S62986", practice_name="Burnbrae Medical Practice", status="Active", merged_into=None, postcode="G1 1AA")}
+    raw = [dict(id=1, properties=dict(name="Holywood Road Surgery", partner_organisation_code="Z00017", zip="BT9 9ZZ")), dict(id=2, properties=dict(name="Scarva Street Surgery", partner_organisation_code="S62986", zip="BT8 8ZZ"))]
+    assert [(r["issue"], r["ods_code"]) for r in hsy.audit_rows(raw, pr, "2026-10-27")] == [("name_mismatch", "S62986")]      # NI names are the partners' names, so only the Scottish mismatch is flagged
