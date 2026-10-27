@@ -1,6 +1,3 @@
--- The functions behind the contact import (migration 52 holds the tables). load_contact_candidates stages and promotes the HubSpot export; review_contact_candidates records review decisions.
--- One HubSpot export row per element: {id, company_id, first, last, email, phone, title, role, quality, tier, status, reason, opted_out, bounced, hash}.
--- New contacts take the suggested status; known ones keep their status and have changed details applied (a changed email goes back to review; an opt-out suppresses at once).
 create or replace function public.load_contact_candidates(p_rows jsonb, p_first boolean default false)
 returns jsonb language plpgsql security definer set search_path to '' as $function$
 declare n_new int := 0; n_chg int := 0; n_sup int := 0; n_prom int := 0; n_gen int := 0; me text := coalesce(auth.jwt() ->> 'email', 'unknown');
@@ -72,7 +69,6 @@ end $function$;
 revoke all on function public.load_contact_candidates(jsonb, boolean) from public, anon;
 grant execute on function public.load_contact_candidates(jsonb, boolean) to authenticated;
 
--- Review decisions from the dashboard: approve (promote into contacts) or reject, in bulk.
 create or replace function public.review_contact_candidates(p_ids text[], p_decision text)
 returns jsonb language plpgsql security definer set search_path to '' as $function$
 declare n int := 0; me text := coalesce(auth.jwt() ->> 'email', 'unknown');
