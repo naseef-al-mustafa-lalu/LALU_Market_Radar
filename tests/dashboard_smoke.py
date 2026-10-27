@@ -116,6 +116,9 @@ with sync_playwright() as p:
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
     assert "Branch (Site)" in body and "Needs updating" in body and "Org type" in body and "Operating status" in body and "hubspot record" not in body.lower(), body[-1100:]      # linked HubSpot properties: Org Type differs from the NHS data
+    ad = pg.evaluate("""(() => { pricingTouched = false; billing = 'annual'; product = 'all'; const p = byOds.get('A10001'); hsAdoptLine(p, { lineItems: [{ hs_product_id: '440498134244', recurringbillingfrequency: 'monthly' }] }); const r1 = [billing, product];
+      pricingTouched = true; hsAdoptLine(p, { lineItems: [{ hs_product_id: '440423339237', recurringbillingfrequency: 'annually' }] }); const r2 = [billing, product]; pricingTouched = false; billing = 'annual'; product = 'all'; repaintPriceCards(); return [r1, r2]; })()""")
+    assert ad == [["monthly", "sar"], ["monthly", "sar"]], ad      # an existing monthly SAR line sets the plan; once the user has chosen, it no longer does
     pg.keyboard.press("Escape"); pg.evaluate("openDrawer(byOds.get('A10008'))"); pg.wait_for_selector(".hs-entity")      # a merged practice: HubSpot keeps it as Merged under its successor
     mg = pg.inner_text("#dr-body"); assert "Merged into" in mg or "merged into" in mg, mg[-700:]
     pg.click(".hs-entity"); pg.wait_for_selector("#aud-modal-ok"); mm = pg.inner_text("#aud-modal-body"); assert "Merged" in mm and "Test Surgery 1" in mm and "Parent company" in mm, mm

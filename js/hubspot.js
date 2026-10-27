@@ -96,11 +96,20 @@ function hsRefreshBars() {
   const p = practices.find(x => x.ods_code === el.dataset.ods); if (p) box.innerHTML = hsBarHtml(p);
 }
 function hsShowBar(p) { const html = p ? hsBarHtml(p) : ""; $("dr-hs").innerHTML = html; $("dr-hs").classList.toggle("hidden", !html); }
+// A line item the tool already put on this deal says how the contract is billed (SAR or all reports, monthly or annual): start the profile's plan from it, unless the user has already chosen one,
+// so a monthly contract is not pushed as annual just because the profile defaults to annual.
+function hsAdoptLine(p, pair) {
+  const cur = hsOurLine(pair); if (!cur || pricingTouched || !document.querySelector(".price-card")) return;
+  const hit = Object.entries(HS_PRODUCTS).find(([, v]) => v[0] === String(cur.hs_product_id)); if (!hit) return;
+  const prod = hit[0].split("|")[0], bill = cur.recurringbillingfrequency === "monthly" ? "monthly" : cur.recurringbillingfrequency === "annually" ? "annual" : hit[0].split("|")[1];
+  if (prod === product && bill === billing) return;
+  product = prod; billing = bill; repaintPriceCards();
+}
 async function hsSetLink(p, link) {
   const i = hsInfo[p.ods_code] = { link: link || null, pair: null, loading: !!link, error: null }; hsRefreshBars();
   if (!link) return;
   try { i.pair = await hsCall({ action: "read", companyId: link.company_id, dealId: link.deal_id }); } catch (e) { i.error = e.message; }
-  i.loading = false; hsRefreshBars();
+  i.loading = false; hsRefreshBars(); if (i.pair && $("drawer") && !$("drawer").classList.contains("translate-x-full")) hsAdoptLine(p, i.pair);
 }
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-hs-act]"); if (!b) return;

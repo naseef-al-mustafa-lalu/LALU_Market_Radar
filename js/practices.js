@@ -195,7 +195,7 @@ $("more").addEventListener("click", renderMore);
 /* ---------- price breakdown: headline figure, then the working in plain steps ---------- */
 // Price = list price less the SUM of the selected discounts (size + term + speed), never below the price floor.
 // Term and speed are choices, not guarantees, so they are switches shared by every price card on the page.
-let speedOn = false, termYrs = 1, billing = "annual", product = "all";   // billing: "annual" or "monthly" (rolling, no discounts); product: "all" reports or "sar" only
+let speedOn = false, termYrs = 1, billing = "annual", product = "all", pricingTouched = false;      // pricingTouched: the user has picked a plan in this profile, so HubSpot's existing line item no longer sets it   // billing: "annual" or "monthly" (rolling, no discounts); product: "all" reports or "sar" only
 const priceCards = new Map();
 const setting = k => Number(cfgSettings[k]?.value || 0);
 const termDiscount = yrs => yrs >= 3 ? setting("term_discount_3yr") : yrs === 2 ? setting("term_discount_2yr") : 0;
@@ -213,8 +213,8 @@ function repaintPriceCards() { const live = new Set([...document.querySelectorAl
 document.addEventListener("click", e => {
   const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt"), pr = e.target.closest(".prod-opt");
   if (sw) { speedOn = !speedOn; repaintPriceCards(); document.querySelector(".speed-toggle")?.focus({ preventScroll: true }); }
-  else if (bl) { billing = bl.dataset.b; repaintPriceCards(); document.querySelector(`.bill-opt[data-b="${billing}"]`)?.focus({ preventScroll: true }); }
-  else if (pr) { product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
+  else if (bl) { pricingTouched = true; billing = bl.dataset.b; repaintPriceCards(); document.querySelector(`.bill-opt[data-b="${billing}"]`)?.focus({ preventScroll: true }); }
+  else if (pr) { pricingTouched = true; product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
 });
 document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
 function priceCardBody({ patients, tierRow, route, who, lead }, id) {
@@ -312,6 +312,7 @@ function closeDrawer() { const was = !$("drawer").classList.contains("translate-
 $("dr-close").onclick = closeDrawer;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 async function openDrawer(p) {
+  if (drawerCode !== p.ods_code) pricingTouched = false;
   drawerCode = p.ods_code;
   document.querySelectorAll("#rows tr").forEach(r => r.classList.toggle("bg-lalu-teal-50", r.dataset.ods === p.ods_code));
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
