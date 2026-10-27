@@ -732,3 +732,4 @@ def test_contract_patients_come_from_the_contract_not_the_synced_deal_size():
     assert c({"amount": "3840.00", "value_per_patient": "£0.08", "patient_list_size": "3653"}) == 4000      # Amount over twelve months of the price per patient: a round contract size, unlike the drifting synced one
     assert c({"amount": "12096", "actual_value_per_patient_calculated": "0.0720", "value_per_patient": "£0.08"}) == 14000 and c({"amount": "5000", "value_per_patient": "Other"}) is None
     assert c({"amount": "1", "value_per_patient": "£0.08"}, 9500) == 9500 and c({"amount": "5760", "value_per_patient": "£0.08", "total_discount": "0.1"}) == 6667
+    assert c({"amount": "132800", "value_per_patient": "£0.08"}, None, 15369) is None and c({"amount": "13280", "value_per_patient": "£0.08"}, None, 14000) == 13833      # a deal far from the practice's own list size is not taken as its contract

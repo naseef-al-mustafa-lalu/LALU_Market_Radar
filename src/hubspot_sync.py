@@ -376,7 +376,7 @@ def _price(v):
         return None
 
 
-def contract_patients(deal, qty=None):
+def contract_patients(deal, qty=None, ref=None):
     """Patients a won deal contracts for: its Lalu Care line item quantity when there is one, else the Amount (a year's price) over twelve months of the net price per patient.
     The deal's own Patient List Size is no use: HubSpot keeps syncing it from the company, so it drifts after signing."""
     if qty:
@@ -386,6 +386,8 @@ def contract_patients(deal, qty=None):
     rate = net or (lst * (1 - (tot / 100 if tot and tot > 1 else tot or 0)) if lst else None)
     if amount and rate and rate > 0:
         n = round(amount / (12 * rate))
+        if ref and not 0.35 * ref <= n <= 2.5 * ref:   # far from the practice's own list size: a group deal or a part-year Amount, not this practice's contract
+            return None
         return n if 50 <= n <= 200000 else None
     return None
 
@@ -405,7 +407,7 @@ def lifecycle_fields(companies, deal_ids, deals, service_ids, services, line_qty
     starts = [sv["_start"] for sv in paid if sv["_start"]] or [_date(d.get("closedate")) for _, d in won if _date(d.get("closedate"))]
     ps = last[1].get("product___service") or None
     product = main["_product"] if main else None
-    hist = sorted(((_date(d.get("closedate")), contract_patients(d, (line_qty or {}).get(i))) for i, d in ((i, deals[i]) for i in deal_ids if i in deals and deals[i].get("hs_is_closed_won") == "true"
+    hist = sorted(((_date(d.get("closedate")), contract_patients(d, (line_qty or {}).get(i), list_size_value)) for i, d in ((i, deals[i]) for i in deal_ids if i in deals and deals[i].get("hs_is_closed_won") == "true"
                                                                                                        and deals[i].get("pipeline") in (PIPELINE_WON | {PIPELINE_RENEWALS}))), key=lambda x: x[0] or "")
     hist = [[d, n] for d, n in hist if d and n]
     qty = hist[-1][1] if hist else None
