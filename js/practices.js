@@ -137,7 +137,7 @@ function termsBlock(p) {
   const build = `List price £${list.toFixed(3)} p/month × ${pat.toLocaleString()} patients = ${gbpFull(a)} a year\n` + rows.map(([l, v]) => `${l} discount −${pc(v)}% (−${gbpFull(a * v)})`).join("\n") +
     `${rows.length ? "\n" : ""}Total discount −${pc(tot)}% (−${gbpFull(a * tot)})\nPrice £${net.toFixed(3)} p/month = ${gbpFull(a * (1 - tot))} a year at today's list size` + (t.amount ? `\nDeal amount ${gbpFull(t.amount)}` : "") + (t.closed ? `\nDeal closed ${fmtDate(t.closed)}` : "");
   return kv("Price", tipped(`<span class="font-mono">£${net.toFixed(3)}</span> <span class="text-slate-400">p/month</span>`, build)) +
-    kv("Discount", tot > 0 ? tipped(`<span class="text-amber-700">−${pc(tot)}%</span>${rows.length > 1 ? ` <span class="text-slate-400">${rows.map(([l, v]) => l.split(" ")[0].toLowerCase() + " " + pc(v) + "%").join(" · ")}</span>` : ""}`, build) : "");
+    kv("Discount", tot > 0 ? tipped(`<span class="block text-amber-700">−${pc(tot)}%</span>${rows.length > 1 ? `<span class="mt-0.5 block text-xs text-slate-500">${rows.map(([l, v]) => `${l.split(" ")[0]} −${pc(v)}%`).join(" · ")}</span>` : ""}`, build) : "");
 }
 function driftRows(p) {      // what the customer signed for against today's NHS figure (the review flag is in expandRows)
   const d = sizeDrift(p); if (!d) return "";
