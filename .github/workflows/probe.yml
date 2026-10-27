@@ -1,0 +1,44 @@
+name: Probe closed ODS codes (temporary)
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List the closed codes (read-only; prints ODS codes and their public status only)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          from concurrent.futures import ThreadPoolExecutor
+          base, key = os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+          def get(url, headers=None):
+              req = urllib.request.Request(url, headers=headers or {})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, None
+              except Exception:
+                  return 0, None
+          st, rows = get(f"{base}/rest/v1/hubspot_audit?select=ods_code&issue=in.(unknown_code,unknown_wales)&limit=2000", {"apikey": key, "Authorization": "Bearer " + key})
+          codes = sorted({r["ods_code"] for r in rows})
+          def look(c):
+              s, d = get(f"https://directory.spineservices.nhs.uk/ORD/2-0-0/organisations/{c}")
+              if not d:
+                  return c, f"lookup {s}", "", "", ""
+              o = d.get("Organisation", {})
+              prim = next((r.get("id") for r in o.get("Roles", {}).get("Role", []) if r.get("primaryRole")), "")
+              end = next((x.get("End") for x in o.get("Date", []) if x.get("Type") == "Operational" and x.get("End")), "")
+              succ = ",".join(str(r.get("Target", {}).get("OrgId", {}).get("extension")) for r in o.get("Rels", {}).get("Rel", []) if r.get("id") == "RE5")
+              return c, o.get("Status"), prim, end, succ
+          with ThreadPoolExecutor(8) as ex:
+              out = list(ex.map(look, codes))
+          print("CLOSED CODES (code|status|role|closed|successor)")
+          for c, s, p, e, sc in out:
+              if s != "Active":
+                  print(f"{c}|{s}|{p}|{e}|{sc}")
+          print("END")
+          PY
