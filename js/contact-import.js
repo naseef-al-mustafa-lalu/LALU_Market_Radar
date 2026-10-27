@@ -102,7 +102,11 @@ function renderContactImport() {
         const { data, error } = await db.rpc("load_contact_candidates", { p_rows: ciParsed.rows.slice(i, i + 1000), p_first: i === 0 }); if (error) throw error;
         for (const k of Object.keys(t)) t[k] += data[k] || 0;
       }
-      say(`Done: ${t.new.toLocaleString()} new contacts staged, ${t.changed.toLocaleString()} updated, ${t.promoted.toLocaleString()} added to Atlas contacts, ${t.suppressed.toLocaleString()} suppressed, ${t.generic.toLocaleString()} practice generic addresses added.`);
+      // Contacts already held from an earlier upload keep their status, so when the rules have since widened, approve the ones the rules now approve (never one a person has decided on).
+      const decided = new Set(); for (let from = 0; ; from += 1000) { const { data: d } = await db.from("contact_candidates").select("hubspot_contact_id").not("reviewed_at", "is", null).range(from, from + 999); (d || []).forEach(r => decided.add(r.hubspot_contact_id)); if (!d || d.length < 1000) break; }
+      const now = ciParsed.rows.filter(r => r.status === "approved" && !decided.has(r.id)).map(r => r.id); let late = 0;
+      for (let i = 0; i < now.length; i += 1000) { say(`Checking held contacts against the current rules… ${Math.min(i + 1000, now.length).toLocaleString()} of ${now.length.toLocaleString()}`); const { data, error } = await db.rpc("review_contact_candidates", { p_ids: now.slice(i, i + 1000), p_decision: "approved" }); if (error) throw error; late += data.decided || 0; }
+      say(`Done: ${t.new.toLocaleString()} new contacts staged, ${t.changed.toLocaleString()} updated, ${t.promoted.toLocaleString()} added to Atlas contacts, ${t.suppressed.toLocaleString()} suppressed, ${t.generic.toLocaleString()} practice generic addresses added${late ? `, ${late.toLocaleString()} previously held contacts approved under the current rules` : ""}.`);
       ciParsed = null; await contactImportState();
     } catch (err) { say(err.message); $("ci-load").disabled = false; }
   });
