@@ -307,6 +307,26 @@ function routeComparisonBody(p) {
 }
 
 /* ---------- practice profile (side panel) ---------- */
+// The profile's Contacts section: one tidy row per person (initials, name and title, then email and phone on one line, HubSpot link on the right), the practice's generic address last.
+const CONTACTS_SHOWN = 5;
+function contactRow(c) {
+  const name = c.full_name || [c.first_name, c.last_name].filter(Boolean).join(" ") || "Unnamed contact", initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+  const mail = c.email ? (c.email_opt_out ? '<span class="text-rose-600">Email opted out</span>' : `<a class="truncate text-lalu-teal-700 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : "";
+  const hub = c.hubspot_status === "Imported" ? (c.hubspot_contact_id ? `<a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${esc(hsUrl("0-1", c.hubspot_contact_id))}" title="In HubSpot since ${esc(fmtDate(c.hubspot_imported_at))}">HubSpot</a>` : `<span class="text-emerald-700" title="In HubSpot since ${esc(fmtDate(c.hubspot_imported_at))}">In HubSpot</span>`) : '<span class="text-slate-400" title="Not imported to HubSpot yet">Not in HubSpot</span>';
+  return `<div class="flex items-start gap-3 border-t border-slate-100 py-2 first:border-0"><span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600" title="${c.source === "hubspot" ? "From the HubSpot export" : "From Oscar"}">${esc(initials || "?")}</span>
+    <div class="min-w-0 flex-1"><div class="flex flex-wrap items-baseline gap-x-2"><span class="text-sm font-semibold text-slate-900">${esc(name)}</span>${c.is_primary ? '<span class="rounded bg-amber-50 px-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700" title="Primary contact">Primary</span>' : ""}<span class="text-xs text-slate-500">${esc(c.job_title || "")}${c.dept ? " · " + esc(c.dept) : ""}</span></div>
+      <div class="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-600">${mail}${c.phone ? `<span class="whitespace-nowrap">${esc(c.phone)}</span>` : ""}</div></div>
+    <span class="shrink-0 pt-0.5 text-xs">${hub}</span></div>`;
+}
+function contactsSection(cs, generic) {
+  const tier = { A: 0, B: 1, "?": 2 }, list = [...cs].sort((a, b) => (b.is_primary - a.is_primary) || ((tier[a.role_tier] ?? 3) - (tier[b.role_tier] ?? 3)) || String(a.full_name || "").localeCompare(String(b.full_name || "")));
+  const head = list.slice(0, CONTACTS_SHOWN).map(contactRow).join(""), rest = list.slice(CONTACTS_SHOWN);
+  const gen = generic ? `<div class="flex items-start gap-3 border-t border-slate-100 py-2"><span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">@</span>
+    <div class="min-w-0 flex-1"><div class="text-sm font-semibold text-slate-900">Practice generic address</div><div class="mt-0.5 text-xs text-slate-600"><a class="truncate text-lalu-teal-700 hover:underline" href="mailto:${esc(generic.email)}">${esc(generic.email)}</a></div></div></div>` : "";
+  return `<section><h4 class="mb-1 text-xs font-bold uppercase tracking-wider text-slate-500">Contacts${list.length ? ` <span class="font-normal normal-case tracking-normal text-slate-400">· ${list.length}</span>` : ""}</h4>`
+    + (head || (generic ? "" : '<p class="text-sm italic text-slate-500">No contacts yet. They arrive with the HubSpot contact upload or the Oscar file.</p>'))
+    + (rest.length ? `<details class="group"><summary class="cursor-pointer py-1.5 text-xs font-semibold text-lalu-teal-700 hover:underline">Show ${rest.length} more</summary>${rest.map(contactRow).join("")}</details>` : "") + gen + `</section>`;
+}
 const kv = (k, v) => v ? `<div class="flex justify-between gap-3 py-0.5 text-sm"><span class="text-slate-500 shrink-0">${k}</span><span class="text-right text-slate-800 break-words">${v}</span></div>` : "";
 const sec = (title, body) => body && body.trim() ? `<section class="border-t border-slate-100 pt-3"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">${title}</h4>${body}</section>` : "";
 let drawerOpener = null;
@@ -344,17 +364,15 @@ async function openDrawer(p) {
   body.scrollTop = 0;
   body.onclick = ev => { const a = ev.target.closest("a[data-net]"); if (a) { ev.preventDefault(); const [kind, key, label] = a.dataset.net.split("|"); openNetwork(kind, key, label); } };
   const jobs = jobAdverts.filter(j => j.ods_code === p.ods_code).sort((a, b) => (b.post_date || "").localeCompare(a.post_date || "")).slice(0, 8);
-  const [{ data: cs }, { data: sg }, { data: hl }] = await Promise.all([
+  const [{ data: cs }, { data: sg }, { data: hl }, { data: gen }] = await Promise.all([
     db.from("contacts").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
     db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10),
-    db.from("hubspot_links").select("deal_id,deal_name").eq("ods_code", p.ods_code).limit(1)]);
+    db.from("hubspot_links").select("deal_id,deal_name").eq("ods_code", p.ods_code).limit(1),
+    db.from("practice_generic_emails").select("email,source").eq("ods_code", p.ods_code).limit(1)]);
   if (drawerCode !== p.ods_code) return;   // user moved on
   hsSetLink(p, hl && hl[0]);
   const dealBox = $("dr-hsdeal"); if (dealBox && hl && hl[0]) dealBox.outerHTML = kv("Linked deal", hsLink("0-3", hl[0].deal_id, hl[0].deal_name || "Open deal"));
-  $("dr-contacts").outerHTML = `<section><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Contacts</h4>` + ((cs || []).map(c => `<div class="py-1.5 border-t border-slate-100 first:border-0"><b>${esc(c.full_name)}</b>${c.is_primary ? ' <span class="text-amber-500" title="Primary contact">★</span>' : ""}
-      <span class="text-slate-500 text-sm"> · ${esc(c.job_title)}${c.dept ? " · " + esc(c.dept) : ""}</span>
-      <div class="text-xs text-slate-600">${c.email ? (c.email_opt_out ? '<span class="text-rose-600">email opt-out</span>' : `<a class="text-lalu-teal-700 hover:underline" href="mailto:${esc(c.email)}">${esc(c.email)}</a>`) : ""} ${esc(c.phone)}</div>
-      <div class="mt-0.5">${c.hubspot_status === "Imported" ? (c.hubspot_contact_id ? hsLink("0-1", c.hubspot_contact_id, "In HubSpot · " + fmtDate(c.hubspot_imported_at)) : chip("In HubSpot · " + fmtDate(c.hubspot_imported_at), "bg-emerald-100 text-emerald-800")) : chip("Not imported to HubSpot", "bg-slate-100 text-slate-500")}</div></div>`).join("") || '<p class="text-sm italic text-slate-500">No contacts yet (added when the Oscar file is loaded).</p>') + `</section>`;
+  $("dr-contacts").outerHTML = contactsSection(cs || [], (gen && gen[0]) || null);
   $("dr-signals").outerHTML = sec("Signals and hiring", sigTiles(sg || [], jobs));
 }
 
