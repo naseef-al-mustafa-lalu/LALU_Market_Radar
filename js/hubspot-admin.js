@@ -74,25 +74,22 @@ const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_c
   pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"],
   list_size_sync: ["List sizes synced", "bg-violet-100 text-violet-800"], list_size: ["List size set", "bg-blue-100 text-blue-800"] };
 let hsSizeOn = false, hsSizeLast = "";
-function hsSizePlan() {      // mirrors the sync: companies follow the NHS figure (customers too when their contract is on a line item); a jump of more than 25% waits for a person
+function hsSizePlan() {      // mirrors the sync: every linked company follows the NHS figure (customers too: their contract size is on the line item); a jump of more than 25% waits for a person
   const auto = [], held = [];
-  let noLine = 0;
   for (const p of practices) {
     if (!p.hubspot_company_id) continue;
-    const qty = Number((p.hubspot_contract_terms || {}).line_qty) || 0, paying = !!p.hubspot_customer && (qty > 0 || Number(p.hubspot_contracted_arr) > 0);
-    if (paying && !qty) { if (Number(p.total_patients) !== Number(p.hubspot_list_size)) noLine++; continue; }      // a paying customer with no line item: nothing else records what they signed for
     const base = Number(p.hubspot_list_size) || 0, now = Number(p.total_patients) || 0;
-    if (p.merged_into || p.status !== "Active" || isClosed(p)) { if (now === 0 && base > 0 && !paying) auto.push({ p, base, now: 0 }); continue; }      // merged or closed and NHS says 0: HubSpot says 0 too, so nothing is counted twice
+    if (p.merged_into || p.status !== "Active" || isClosed(p)) { if (now === 0 && base > 0) auto.push({ p, base, now: 0 }); continue; }      // merged or closed and NHS says 0: HubSpot says 0 too, so nothing is counted twice
     if (now <= 0 || now === base) continue;
     (base && Math.abs(now - base) / base > 0.25 ? held : auto).push({ p, base, now });
   }
-  return { auto, held, customers: noLine };
+  return { auto, held };
 }
 function hsSizeCard() {
-  const { auto, held, customers } = hsSizePlan();
-  return `<div class="mt-4 rounded-lg border border-slate-200 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div><div class="text-sm font-bold">List sizes in HubSpot</div><div class="text-xs text-slate-500">Companies follow the NHS figure once after each monthly NHS load, not every day. Customers whose contract is on a line item follow it too, because the line item holds what they signed for. Paying customers without a line item are left alone.</div></div>
+  const { auto, held } = hsSizePlan();
+  return `<div class="mt-4 rounded-lg border border-slate-200 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div><div class="text-sm font-bold">List sizes in HubSpot</div><div class="text-xs text-slate-500">Every linked company follows the NHS figure once after each monthly NHS load, not every day. Customers too: what they signed for is on their line item and HubSpot works their deal values from it, so the company's list size is only the practice's size.</div></div>
     <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="hsp-size-auto" class="h-4 w-4 accent-lalu-teal-700" ${hsSizeOn ? "checked" : ""}> Update automatically</label></div>
-    <div class="mt-2 text-sm"><b>${auto.length.toLocaleString()}</b> would update · <b>${held.length.toLocaleString()}</b> held back (changed by more than 25%) · <b>${customers.toLocaleString()}</b> paying customers with no line item left alone</div>
+    <div class="mt-2 text-sm"><b>${auto.length.toLocaleString()}</b> would update · <b>${held.length.toLocaleString()}</b> held back (changed by more than 25%)</div>
     <div class="mt-1 text-xs text-slate-500">${hsSizeOn ? (hsSizeLast ? `Last applied for NHS data of ${esc(hsSizeLast)}; it runs again when the next monthly load arrives.` : "Not applied yet: the next sync applies this month's figures once.") : "Off."}</div>
     <div class="mt-2 flex flex-wrap gap-2"><button type="button" id="hsp-size-prev" class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Preview changes</button>${held.length ? '<button type="button" id="hsp-size-held" class="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">Review held back</button>' : ""}</div></div>`;
 }

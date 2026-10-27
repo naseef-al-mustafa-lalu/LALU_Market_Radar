@@ -510,16 +510,16 @@ def test_list_size_of_the_linked_company():
     assert hsy.list_size(cs, "1") == 9000 and hsy.list_size(cs, 3) is None and hsy.list_size(cs, "9") is None
 
 
-def test_list_size_plan_holds_big_jumps_and_leaves_paying_customers_without_a_line_item():
+def test_list_size_plan_holds_big_jumps_and_includes_customers():
     from src import hubspot_sync as hsy
     pr = {c: dict(ods_code=c, practice_name=c, status="Active", merged_into=None, total_patients=n) for c, n in [("A", 10500), ("B", 10000), ("C", 20000), ("D", 9000), ("E", 8000), ("F", 0)]}
     pr["E"]["merged_into"] = "A"
     pr["E"]["total_patients"] = 0      # NHS counts a merged practice at 0
     rows = [dict(ods_code="A", hubspot_company_id="1", hubspot_customer=False, hubspot_list_size=10000), dict(ods_code="B", hubspot_company_id="2", hubspot_customer=False, hubspot_list_size=10000),
-            dict(ods_code="C", hubspot_company_id="3", hubspot_customer=False, hubspot_list_size=10000), dict(ods_code="D", hubspot_company_id="4", hubspot_customer=True, hubspot_contracted_arr=5000, hubspot_contract_terms=None, hubspot_list_size=5000),
+            dict(ods_code="C", hubspot_company_id="3", hubspot_customer=False, hubspot_list_size=10000), dict(ods_code="D", hubspot_company_id="4", hubspot_customer=True, hubspot_contracted_arr=5000, hubspot_contract_terms=None, hubspot_list_size=8000),
             dict(ods_code="E", hubspot_company_id="5", hubspot_customer=False, hubspot_list_size=7000), dict(ods_code="F", hubspot_company_id="6", hubspot_customer=False, hubspot_list_size=7000)]
     auto, held = hsy.plan_list_sizes(pr, rows)
-    assert [c["ods"] for c in auto] == ["A", "E"] and auto[0]["to"] == 10500 and auto[1]["to"] == 0 and auto[1]["gone"] == "merged" and [c["ods"] for c in held] == ["C"]      # B unchanged, D a paying customer with no line item, F has no size; the merged E (NHS 0, HubSpot 7,000) is zeroed, never held
+    assert [c["ods"] for c in auto] == ["A", "D", "E"] and auto[0]["to"] == 10500 and auto[1]["to"] == 9000 and auto[2]["to"] == 0 and auto[2]["gone"] == "merged" and [c["ods"] for c in held] == ["C"]      # B unchanged, F has no size; D is a customer and follows NHS like the rest; the merged E (NHS 0, HubSpot 7,000) is zeroed, never held
 
 
 def test_list_size_push_batches_and_stops_on_error():
@@ -609,15 +609,13 @@ def test_zeroing_a_merged_company_leaves_a_note_with_the_old_size():
     auto, held = hsy.plan_list_sizes(pr, rows)
     assert [(c["ods"], c["to"], c.get("successor")) for c in auto] == [("M", 0, "Parent Practice"), ("K", 0, "Parent Practice")] and not held      # a practice with no NHS data is not zeroed, and a freemium customer without a contract follows NHS and is zeroed like a non-customer
 
-    rows[2].update(hubspot_contracted_arr=4227, hubspot_contract_terms={"line_qty": 7045})      # with a line item the customer follows NHS (up to a point), but a paying customer is never zeroed
-    assert [c["ods"] for c in hsy.plan_list_sizes(pr, rows)[0]] == ["M"]
-    rows[2].update(hubspot_contract_terms=None)
-    assert [c["ods"] for c in hsy.plan_list_sizes(pr, rows)[0]] == ["M"]      # no line item and a contract: left alone
+    rows[2].update(hubspot_contracted_arr=4227, hubspot_contract_terms={"line_qty": 7045})      # a paying customer's merged company goes to 0 too: its contract size is on the line item, not the company
+    assert [(c["ods"], c["to"]) for c in hsy.plan_list_sizes(pr, rows)[0]] == [("M", 0), ("K", 0)]
     pr["P"]["total_patients"] = 9500
-    rows.append(dict(ods_code="P", hubspot_company_id="9", hubspot_customer=True, hubspot_contracted_arr=4227, hubspot_contract_terms={"line_qty": 9000}, hubspot_list_size=9000))
-    assert [(c["ods"], c["to"]) for c in hsy.plan_list_sizes(pr, rows)[0]] == [("M", 0), ("P", 9500)]      # a customer with a line item follows NHS
+    rows.append(dict(ods_code="P", hubspot_company_id="9", hubspot_customer=True, hubspot_contracted_arr=4227, hubspot_contract_terms=None, hubspot_list_size=9000))
+    assert [(c["ods"], c["to"]) for c in hsy.plan_list_sizes(pr, rows)[0]] == [("M", 0), ("K", 0), ("P", 9500)]      # a customer follows NHS whether or not it has a line item
     rows.pop(); rows[2].update(hubspot_customer=False, hubspot_contracted_arr=None)
-    auto = hsy.plan_list_sizes(pr, rows)[0]
+    auto = [c for c in hsy.plan_list_sizes(pr, rows)[0] if c["ods"] == "M"]
     class H:
         def __init__(self): self.calls = []
         def call(self, method, path, **kw): self.calls.append((path, kw.get("json")))

@@ -403,7 +403,7 @@ with sync_playwright() as p:
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-align-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync')")
     fa = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync').pop()[1][0]"); assert fa["value"] == {"enabled": True, "approve_once": False}, fa
     pg.wait_for_function("document.querySelector('#d-hubspot').innerText.includes('sets Operating status where it differs')")
-    assert "List sizes in HubSpot" in hp and "would update" in hp and "paying customers with no line item left alone" in hp, hp[:900]      # the list-size sync card
+    assert "List sizes in HubSpot" in hp and "would update" in hp and "Customers too" in hp, hp[:900]      # the list-size sync card
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-size-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags')")
     fl = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0]"); assert fl["key"] == "list_size_sync" and fl["value"] == {"enabled": True, "last_month": None}, fl
     pg.click("#hsp-size-prev"); pg.wait_for_selector("#aud-modal-body table"); assert "Test Surgery 1" in pg.inner_text("#aud-modal-body"); pg.click("#aud-modal-cancel")
