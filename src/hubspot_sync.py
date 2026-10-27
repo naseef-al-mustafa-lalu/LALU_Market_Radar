@@ -196,6 +196,13 @@ def list_size_flag(rest):
         return {}
 
 
+def _flags(rest):
+    try:
+        return rest.select_all("app_flags", "key,value", order="key")
+    except Exception:  # noqa: BLE001 - the flag table is optional
+        return []
+
+
 def list_size_due(flag, month):
     """Sizes follow the NHS figure once per monthly load, not every day: due when the switch is on and this data month has not been applied yet."""
     return flag.get("enabled") is True and bool(month) and flag.get("last_month") != month
@@ -211,6 +218,71 @@ def push_list_sizes(rest, hub, auto):
             err = str(e)[:300]
             break
         rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], "hubspot_list_size": c["to"]} for c in ch], "ods_code")
+        done += ch
+    return done, err
+
+
+ALIGN_MAX = 100   # more automatic Org Type / Operating status changes than this in one run wait for a person to approve the run (the first backfill, or a bad feed)
+NAME_NOISE = {"surgery", "medical", "centre", "center", "practice", "health", "group", "partners", "partnership", "doctors", "care", "general", "the", "and"}
+
+
+def name_keys(name):
+    return [w for w in re.sub(r"[^a-z ]", " ", (name or "").lower()).split() if len(w) > 3 and w not in NAME_NOISE]
+
+
+def site_move(p, branches):
+    """The active ODS branch of another practice that carries on a closed or merged practice's site (same postcode and the practice's own name), or None. Mirrors siteMove() in js/hubspot-align.js."""
+    pc, keys = re.sub(r"\s", "", (p.get("postcode") or "").upper()), name_keys(p.get("practice_name"))
+    if not (p.get("merged_into") or p.get("status") != "Active" or p.get("closure_confirmed_at")) or not pc or not keys:
+        return None
+    for b in branches:
+        res = "other" if b.get("match_status") == "rejected" else b.get("resolution") or "other"
+        if res == "branch" and b.get("status") == "Active" and b.get("practice_code") and b["practice_code"] != p["ods_code"] and re.sub(r"\s", "", (b.get("postcode") or "").upper()) == pc \
+                and set(name_keys(b.get("branch_name"))) & set(keys):
+            return b
+    return None
+
+
+def expected_status(p):
+    return "merged" if p.get("merged_into") else "closed" if p.get("status") != "Active" or p.get("closure_confirmed_at") else "active"
+
+
+def plan_alignment(practices, rows, branches):
+    """(auto, cases): companies whose Operating status differs from NHS data (or Org Type is blank) and can be fixed without a person; practices that have merged, or whose site goes on as a branch,
+    need parent links and are left for the review list. Org Type is only filled when blank (a deliberate value such as Group is never overwritten)."""
+    auto, cases = [], 0
+    for r in rows:
+        p = practices.get(r["ods_code"])
+        if not p or not r.get("hubspot_company_id"):
+            continue
+        if p.get("merged_into") or site_move(p, branches):
+            cases += 1
+            continue
+        props = {}
+        if not r.get("hubspot_org_type"):
+            props["org_type"] = "practice"
+        want = expected_status(p)
+        if (r.get("hubspot_operating_status") or "") != want:
+            props["operating_status"] = want
+        if props:
+            auto.append({"ods": r["ods_code"], "id": str(r["hubspot_company_id"]), "name": p["practice_name"], "props": props, "was": {"org_type": r.get("hubspot_org_type"), "operating_status": r.get("hubspot_operating_status")}})
+    return auto, cases
+
+
+def align_due(flag, n):
+    """On and small enough, or on and a person approved this larger run."""
+    return flag.get("enabled") is True and n > 0 and (n <= ALIGN_MAX or flag.get("approve_once") is True)
+
+
+def push_alignment(rest, hub, auto):
+    done, err = [], None
+    for ch in chunks(auto, 100):
+        try:
+            hub.call("POST", "/crm/v3/objects/companies/batch/update", json={"inputs": [{"id": c["id"], "properties": c["props"]} for c in ch]})
+        except Exception as e:  # noqa: BLE001
+            err = str(e)[:300]
+            break
+        rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], **{"hubspot_" + k: v for k, v in c["props"].items()}} for c in ch], "ods_code")
         done += ch
     return done, err
 
@@ -553,7 +625,7 @@ def record(rest, rows, actor):
 
 def sync(rest, hub, now=None, actor="daily sync"):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,data_month,postcode,status,merged_into,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
+    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,data_month,postcode,status,merged_into,closure_confirmed_at,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
     by_ods = {}
     for c in raw:
@@ -603,6 +675,24 @@ def sync(rest, hub, now=None, actor="daily sync"):
         if auto or held or err:
             record(rest, [{"kind": "list_size_sync", "ok": not err, "summary": f"NHS {month}: updated {len(written):,} list sizes in HubSpot; {len(held)} held back for review" + (f"; stopped: {err}" if err else ""),
                            "detail": {"month": month, "changes": written[:300], "held": held[:100], "error": err}}], actor)
+    flag2 = next((r.get("value") or {} for r in _flags(rest) if r.get("key") == "alignment_sync"), {})
+    try:
+        branches = rest.select_all("practice_branches", "branch_code,branch_name,postcode,resolution,match_status,practice_code,status", order="branch_code")
+    except Exception:  # noqa: BLE001
+        branches = []
+    todo, cases = plan_alignment(practices, rows, [x for x in branches if x.get("status") == "Active"])
+    sizes.update({"alignment_pending": len(todo), "alignment_cases": cases})
+    if align_due(flag2, len(todo)):
+        written, err = push_alignment(rest, hub, todo)
+        sizes["alignment_written"] = len(written)
+        if err:
+            sizes["alignment_error"] = err
+        elif flag2.get("approve_once"):
+            rest.upsert("app_flags", [{"key": "alignment_sync", "value": {**flag2, "approve_once": False}, "updated_at": now}], "key")
+        record(rest, [{"kind": "alignment_sync", "ok": not err, "summary": f"Set Org Type / Operating status on {len(written):,} HubSpot companies from NHS data; {cases} merged or moved sites need a person" + (f"; stopped: {err}" if err else ""),
+                       "detail": {"changes": written[:300], "error": err, "cases": cases}}], actor)
+    elif flag2.get("enabled") is True and len(todo) > ALIGN_MAX:
+        sizes["alignment_held"] = len(todo)   # the Data panel offers "approve this run"
     audit_all = audit_rows(raw, practices, now)
     conflicts = []
 

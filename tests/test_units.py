@@ -576,3 +576,24 @@ def test_list_size_sync_runs_once_per_nhs_month():
         def select_all(self, table, columns="*", order="id", params=None, page=1000):
             return [dict(contact_urn=1), dict(key="list_size_sync", value={"enabled": True, "last_month": "2026-09"})]
     assert hsy.list_size_flag(R()) == {"enabled": True, "last_month": "2026-09"}
+
+
+def test_alignment_plan_fills_status_and_leaves_merges_and_moved_sites_to_a_person():
+    from src import hubspot_sync as hsy
+    base = dict(status="Active", merged_into=None, closure_confirmed_at=None, postcode="AB1 2CD")
+    pr = {"A": dict(ods_code="A", practice_name="Alpha Surgery", **base), "B": dict(ods_code="B", practice_name="Beta Medical Centre", **{**base, "status": "Closed"}),
+          "C": dict(ods_code="C", practice_name="Gamma Practice", **{**base, "merged_into": "A"}), "D": dict(ods_code="D", practice_name="Delta Medical Centre", **{**base, "status": "Closed", "postcode": "ZZ9 9ZZ"}),
+          "E": dict(ods_code="E", practice_name="Echo Surgery", **base), "F": dict(ods_code="F", practice_name="Foxtrot Surgery", **{**base, "closure_confirmed_at": "2026-01-01"})}
+    rows = [dict(ods_code=c, hubspot_company_id=str(i), hubspot_org_type=o, hubspot_operating_status=s) for i, (c, o, s) in enumerate([("A", None, None), ("B", "practice", "active"), ("C", None, None), ("D", "group", "active"), ("E", "practice", "active"), ("F", "practice", "closed")], 1)]
+    branches = [dict(branch_code="T1", branch_name="Delta Medical Centre", postcode="ZZ9 9ZZ", resolution="branch", match_status="auto", practice_code="A", status="Active")]
+    auto, cases = hsy.plan_alignment(pr, rows, branches)
+    got = {c["ods"]: c["props"] for c in auto}
+    assert got == {"A": {"org_type": "practice", "operating_status": "active"}, "B": {"operating_status": "closed"}}, got      # E and F already match; D (a moved site) and C (merged) wait for a person
+    assert cases == 2 and "D" not in got and "C" not in got
+    assert hsy.site_move(pr["D"], branches)["branch_code"] == "T1" and hsy.site_move(pr["B"], branches) is None
+
+
+def test_alignment_run_size_guard():
+    from src import hubspot_sync as hsy
+    assert hsy.align_due({"enabled": True}, 50) and not hsy.align_due({"enabled": True}, 500) and hsy.align_due({"enabled": True, "approve_once": True}, 500)
+    assert not hsy.align_due({"enabled": False}, 5) and not hsy.align_due({}, 5) and not hsy.align_due({"enabled": True}, 0)

@@ -26,6 +26,8 @@ function alignOf(p) {      // null when the practice is not in HubSpot
   const link = c ? { parent: c.parent, expected: String(c.parent.hubspot_company_id || ""), hs: String(p.hubspot_parent_company_id || ""), ok: !!c.parent.hubspot_company_id && String(c.parent.hubspot_company_id) === String(p.hubspot_parent_company_id || "") } : null;
   return { c, org: { ...org, ok: org.hs === org.atlas }, status: { ...st, ok: st.hs === st.atlas }, web: { atlas: web, hs: hw, state: wstate }, link };
 }
+let hsAlignFlag = {};      // app_flags.alignment_sync: { enabled, approve_once }
+const ALIGN_MAX = 100;      // the same limit as the sync: a bigger run waits for approval
 const ALIGN_FLAG = chip("Needs updating", "bg-amber-100 text-amber-800");
 const alignNeeds = a => !!a && (!a.org.ok || !a.status.ok || (a.link && !a.link.ok));
 function alignHsRows(p) {      // inside the profile's HubSpot section: HubSpot's own values, flagged when they do not match the NHS data (which sits in Practice details)
@@ -40,27 +42,24 @@ function alignHsRows(p) {      // inside the profile's HubSpot section: HubSpot'
   return rows.join("") + web + act + note;
 }
 function alignPlan() {
-  const rows = practices.filter(p => p.hubspot_company_id), read = alignRead(), out = { rows, read, org: 0, status: 0, webMissing: 0, webDiffers: 0, todo: [], cases: [] };
+  const rows = practices.filter(p => p.hubspot_company_id), read = alignRead(), out = { rows, read, org: 0, status: 0, webMissing: 0, webDiffers: 0, autoN: 0, cases: [] };
   for (const p of rows) {
     const a = alignOf(p); if (!a.org.ok) out.org++; if (!a.status.ok) out.status++; if (a.web.state === "missing") out.webMissing++; if (a.web.state === "differs") out.webDiffers++;
-    if (a.c) { if (alignNeeds(a)) out.cases.push([p, a]); continue; }      // merged practices and moved sites are changed one by one from their profile, not in the file
-    if (!read || !a.org.ok || !a.status.ok || a.web.state === "missing") out.todo.push([p, a]);
+    if (a.c) { if (alignNeeds(a)) out.cases.push([p, a]); continue; }      // merged practices and moved sites are changed one by one from their profile
+    if (!a.org.hs || !a.status.ok) out.autoN++;      // what the sync would write on its own: a blank Org Type, or a different Operating status
   }
   return out;
 }
 function alignCard() {
   const s = alignPlan(), n = x => x.toLocaleString();
   return `<div class="mt-4 rounded-lg border border-slate-200 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div><div class="text-sm font-bold">Alignment with NHS data</div><div class="text-xs text-slate-500">Org Type, Operating status and Website URL on the HubSpot company, against what Atlas knows from NHS data.</div></div>
-    <div class="flex gap-2">${s.cases.length ? `<button type="button" id="hsp-align-cases" class="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100">Merged and moved sites (${s.cases.length})</button>` : ""}<button type="button" id="hsp-align" class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Alignment import file</button></div></div>
+    <div class="flex gap-2">${s.cases.length ? `<button type="button" id="hsp-align-cases" class="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100">Merged and moved sites (${s.cases.length})</button>` : ""}</div></div>
+    <div class="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-2"><label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="hsp-align-auto" class="h-4 w-4 accent-lalu-teal-700" ${hsAlignFlag.enabled ? "checked" : ""}> Keep these in step automatically</label>
+      <span class="text-xs text-slate-500">${hsAlignFlag.enabled ? `Each daily sync sets Operating status from NHS data (and fills a blank Org Type). ${s.read ? `${n(s.autoN || 0)} companies to change.` : "Run the sync once to compare."}` : "Off. When on, the daily sync keeps them aligned, so no import file is needed."}</span>
+      ${hsAlignFlag.enabled && (s.autoN || 0) > ALIGN_MAX && !hsAlignFlag.approve_once ? `<button type="button" id="hsp-align-ok" class="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">Approve this run (${n(s.autoN)} companies)</button>` : ""}${hsAlignFlag.approve_once ? '<span class="text-xs font-semibold text-emerald-700">Approved: applies at the next sync</span>' : ""}</div>
     <div class="mt-2 text-sm">${s.read ? `<b>${n(s.org)}</b> Org Type differ · <b>${n(s.status)}</b> Operating status differ · <b>${n(s.webMissing)}</b> websites blank in HubSpot${s.webDiffers ? ` · ${n(s.webDiffers)} websites differ (not changed: HubSpot uses the website to identify companies)` : ""}`
-      : "These have not been read from HubSpot yet. Run the sync once to compare them; the import file below lists every linked practice until then."}</div>
-    ${s.cases.length ? `<div class="mt-1 text-xs text-slate-500">${s.cases.length} merged practices or moved sites are kept out of the file: each needs its parent company linked, so they are updated one by one.</div>` : ""}</div>`;
-}
-function alignDownload() {
-  const s = alignPlan();
-  downloadCsv("Lalu_HubSpot_Alignment", ["Record ID", "Company name", "GP ODS Code", "Org Type", "Operating status", "Website URL"],
-    s.todo.map(([p, a]) => [p.hubspot_company_id, p.practice_name, p.ods_code, HS_ORG_LABEL[a.org.atlas], HS_OPSTATUS_LABEL[a.status.atlas], a.web.state === "missing" || (!s.read && a.web.atlas) ? a.web.atlas : ""]));
-  return s.todo.length;
+      : "These have not been read from HubSpot yet. Run the sync once to compare them."}</div>
+    ${s.cases.length ? `<div class="mt-1 text-xs text-slate-500">${s.cases.length} merged practices or moved sites are never changed automatically: each needs its parent company linked, so they are updated one by one.</div>` : ""}</div>`;
 }
 // One merged practice or moved site: show exactly what will change in HubSpot, then do it (edge action entity_change). No ODS code is rewritten; every company touched is linked and gets a note.
 function alignEntityOpen(p) {

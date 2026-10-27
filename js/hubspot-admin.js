@@ -111,7 +111,7 @@ async function renderHubspotPanel() {
   const box = $("d-hubspot"); if (!box) return;
   if (!box.innerHTML) box.innerHTML = '<p class="text-sm text-slate-500">Loading HubSpot status…</p>';
   const [{ data: act }, { data: links }, { data: flags }] = await Promise.all([db.from("hubspot_activity").select("*").order("at", { ascending: false }).limit(300), fetchAll("hubspot_network_links", "org_id", "org_id").then(data => ({ data })), db.from("app_flags").select("key,value")]);   // all rows: a plain select stops at 1,000
-  const sizeFlag = ((flags || []).find(f => f.key === "list_size_sync") || {}).value || {}; hsSizeOn = sizeFlag.enabled === true; hsSizeLast = sizeFlag.last_month || "";
+  const sizeFlag = ((flags || []).find(f => f.key === "list_size_sync") || {}).value || {}; hsSizeOn = sizeFlag.enabled === true; hsSizeLast = sizeFlag.last_month || ""; hsAlignFlag = ((flags || []).find(f => f.key === "alignment_sync") || {}).value || {};
   hsLog = act || [];
   const run = hsLog.find(r => r.kind === "sync_run"), st = (run && run.detail) || {}, ok = run ? run.ok : null;
   const eligible = practices.filter(p => p.status === "Active" && p.total_patients > 0), missing = eligible.filter(p => !p.hubspot_company_id);
@@ -128,7 +128,7 @@ async function renderHubspotPanel() {
     attn(badChecks.length, "recent pricing pushes where HubSpot's calculated values did not match the tool", '<button id="hsp-bad" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Show</button>')].join("");
   box.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3"><div class="flex items-center gap-2"><h2 class="font-bold">HubSpot integration</h2>
       ${chip(ok === null ? "Never synced" : ok ? "Healthy" : "Last sync failed", ok === null ? "bg-slate-100 text-slate-700" : ok ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800")}</div>
-      <div class="flex items-center gap-3"><span id="hsp-msg" class="text-xs text-slate-500" role="status"></span><button id="hsp-sizes" class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50" title="A CSV for HubSpot's company import that updates Patient List Size">List-size import file</button><button id="hsp-run" class="rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Run sync now</button></div></div>
+      <div class="flex items-center gap-3"><span id="hsp-msg" class="text-xs text-slate-500" role="status"></span><button id="hsp-run" class="rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Run sync now</button></div></div>
     <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">${tile("Last sync", run ? hsAgo(run.at) : "never", run ? esc(run.actor) : "")}
       ${tile("Practices linked", (eligible.length - missing.length).toLocaleString(), "of " + eligible.length.toLocaleString() + " active with a list size")}${tile("Customers", practices.filter(p => hsState(p) === "customer").length.toLocaleString(), practices.filter(p => hsState(p) === "freemium").length.toLocaleString() + " more are Freemium")}
       ${tile("Engaged", practices.filter(p => p.hubspot_engaged && !p.hubspot_customer).length.toLocaleString())}${tile("PCN / ICB records linked", linkedIds.size.toLocaleString(), (st.pcn_records_created ? st.pcn_records_created + " created last run" : ""))}</div>
@@ -153,12 +153,13 @@ async function renderHubspotPanel() {
   $("hsp-size-prev").onclick = () => { const { auto } = hsSizePlan(); audModal("Would update on the next sync", auto.length ? hsSizeList(auto, false) : '<p class="text-sm text-slate-600">Every non-customer list size already matches the NHS figure.</p>', null); };
   const held = $("hsp-size-held"); if (held) held.onclick = () => audModal("Held back: changed by more than 25%", '<p class="mb-2 text-xs text-slate-500">Check these are real (not a merge, split or bad row), then approve to write the NHS figure to HubSpot.</p>' + hsSizeList(hsSizePlan().held, true), null);
   const ac = $("hsp-align-cases"); if (ac) ac.onclick = alignCasesOpen;
-  $("hsp-align").onclick = () => { const n = alignDownload(); $("hsp-msg").textContent = n.toLocaleString() + " companies in the alignment file"; };
-  $("hsp-sizes").onclick = () => {      // active, unmerged practices already in HubSpot: Record ID matches the company, so the import updates it
-    const rows = practices.filter(p => p.hubspot_company_id && p.status === "Active" && !p.merged_into && p.total_patients > 0).sort((a, b) => a.ods_code.localeCompare(b.ods_code));
-    downloadCsv("Lalu_HubSpot_ListSizes", ["Record ID", "Company name", "GP ODS Code", "Patient List Size"], rows.map(p => [p.hubspot_company_id, p.practice_name, p.ods_code, p.total_patients]));
-    $("hsp-msg").textContent = rows.length.toLocaleString() + " companies in the file (list sizes as of " + (rows[0]?.data_month || "the latest load") + ")";
+  const putAlign = async (value, msg) => { const { error } = await db.from("app_flags").upsert([{ key: "alignment_sync", value, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) { $("hsp-msg").textContent = error.message; return false; } hsAlignFlag = value; $("hsp-msg").textContent = msg; renderHubspotPanel(); return true; };
+  $("hsp-align-auto").onchange = async e => {
+    const on = e.target.checked, n = alignPlan().autoN || 0;
+    if (on && !confirm(`Keep Org Type and Operating status in step automatically?\n\nEach daily sync will set Operating status from NHS data and fill a blank Org Type. Merged practices and moved sites are never guessed: they stay in the review list. Right now that is ${n.toLocaleString()} companies${n > ALIGN_MAX ? `, which is more than ${ALIGN_MAX}, so the first run waits for your approval` : ""}. A deliberate Org Type such as Group is never overwritten.`)) { e.target.checked = false; return; }
+    if (!(await putAlign({ enabled: on, approve_once: false }, on ? "Automatic alignment is on from the next sync." : "Automatic alignment is off."))) e.target.checked = !on;
   };
+  const okb = $("hsp-align-ok"); if (okb) okb.onclick = () => { if (confirm(`Approve one run that sets Org Type / Operating status on ${(alignPlan().autoN || 0).toLocaleString()} HubSpot companies from NHS data?`)) putAlign({ ...hsAlignFlag, enabled: true, approve_once: true }, "Approved: it applies at the next sync (Run sync now to do it now)."); };
   $("hsp-run").onclick = async () => {
     const b = $("hsp-run"), msg = $("hsp-msg"); b.disabled = true; msg.textContent = "Starting…";
     const { data, error } = await db.functions.invoke("hubspot-sync-trigger");

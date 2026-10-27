@@ -365,17 +365,15 @@ with sync_playwright() as p:
     pg.fill("#au-q", "zzz"); assert "Nothing matches" in pg.inner_text("#au-list"); pg.fill("#au-q", "")
     pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#hsp-run")   # HubSpot integration panel
     hp = pg.inner_text("#d-hubspot"); assert "HubSpot integration" in hp and "Healthy" in hp and "Needs attention" in hp and "not in HubSpot" in hp and "manual sync" in hp and "Pushed pricing to Deal X" in hp and "did not match" in hp, hp
-    with pg.expect_download() as dls: pg.click("#hsp-sizes")
-    sz = open(dls.value.path(), encoding="utf-8-sig").read().splitlines(); assert sz[0] == '"Record ID","Company name","GP ODS Code","Patient List Size"' and len(sz) >= 2 and all(l.split(",")[0].strip('"').isdigit() for l in sz[1:]), sz[:4]      # list-size import file: only practices already in HubSpot
-    assert "Alignment with NHS data" in hp and "Org Type differ" in hp, hp[:1200]
-    with pg.expect_download() as dal: pg.click("#hsp-align")
-    al = open(dal.value.path(), encoding="utf-8-sig").read().splitlines(); assert al[0] == '"Record ID","Company name","GP ODS Code","Org Type","Operating status","Website URL"' and any('"Practice","Active"' in l and "A10001" in l for l in al), al[:4]      # Org Type and status from NHS data, website only where HubSpot is blank
+    assert "Alignment with NHS data" in hp and "Org Type differ" in hp and "import file" not in hp.lower().replace("no import file is needed", ""), hp[:1200]
+    assert "Keep these in step automatically" in hp, hp[:1500]      # the alignment switch: off by default, then on
+    pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-align-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync')")
+    fa = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync').pop()[1][0]"); assert fa["value"] == {"enabled": True, "approve_once": False}, fa
+    pg.wait_for_function("document.querySelector('#d-hubspot').innerText.includes('Each daily sync sets Operating status')")
     assert "List sizes in HubSpot" in hp and "would update" in hp and "customers differ from NHS" in hp, hp[:900]      # the list-size sync card
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-size-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags')")
     fl = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0]"); assert fl["key"] == "list_size_sync" and fl["value"] == {"enabled": True, "last_month": None}, fl
     pg.click("#hsp-size-prev"); pg.wait_for_selector("#aud-modal-body table"); assert "Test Surgery 1" in pg.inner_text("#aud-modal-body"); pg.click("#aud-modal-cancel")
-    with pg.expect_download() as dsz: pg.click("#hsp-sizes")
-    szr = open(dsz.value.path(), encoding="utf-8-sig").read().splitlines(); assert szr[0].startswith('"Record ID"') and len(szr) >= 2, szr[:3]      # the manual import file is still there
     tt = pg.evaluate("document.querySelector('#d-hubspot').textContent"); assert "Create company" in tt and "Median" in tt and "Find company" in tt, tt[-600:]   # every edge call is timed
     pg.select_option("#hsp-filter", "sync"); assert "Pushed pricing" not in pg.inner_text("#hsp-log") and "practices linked" in pg.inner_text("#hsp-log"); pg.select_option("#hsp-filter", "all")
     pg.screenshot(path=SHOTS + "/hubspot_panel.png", full_page=True); pg.click("#hsp-run"); pg.wait_for_function("document.querySelector('#hsp-msg').innerText.includes('Sync started')"); assert pg.evaluate("window.__rpc.some(c => c[0] === 'fn:hubspot-sync-trigger')")
