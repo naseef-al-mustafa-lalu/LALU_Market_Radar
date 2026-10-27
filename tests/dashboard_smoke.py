@@ -378,6 +378,7 @@ with sync_playwright() as p:
     pg.click('#d-audit [data-au="unknown_code"]'); pg.wait_for_function("!document.querySelector('#au-list').innerText.includes('Jefferies')"); assert "Nowhere Ltd" in pg.inner_text("#au-list")
     pg.click('#d-audit [data-au="pcn_no_code"]'); pg.wait_for_function("document.querySelector('#au-list').innerText.includes('East Health Network')"); assert pg.locator('#au-list a[href*="/record/2-203659326/9"]').count() == 1 and "Probably U00002" in pg.inner_text("#au-list")
     pg.fill("#au-q", "zzz"); assert "Nothing matches" in pg.inner_text("#au-list"); pg.fill("#au-q", "")
+    assert pg.locator("[data-au-dismiss]").count() > 0 and "Show dismissed" in pg.inner_text("#au-tools") and "Dismiss all" in pg.inner_text("#au-tools"), pg.inner_text("#au-tools")      # items can be dismissed off the list
     pg.click("#data-sub button[data-d=overview]"); pg.wait_for_selector("#hsp-run")   # HubSpot integration panel
     hp = pg.inner_text("#d-hubspot"); assert "HubSpot integration" in hp and "Healthy" in hp and "Needs attention" in hp and "not in HubSpot" in hp and "manual sync" in hp and "Pushed pricing to Deal X" in hp and "did not match" in hp, hp
     assert "Alignment with NHS data" in hp and "Org Type differ" in hp and "import file" not in hp.lower().replace("no import file is needed", ""), hp[:1200]

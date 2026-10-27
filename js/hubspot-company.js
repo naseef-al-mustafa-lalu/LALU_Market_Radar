@@ -200,7 +200,7 @@ async function hsLeadForm(company) {
 }
 
 /* step 2: preview exactly what will be written */
-const monthlyNote = () => " per patient per month";
+const monthlyNote = () => " p/month";
 function hsPreview() {
   hsTitle(hs.auto ? "Create deal" : "Push pricing");
   const { p, want, company, deal } = hs, pctShow = v => v == null ? "not set" : pct(v / HS_PCT);
@@ -229,7 +229,7 @@ function hsPreview() {
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">${tile("Quantity", w.quantity.toLocaleString() + " patients", !cur || Number(cur.quantity) !== w.quantity, cur ? "now " + Number(cur.quantity).toLocaleString() : "")}
         ${tile("Unit price", "£" + rate3(w.listUnit) + " /mo", !cur || Math.abs((Number(cur.price) || 0) - w.listUnit) >= 0.0006, cur ? "now £" + rate3(Number(cur.price) || 0) : "set by the tool")}
         ${tile("Unit discount", "£" + rate3(discNew), !cur || Math.abs((Number(cur.discount) || 0) - discNew) >= 0.0006, cur ? "now £" + rate3(Number(cur.discount) || 0) : "")}
-        ${tile("Net unit price", "£" + rate3(w.netUnit) + " /mo", false, "per patient per month")}
+        ${tile("Net unit price", "£" + rate3(w.netUnit) + " /mo", false, "p/month")}
         ${tile("Contract term", w.term + " month" + (w.term > 1 ? "s" : ""), false, "the product (Annual or Monthly)")}
         ${tile("Billing", "Monthly", !cur || cur.recurringbillingfrequency !== "monthly", cur ? "now " + esc(cur.recurringbillingfrequency || "not set") : "everyone is billed monthly")}</div>`;
   const nLine = line.unreadable || line.same ? 0 : 1;

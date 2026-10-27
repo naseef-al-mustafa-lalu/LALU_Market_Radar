@@ -258,6 +258,8 @@ Data > Data sources > **Contacts from HubSpot** reads a HubSpot "all contacts" e
 
 **Primary contact (the Manager column).** `gp_practices.manager_*` (shown in the Practices table and exports) comes from Oscar's primary contact; when Oscar has nobody for a practice, the daily HubSpot sync picks the most senior contactable decision-maker among that practice's HubSpot-sourced contacts (`fill_hubspot_managers`, ranked like Oscar's, deputies and assistants last) and marks them `is_primary`. `manager_source` (`oscar` or `hubspot`, migration 54) records which, and the Oscar load never wipes a HubSpot-chosen one. Migration 54 also did the first fill, so the table filled straight after the contact load.
 
+**HubSpot audit clean-up.** A closed or merged practice whose HubSpot company is already marked Closed or Merged is no longer listed (the daily sync checks Operating status against NHS data). Any other item can be **Dismissed** from Data > HubSpot audit (one row, or all items in the current view); dismissed ids are kept in `hubspot_audit_dismissed` (migration 55) so they stay off the list when the sync rebuilds it, and **Show dismissed** lists them with **Restore**.
+
 ## Alignment of HubSpot company properties with NHS data
 The sync also reads three company properties into `gp_practices` (`hubspot_org_type`, `hubspot_operating_status`, `hubspot_website`) and compares them with what NHS data says: Org Type should be *Practice*; Operating status is *Merged* when the practice merged into another, *Closed* when it is closed or inactive, otherwise *Active*. A practice's profile shows the NHS values under *Practice details* (Org type, Operating status) and HubSpot's own values inside the *HubSpot* section, flagged *Needs updating* when they do not match.
 

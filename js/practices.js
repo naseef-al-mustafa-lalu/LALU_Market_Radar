@@ -128,15 +128,15 @@ function termsBlock(p) {
     const arr = Number(p.hubspot_contracted_arr), list = setting("list_price_per_patient");
     if (!(pat > 0) || !(arr > 0) || !(list > 0)) return "";
     const eff = arr / pat / 12, off = 1 - eff / list, vs = off > 0.0005 ? "−" + Math.round(off * 1000) / 10 + "%" : off < -0.0005 ? "+" + Math.round(-off * 1000) / 10 + "%" : "list";
-    return kv("Effective price", tipped(`<span class="font-mono">£${eff.toFixed(3)}</span> <span class="text-slate-400">per patient per month</span>`, `Contracted ARR ÷ ${pat.toLocaleString()} patients ÷ 12.\nThe HubSpot deal has no discount breakdown (size, speed, term), so it cannot be itemised.`)) +
-      kv("Against list", tipped(`<span class="${off > 0.0005 ? "text-amber-700" : ""}">${vs}</span>`, `Against the £${list.toFixed(2)} list price per patient per month.`));
+    return kv("Effective price", tipped(`<span class="font-mono">£${eff.toFixed(3)}</span> <span class="text-slate-400">p/month</span>`, `Contracted ARR ÷ ${pat.toLocaleString()} patients ÷ 12.\nThe HubSpot deal has no discount breakdown (size, speed, term), so it cannot be itemised.`)) +
+      kv("Against list", tipped(`<span class="${off > 0.0005 ? "text-amber-700" : ""}">${vs}</span>`, `Against the £${list.toFixed(2)} list price p/month.`));
   }
   const fr = v => v == null ? null : (Math.abs(v) > 1 ? v / 100 : v), list = Number(t.list_rate) || 0.08, a = pat * list * 12;
   const rows = [["Size", t.size], ["Speed to sign", t.speed], ["Term length" + (t.years ? " (" + t.years + " yr)" : ""), t.term_length], ["Referral group", t.referral]].map(([l, v]) => [l, fr(v)]).filter(([, v]) => v);
   const tot = fr(t.total) ?? rows.reduce((x, [, v]) => x + v, 0), net = Number(t.net_rate) || list * (1 - tot), pc = v => Math.round(v * 1000) / 10;
-  const build = `List price £${list.toFixed(3)} per patient per month × ${pat.toLocaleString()} patients = ${gbpFull(a)} a year\n` + rows.map(([l, v]) => `${l} discount −${pc(v)}% (−${gbpFull(a * v)})`).join("\n") +
-    `${rows.length ? "\n" : ""}Total discount −${pc(tot)}% (−${gbpFull(a * tot)})\nPrice £${net.toFixed(3)} per patient per month = ${gbpFull(a * (1 - tot))} a year at today's list size` + (t.amount ? `\nDeal amount ${gbpFull(t.amount)}` : "") + (t.closed ? `\nDeal closed ${fmtDate(t.closed)}` : "");
-  return kv("Price", tipped(`<span class="font-mono">£${net.toFixed(3)}</span> <span class="text-slate-400">per patient per month</span>`, build)) +
+  const build = `List price £${list.toFixed(3)} p/month × ${pat.toLocaleString()} patients = ${gbpFull(a)} a year\n` + rows.map(([l, v]) => `${l} discount −${pc(v)}% (−${gbpFull(a * v)})`).join("\n") +
+    `${rows.length ? "\n" : ""}Total discount −${pc(tot)}% (−${gbpFull(a * tot)})\nPrice £${net.toFixed(3)} p/month = ${gbpFull(a * (1 - tot))} a year at today's list size` + (t.amount ? `\nDeal amount ${gbpFull(t.amount)}` : "") + (t.closed ? `\nDeal closed ${fmtDate(t.closed)}` : "");
+  return kv("Price", tipped(`<span class="font-mono">£${net.toFixed(3)}</span> <span class="text-slate-400">p/month</span>`, build)) +
     kv("Discount", tot > 0 ? tipped(`<span class="text-amber-700">−${pc(tot)}%</span>${rows.length > 1 ? ` <span class="text-slate-400">${rows.map(([l, v]) => l.split(" ")[0].toLowerCase() + " " + pc(v) + "%").join(" · ")}</span>` : ""}`, build) : "");
 }
 function driftRows(p) {      // what the customer signed for against today's NHS figure (the review flag is in expandRows)
@@ -180,8 +180,8 @@ function renderMore() {
       <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${branchHit.has(p.ods_code) ? " " + chip("Branch: " + branchHit.get(p.ods_code)[0] + (branchHit.get(p.ods_code).length > 1 ? " +" + (branchHit.get(p.ods_code).length - 1) : ""), "bg-sky-100 text-sky-800", "A branch surgery of this practice matched your search") : ""}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}${p.merged_into ? " " + chip("Merged → " + ((byOds.get(p.merged_into) || {}).practice_name || p.merged_into), "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : mergeSugg.has(p.ods_code) || closureCands.has(p.ods_code) ? " " + chip("May have closed or merged", "bg-amber-100 text-amber-800", "Review in Signals > Closures and mergers") : ""}</div>
         <div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}</div></td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-xs text-slate-500 underline decoration-dotted cursor-help" title="${esc(noSizeReason(p))}">${p.merged_into ? "Merged" : isClosed(p) ? "Closed" : "No list size"}</span>`}</td>
-      <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold text-emerald-700" title="£${rate3(Number(p.base_price))} per patient per month">${gbpFull(p.est_arr)}</span>` : '<span class="text-slate-300">–</span>'}</td>
-      <td class="hidden xl:table-cell px-3 py-2 text-right whitespace-nowrap">${hasN && p.est_arr_sar != null ? `<span class="font-mono text-slate-600" title="£${rate3(Number(p.base_price_sar))} per patient per month, SAR only">${gbpFull(p.est_arr_sar)}</span>` : '<span class="text-slate-300">–</span>'}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold text-emerald-700" title="£${rate3(Number(p.base_price))} p/month">${gbpFull(p.est_arr)}</span>` : '<span class="text-slate-300">–</span>'}</td>
+      <td class="hidden xl:table-cell px-3 py-2 text-right whitespace-nowrap">${hasN && p.est_arr_sar != null ? `<span class="font-mono text-slate-600" title="£${rate3(Number(p.base_price_sar))} p/month, SAR only">${gbpFull(p.est_arr_sar)}</span>` : '<span class="text-slate-300">–</span>'}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${contractedCell(p)}</td>
       <td class="px-3 py-2">${networkCell(p)}</td>
       <td class="px-3 py-2 whitespace-nowrap">${cqcCell(p)}</td>
@@ -240,7 +240,7 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
     useSpeed ? line("Speed discount", termYrs > 1 ? "Every year of the term, not guaranteed" : "Term year, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
     adj > 1e-9 ? line("Price floor", `Never below £${rate3(floor)} per month`, "", "+£" + rate3(adj)) : "",
-    line("Price per patient per month", "", monthly ? "" : `${pct(1 - termRate / list)} off`, `£${rate3(termRate)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "font-semibold border-t-2 border-emerald-200"),
+    line("Price p/month", "", monthly ? "" : `${pct(1 - termRate / list)} off`, `£${rate3(termRate)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "font-semibold border-t-2 border-emerald-200"),
     line(`× ${patients.toLocaleString()} patients × 12 months`, "Per year", "", gbpFull(yearly(patients, termRate)), "font-semibold")
   ].join("");
   // Price by year: every term year pays the same rate; the speed discount ends at renewal.

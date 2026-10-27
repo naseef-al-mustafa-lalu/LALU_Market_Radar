@@ -605,7 +605,7 @@ def audit_rows(raw, practices, now):
                 continue
             if len(cs) > 1:
                 add("duplicate_code", c, ods, pr, f"{len(cs)} HubSpot companies carry {ods}")
-            if pr.get("status") != "Active" or pr.get("merged_into"):
+            if (pr.get("status") != "Active" or pr.get("merged_into")) and (c.get("operating_status") or "").lower() != expected_status(pr):   # already marked Closed or Merged in HubSpot: resolved
                 add("closed_practice", c, ods, pr, "Merged into " + str(pr["merged_into"]) if pr.get("merged_into") else f"NHS status: {pr.get('status')}")
             same_place = norm_postcode(c.get("zip")) and norm_postcode(c.get("zip")) == norm_postcode(pr.get("postcode"))
             if not names_match(c.get("name"), pr.get("practice_name")) and not same_place:   # a different name at the same postcode is the same practice under another name

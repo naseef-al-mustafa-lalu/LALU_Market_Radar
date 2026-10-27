@@ -689,3 +689,14 @@ def test_primary_contact_is_picked_from_hubspot_sourced_contacts():
     r = R()
     assert hsy.fill_hubspot_managers(r) == 1 and r.up["gp_practices"][0]["manager_name"] == "A One" and r.up["gp_practices"][0]["manager_source"] == "hubspot"      # a practice with an Oscar manager is left alone
     assert r.up["contacts"] == [dict(contact_urn=-1, ods_code="A1", is_primary=True)]
+
+
+def test_audit_skips_closed_practices_already_marked_in_hubspot():
+    from src import hubspot_sync as hsy
+    pr = {"M10001": dict(ods_code="M10001", practice_name="Old Surgery", status="Active", merged_into="P10001", postcode="LS1 1AA"), "C10001": dict(ods_code="C10001", practice_name="Shut Surgery", status="Inactive", merged_into=None, postcode="LS1 1AB"),
+          "C10002": dict(ods_code="C10002", practice_name="Other Shut", status="Inactive", merged_into=None, postcode="LS1 1AC")}
+    raw = [dict(id=1, properties=dict(name="Old Surgery", partner_organisation_code="M10001", zip="LS1 1AA", operating_status="merged")),
+           dict(id=2, properties=dict(name="Shut Surgery", partner_organisation_code="C10001", zip="LS1 1AB", operating_status="closed")),
+           dict(id=3, properties=dict(name="Other Shut", partner_organisation_code="C10002", zip="LS1 1AC", operating_status="active"))]
+    rows = hsy.audit_rows(raw, pr, "2026-10-27")
+    assert [(r["issue"], r["company_id"]) for r in rows] == [("closed_practice", "3")]      # merged and closed companies already marked as such are resolved; an Active one is still flagged

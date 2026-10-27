@@ -23,11 +23,11 @@ const HS_MODELS = { "Subscription": "ReportSure - MS - All Reports", "eMR+ SAR O
 const hsNum = v => (v === "" || v == null ? null : Number(v));
 const hsClose = () => { $("hs-modal").classList.add("hidden"); hs = null; };
 
-// The four Lalu Care products in HubSpot (unit price is set on the product: per patient per year for annual, per patient per month for monthly).
+// The four Lalu Care products in HubSpot (unit price is set on the product: per patient per year for annual, p/month for monthly).
 const HS_PRODUCTS = { "all|annual": ["440423339237", "ReportSure - All Report - Annual"], "all|monthly": ["440425147578", "ReportSure - All Report - Monthly"],
   "sar|annual": ["440434162881", "ReportSure - SAR Only - Annual"], "sar|monthly": ["440498134244", "ReportSure - SAR Only - Monthly"] };
 const HS_PRODUCT_IDS = new Set(Object.values(HS_PRODUCTS).map(x => x[0]));
-function hsLineWanted(p, monthly, yrs, rate, list) {      // Annual / Monthly name the contract TERM (and the product); everyone is billed monthly, so prices are always per patient per month
+function hsLineWanted(p, monthly, yrs, rate, list) {      // Annual / Monthly name the contract TERM (and the product); everyone is billed monthly, so prices are always p/month
   const [productId, productName] = HS_PRODUCTS[`${product}|${monthly ? "monthly" : "annual"}`];
   return { productId, productName, quantity: p.total_patients, listUnit: Math.round(list * 10000) / 10000, netUnit: Math.round(rate * 10000) / 10000, term: monthly ? 1 : 12 * yrs, termMonths: null,
     frequency: "monthly", terms: "AUTOMATICALLY_RENEW", payments: null };
