@@ -22,7 +22,7 @@ for p_ in PR:
 PR[2].update(hubspot_customer=True, hubspot_stage="customer"); PR[1].update(hubspot_engaged=True, hubspot_stage="opportunity")
 PR[7].update(hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=13056, hubspot_contracted_src="service")
 PR[4].update(hubspot_list_size=9000, hubspot_company_id="444", hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=9000, hubspot_contracted_src="service", hubspot_contract_terms=dict(line_qty=9500, deal="Test Surgery 4", closed="2025-03-04", amount=9000, years=2, list_rate=0.08, net_rate=0.0684, size=0.05, speed=0.05, term_length=0.025, referral=0.02, total=0.145))
-PR[4].update(hubspot_product="all", hubspot_product_service="eMR+", hubspot_first_start="2024-03-01", hubspot_signed_size=9500, hubspot_company_status="Current Customer")
+PR[4].update(hubspot_product="all", hubspot_product_service="eMR+", hubspot_first_start="2024-03-01", hubspot_signed_size=9500, hubspot_size_history=[["2024-02-20", 9000], ["2025-06-01", 9500]], hubspot_company_status="Current Customer")
 PR[7].update(hubspot_product="sar", hubspot_product_service="eMR+", hubspot_first_start="2025-01-10", hubspot_signed_size=8000)
 PR[6].update(hubspot_product="all", hubspot_product_service="eMR", hubspot_first_start="2023-06-01", hubspot_signed_size=5000, hubspot_company_status="Ex-Customer", hubspot_churned_date="2025-09-15")
 HS = [dict(ods_code=p_["ods_code"], hs_contacts=1, hs_imported=1 if i < 3 else 0, hs_primary_imported=i < 3, hs_last_imported_at="2026-10-12T09:00:00Z", hs_primary_imported_at="2026-10-12T09:00:00Z" if i < 3 else None) for i, p_ in enumerate(PR)]
@@ -361,6 +361,7 @@ with sync_playwright() as p:
     js("showTab('revenue'); setRevSub('pum')"); pg.wait_for_selector("#rev-pum svg", state="attached")      # Revenue > Patients under management
     rp = pg.inner_text("#rev-pum"); assert "Patients under management" in rp and "All reports" in rp and "SAR only" in rp and "churned patients" in rp.lower() and "5,000" in rp, rp
     assert js("[...document.querySelectorAll('.pum-prod')].map(c => c.value + c.checked).join()") == "allfalse".replace("allfalse", "alltrue,sartrue,selffalse,paygfalse,freemiumfalse")      # defaults: ReportSure SAR and all reports
+    sv = js("(() => { const d = pumSeries(pumRows(), 'product'), at = m => d.series.all[d.months.indexOf(m)]; return [at('2024-03'), at('2025-07'), at('2025-10')]; })()"); assert sv == [14000, 14500, 9500], sv      # the contract size follows the renewal in June 2025, and the churned practice's 5,000 go from September 2025
     now = lambda: int(js("document.querySelector('#rev-pum .grid div:first-child .text-xl').textContent").replace(",", ""))
     assert now() == 9500 + 8000, now()      # the churned practice's 5,000 are off after 15 Sep 2025
     js("document.getElementById('pum-service').value = 'eMR'; document.getElementById('pum-service').dispatchEvent(new Event('change'))"); assert now() == 0      # self service only: its one customer has churned

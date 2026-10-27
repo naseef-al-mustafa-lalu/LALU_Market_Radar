@@ -368,6 +368,28 @@ def service_product(sv):
     return "all" if ("report" in t or "emr" in t or "ms" in t.split() or "managed" in t) else None
 
 
+def _price(v):
+    """A deal's price per patient per month from a value like '£0.08' (None for 'Other' or blank)."""
+    try:
+        return float(re.sub(r"[^0-9.]", "", str(v or "")) or "nan") or None
+    except ValueError:
+        return None
+
+
+def contract_patients(deal, qty=None):
+    """Patients a won deal contracts for: its Lalu Care line item quantity when there is one, else the Amount (a year's price) over twelve months of the net price per patient.
+    The deal's own Patient List Size is no use: HubSpot keeps syncing it from the company, so it drifts after signing."""
+    if qty:
+        return int(qty)
+    amount, net, tot = _num(deal.get("amount")), _num(deal.get("actual_value_per_patient_calculated")), _num(deal.get("total_discount"))
+    lst = _price(deal.get("value_per_patient"))
+    rate = net or (lst * (1 - (tot / 100 if tot and tot > 1 else tot or 0)) if lst else None)
+    if amount and rate and rate > 0:
+        n = round(amount / (12 * rate))
+        return n if 50 <= n <= 200000 else None
+    return None
+
+
 def lifecycle_fields(companies, deal_ids, deals, service_ids, services, line_qty, list_size_value):
     """What the Patients under management page needs for one practice: company status, its main Service (paid ones first, then the latest start), Product / Service from the latest won deal,
     when the first Service started, when it churned, and the size signed for (the won deal's line item quantity, else the company's list size)."""
@@ -383,12 +405,15 @@ def lifecycle_fields(companies, deal_ids, deals, service_ids, services, line_qty
     starts = [sv["_start"] for sv in paid if sv["_start"]] or [_date(d.get("closedate")) for _, d in won if _date(d.get("closedate"))]
     ps = last[1].get("product___service") or None
     product = main["_product"] if main else None
-    qty = (line_qty or {}).get(last[0]) if last[0] else None
+    hist = sorted(((_date(d.get("closedate")), contract_patients(d, (line_qty or {}).get(i))) for i, d in ((i, deals[i]) for i in deal_ids if i in deals and deals[i].get("hs_is_closed_won") == "true"
+                                                                                                       and deals[i].get("pipeline") in (PIPELINE_WON | {PIPELINE_RENEWALS}))), key=lambda x: x[0] or "")
+    hist = [[d, n] for d, n in hist if d and n]
+    qty = hist[-1][1] if hist else None
     return {"hubspot_company_status": primary.get("company_status") or None, "hubspot_service_name": (main or {}).get("hs_name") or None, "hubspot_product": product,
             "hubspot_product_service": ps or ({"self": "eMR"}.get(product, "eMR+") if product in ("all", "sar", "self") else None),
             "hubspot_first_start": min(starts) if starts else None, "hubspot_churned_date": max(churned) if churned and (primary.get("company_status") == "Ex-Customer" or not any(
                 sv.get("current_subscription") for sv in paid)) else None,
-            "hubspot_signed_size": int(qty) if qty else (int(list_size_value) if list_size_value else None)}
+            "hubspot_signed_size": int(qty) if qty else (int(list_size_value) if list_size_value else None), "hubspot_size_history": hist or None}
 
 
 def revenue_fields(deal_ids, deals, service_ids, services, customer, model, line_qty=None):
@@ -769,7 +794,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
-                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_company_status": None, "hubspot_service_name": None, "hubspot_product": None, "hubspot_product_service": None, "hubspot_first_start": None, "hubspot_churned_date": None, "hubspot_signed_size": None, "hubspot_synced_at": now})
+                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_company_status": None, "hubspot_service_name": None, "hubspot_product": None, "hubspot_product_service": None, "hubspot_first_start": None, "hubspot_churned_date": None, "hubspot_signed_size": None, "hubspot_size_history": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     auto, held = plan_list_sizes(practices, rows)
     sizes = {"list_sizes_pending": len(auto), "list_sizes_held": len(held)}

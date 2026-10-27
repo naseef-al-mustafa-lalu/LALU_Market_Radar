@@ -7,4 +7,5 @@ alter table public.gp_practices
   add column if not exists hubspot_product_service text,
   add column if not exists hubspot_first_start date,
   add column if not exists hubspot_churned_date date,
-  add column if not exists hubspot_signed_size integer;
+  add column if not exists hubspot_signed_size integer,
+  add column if not exists hubspot_size_history jsonb;   -- [[won deal close date, patients in that contract], ...]: what the contracts said, so the chart follows renewals

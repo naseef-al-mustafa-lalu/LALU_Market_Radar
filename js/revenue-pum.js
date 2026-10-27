@@ -19,10 +19,11 @@ function pumSeries(rows, splitKey) {
   for (const p of dated) {
     const k = splitKey === "service" ? (p.hubspot_product_service === "eMR" ? "eMR" : "eMR+") : p.hubspot_product, from = months.indexOf(pumMonth(p.hubspot_first_start)), gone = p.hubspot_churned_date ? months.indexOf(pumMonth(p.hubspot_churned_date)) : -1;
     if (!series[k] || from < 0) continue;
-    const n = Number(p.hubspot_signed_size), to = pumChurn === "active" && p.hubspot_churned_date ? -2 : gone >= 0 ? gone : months.length;      // churned in the month it is dated: gone from that month's end
+    const hist = (p.hubspot_size_history || []).map(([d, n]) => [pumMonth(d), Number(n)]), at = i => { let n = hist.length ? hist[0][1] : Number(p.hubspot_signed_size); for (const [m, v] of hist) if (m <= months[i]) n = v; return n; };      // the size in the contract in force that month
+    const to = pumChurn === "active" && p.hubspot_churned_date ? -2 : gone >= 0 ? gone : months.length;      // churned in the month it is dated: gone from that month's end
     if (to === -2) continue;
-    for (let i = from; i < to; i++) series[k][i] += n;
-    if (gone >= 0) for (let i = gone; i < months.length; i++) churned[i] += n;
+    for (let i = from; i < to; i++) series[k][i] += at(i);
+    if (gone >= 0) for (let i = gone; i < months.length; i++) churned[i] += at(gone - 1 >= 0 ? gone - 1 : gone);
   }
   return { months, series, churned, undated: rows.length - dated.length };
 }
@@ -44,11 +45,11 @@ function renderPum() {
   const box = $("rev-pum"); if (!box || !practices.length) return;
   const rows = pumRows(), d = pumSeries(rows, pumSplit), labels = pumSplit === "service" ? { "eMR+": ["Managed service (eMR+)", "#0d9488"], eMR: ["Self service (eMR)", "#a855f7"] } : PUM_PRODUCTS, last = d.months.length - 1;
   const now = last >= 0 ? Object.keys(d.series).reduce((a, k) => a + d.series[k][last], 0) : 0, yearAgo = last >= 12 ? Object.keys(d.series).reduce((a, k) => a + d.series[k][last - 12], 0) : null;
-  const churnedPts = rows.filter(p => p.hubspot_churned_date).reduce((a, p) => a + Number(p.hubspot_signed_size), 0), live = rows.filter(p => !p.hubspot_churned_date);
+  const churnedPts = rows.filter(p => p.hubspot_churned_date).reduce((a, p) => a + Number(((p.hubspot_size_history || []).slice(-1)[0] || [])[1] || p.hubspot_signed_size), 0), live = rows.filter(p => !p.hubspot_churned_date);
   const tile = (k, v, sub = "") => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-xl font-bold leading-tight">${v}</div>${sub ? `<div class="text-xs text-slate-500">${sub}</div>` : ""}</div>`;
   const chk = (k, l, c) => `<label class="flex items-center gap-1.5 text-xs font-semibold text-slate-700"><input type="checkbox" class="pum-prod h-4 w-4" value="${k}" ${pumProducts.has(k) ? "checked" : ""}><span class="inline-block h-2.5 w-2.5 rounded-sm" style="background:${c}"></span>${l}</label>`;
   const seg = (id, cur, opts) => `<span class="inline-flex gap-1 rounded-lg bg-slate-100 p-1 text-xs font-semibold" id="${id}">${opts.map(([k, l]) => `<button type="button" data-v="${k}" class="rounded-md px-2.5 py-1 ${cur === k ? "bg-white text-lalu-navy shadow-sm" : "text-slate-500"}">${l}</button>`).join("")}</span>`;
-  box.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><h2 class="font-bold">Patients under management <span class="info-slot align-middle" data-text="Each customer counts at the size they signed for (the won deal's line item quantity, else the company's list size) from their first Service start until the date the Service churned. Only practices HubSpot still knows about are counted, and Freemium and PAYG are off by default."></span></h2>
+  box.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><h2 class="font-bold">Patients under management <span class="info-slot align-middle" data-text="Each customer counts at the patient size in their contract (the won deal's line item quantity, else the Amount over twelve months of the price per patient), updated at each renewal, from their first Service start until the date the Service churned. The company's list size is only used where no contract size can be worked out. Only practices HubSpot still knows about are counted, and Freemium and PAYG are off by default."></span></h2>
     <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">${Object.entries(PUM_PRODUCTS).map(([k, [l, c]]) => chk(k, l, c)).join("")}</div>
     <div class="mt-2 flex flex-wrap items-center gap-3 text-xs"><label class="font-semibold text-slate-600" for="pum-service">Service</label><select id="pum-service" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"><option value="">Managed and self service</option>${Object.entries(PUM_SERVICES).map(([k, l]) => `<option value="${esc(k)}" ${pumService === k ? "selected" : ""}>${l} (${esc(k)})</option>`).join("")}</select>
       ${seg("pum-churn", pumChurn, [["offset", "Take churn off"], ["active", "Current customers only"]])}${seg("pum-split", pumSplit, [["product", "By product"], ["service", "By service type"]])}</div>

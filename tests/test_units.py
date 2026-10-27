@@ -718,9 +718,17 @@ def test_lifecycle_fields_for_customers_and_churned_practices():
     sv = {"s1": {"hs_name": "ReportSure - MS - SAR Only", "current_subscription": "eMR+ SAR Only", "contract_start_date": "2024-03-01", "hs_start_date": None, "date_churned": None},
           "s2": {"hs_name": "ReportSure - MS - All reports", "current_subscription": None, "contract_start_date": "2022-05-01", "hs_start_date": "2022-04-20", "date_churned": "2025-06-30"},
           "s3": {"hs_name": "ReportSure Freemium", "current_subscription": "Freemium", "contract_start_date": "2021-01-01", "hs_start_date": None, "date_churned": None}}
-    deals = {"d1": {"hs_is_closed_won": "true", "pipeline": next(iter(hsy.PIPELINE_WON)), "closedate": "2024-02-20", "product___service": "eMR+"}}
+    deals = {"d1": {"hs_is_closed_won": "true", "pipeline": next(iter(hsy.PIPELINE_WON)), "closedate": "2024-02-20", "product___service": "eMR+", "amount": "7776", "actual_value_per_patient_calculated": "0.072"}}
     live = hsy.lifecycle_fields([{"id": "1", "company_status": "Current Customer"}], ["d1"], deals, ["s1", "s3"], sv, {"d1": 9000}, 8800)
-    assert (live["hubspot_product"], live["hubspot_product_service"], live["hubspot_first_start"], live["hubspot_churned_date"], live["hubspot_signed_size"], live["hubspot_company_status"]) == ("sar", "eMR+", "2024-03-01", None, 9000, "Current Customer")
+    assert (live["hubspot_product"], live["hubspot_product_service"], live["hubspot_first_start"], live["hubspot_churned_date"], live["hubspot_signed_size"], live["hubspot_company_status"]) == ("sar", "eMR+", "2024-03-01", None, 9000, "Current Customer") and live["hubspot_size_history"] == [["2024-02-20", 9000]]
     gone = hsy.lifecycle_fields([{"id": "2", "company_status": "Ex-Customer"}], [], {}, ["s2"], sv, {}, 7000)
     assert (gone["hubspot_product"], gone["hubspot_product_service"], gone["hubspot_first_start"], gone["hubspot_churned_date"], gone["hubspot_signed_size"]) == ("all", "eMR+", "2022-04-20", "2025-06-30", 7000)
     assert hsy.service_product({"hs_name": "ReportSure Self Service"}) == "self" and hsy.service_product({"hs_name": "x", "current_subscription": "PAYG"}) == "payg"
+
+
+def test_contract_patients_come_from_the_contract_not_the_synced_deal_size():
+    from src import hubspot_sync as hsy
+    c = hsy.contract_patients
+    assert c({"amount": "3840.00", "value_per_patient": "£0.08", "patient_list_size": "3653"}) == 4000      # Amount over twelve months of the price per patient: a round contract size, unlike the drifting synced one
+    assert c({"amount": "12096", "actual_value_per_patient_calculated": "0.0720", "value_per_patient": "£0.08"}) == 14000 and c({"amount": "5000", "value_per_patient": "Other"}) is None
+    assert c({"amount": "1", "value_per_patient": "£0.08"}, 9500) == 9500 and c({"amount": "5760", "value_per_patient": "£0.08", "total_discount": "0.1"}) == 6667
