@@ -542,9 +542,9 @@ def test_list_size_push_batches_and_stops_on_error():
 
 def test_linked_company_properties():
     from src import hubspot_sync as hsy
-    cs = [{"id": "1", "org_type": "practice", "operating_status": "active", "website": " https://x.nhs.uk "}, {"id": "2"}]
-    assert hsy.linked_properties(cs, "1") == {"hubspot_org_type": "practice", "hubspot_operating_status": "active", "hubspot_website": "https://x.nhs.uk"}
-    assert hsy.linked_properties(cs, "2") == {"hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None}
+    cs = [{"id": "1", "org_type": "practice", "operating_status": "active", "website": " https://x.nhs.uk ", "hs_parent_company_id": "127032478946.0"}, {"id": "2"}]
+    assert hsy.linked_properties(cs, "1") == {"hubspot_org_type": "practice", "hubspot_operating_status": "active", "hubspot_website": "https://x.nhs.uk", "hubspot_parent_company_id": "127032478946"}
+    assert hsy.linked_properties(cs, "2") == {"hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None}
 
 
 def test_line_item_quantity_is_the_contract_basis():

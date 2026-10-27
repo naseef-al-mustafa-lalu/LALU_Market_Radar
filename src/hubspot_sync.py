@@ -51,7 +51,7 @@ def fetch_companies(hub):
     out, after = [], None
     while True:
         body = {"filterGroups": [{"filters": [{"propertyName": "partner_organisation_code", "operator": "HAS_PROPERTY"}]}], "limit": 100,
-                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate", "patient_list_size", "org_type", "operating_status", "website"], "sorts": ["createdate"]}
+                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate", "patient_list_size", "org_type", "operating_status", "website", "hs_parent_company_id"], "sorts": ["createdate"]}
         if after:
             body["after"] = after
         d = hub.call("POST", "/crm/v3/objects/companies/search", json=body)
@@ -167,7 +167,8 @@ def list_size(companies, company_id):
 def linked_properties(companies, company_id):
     """Org Type, Operating status and Website URL of the practice's linked HubSpot company, kept beside the NHS-derived values so the two can be compared."""
     c = next((c for c in companies if str(c.get("id")) == str(company_id)), {})
-    return {"hubspot_org_type": c.get("org_type") or None, "hubspot_operating_status": c.get("operating_status") or None, "hubspot_website": (c.get("website") or "").strip() or None}
+    return {"hubspot_org_type": c.get("org_type") or None, "hubspot_operating_status": c.get("operating_status") or None, "hubspot_website": (c.get("website") or "").strip() or None,
+            "hubspot_parent_company_id": str(int(float(c["hs_parent_company_id"]))) if c.get("hs_parent_company_id") else None}
 
 
 SIZE_HOLD = 0.25   # a one-month jump bigger than this is almost always a merge, split or bad row: a person looks before HubSpot changes
@@ -587,7 +588,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
-                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
+                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     auto, held = plan_list_sizes(practices, rows)
     sizes = {"list_sizes_pending": len(auto), "list_sizes_held": len(held)}

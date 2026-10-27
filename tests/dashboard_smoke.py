@@ -10,7 +10,7 @@ def prac(i, **kw):
     d.update(kw); return d
 PR = [prac(i) for i in range(12)]
 PR[1].update(hubspot_company_id="441", hubspot_org_type="branch_site", hubspot_operating_status="active", hubspot_website=""); PR[3].update(hubspot_company_id="443")
-PR[8].update(practice_name="Test Old Surgery", total_patients=0, merged_into="A10001", merged_note="Merged 2025", merged_at="2026-01-01T00:00:00Z", merged_by="boss@lalu.co.uk")
+PR[8].update(hubspot_company_id="448", hubspot_org_type="practice", hubspot_operating_status="active", practice_name="Test Old Surgery", total_patients=0, merged_into="A10001", merged_note="Merged 2025", merged_at="2026-01-01T00:00:00Z", merged_by="boss@lalu.co.uk")
 PR[9].update(practice_name="Test Annex A", total_patients=0)
 PR[10].update(practice_name="Test Annex B", total_patients=0)
 PR[11].update(practice_name="Test Closed Candidate", total_patients=0, cqc_status="Deregistered", cqc_last_inspection="2016-06-16")
@@ -48,6 +48,7 @@ window.supabase = { createClient: () => {
       if (b.action === 'add_contacts') return { data: { ok: true, contacts: (b.contacts || []).map((c, i) => ({ email: c.email.toLowerCase(), id: 'n' + i, existed: false })), warnings: [] } };
       if (b.action === 'sequences') return { data: { sender: 'new@lalu.co.uk', sequences: [{ id: 's1', name: 'Hiring follow-up' }, { id: 's2', name: 'CQC change' }] } };
       if (b.action === 'sequence_status') return { data: { status: Object.fromEntries(b.sequences.map(x => [x.id, x.id === 's2' ? { state: 'empty', sender: 'new@lalu.co.uk' } : { state: 'ready', steps: 3, sender: 'new@lalu.co.uk' }])) } };
+      if (b.action === 'entity_change') return { data: { ok: true, warnings: [] } };
       if (b.action === 'set_list_size') return { data: { ok: true, size: b.size } };
       if (b.action === 'audience_push') return { data: { ok: true, listId: '9001', listed: true, results: b.enrol ? Object.fromEntries(b.contactIds.map(i => [i, 'enrolled'])) : {}, warnings: [] } };
       if (b.action === 'audience_stats') return { data: { contacts: Object.fromEntries(b.contactIds.map(i => [i, { hs_sequences_is_enrolled: 'true', hs_sales_email_last_opened: '2099-01-01T00:00:00Z', hs_sales_email_last_replied: '2099-01-02T00:00:00Z', hs_sales_email_last_clicked: '2099-01-03T00:00:00Z', hs_v2_date_entered_marketingqualifiedlead: '2099-01-04T00:00:00Z' }])) } };
@@ -115,6 +116,16 @@ with sync_playwright() as p:
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
     assert "Branch (Site)" in body and "Needs updating" in body and "Org type" in body and "Operating status" in body and "hubspot record" not in body.lower(), body[-1100:]      # linked HubSpot properties: Org Type differs from the NHS data
+    pg.keyboard.press("Escape"); pg.evaluate("openDrawer(byOds.get('A10008'))"); pg.wait_for_selector(".hs-entity")      # a merged practice: HubSpot keeps it as Merged under its successor
+    mg = pg.inner_text("#dr-body"); assert "Merged into" in mg or "merged into" in mg, mg[-700:]
+    pg.click(".hs-entity"); pg.wait_for_selector("#aud-modal-ok"); mm = pg.inner_text("#aud-modal-body"); assert "Merged" in mm and "Test Surgery 1" in mm and "Parent company" in mm, mm
+    pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-modal').classList.contains('hidden')")
+    ec = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'entity_change').pop()[1]"); assert ec["mode"] == "merged" and ec["ods"] == "A10008" and ec["parentOds"] == "A10001" and ec["parentCompanyId"] == "441" and ec["companyId"] == "448", ec
+    pg.keyboard.press("Escape")
+    sm = pg.evaluate("""(() => { const br = { branch_code: 'T1R0M', branch_name: 'Dashwood Medical Centre', postcode: 'CT11 9PR', resolution: 'branch', status: 'Active', practice_code: 'A10001', match_status: 'auto' }; branches.push(br);
+      const mk = (name, pc) => ({ ods_code: 'G82064', practice_name: name, status: 'Closed', postcode: pc }), r = [siteMove(mk('Dashwood Medical Centre', 'CT11 9PR')), siteMove(mk('Dr Gt Hendow Practice', 'CT11 9PR')), siteMove(mk('Dashwood Medical Centre', 'XX1 1XX'))].map(x => x && x.branch.branch_code);
+      branches.pop(); return r; })()""")
+    assert sm == ["T1R0M", None, None], sm      # a closed code whose site goes on as a branch: same postcode and the practice's own name, not just a shared building
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector("#dr-body", state="visible"); ct = pg.inner_text("#dr-body")
     assert "List size now" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
     assert "List size in contract" in ct and "9,000" in ct and "13,000" in ct and "+4,000 (+44.4%)" in ct and "T4 → T3" in ct and "check whether a new contract is needed" in ct, ct      # contract basis against today's NHS figure, tier moved

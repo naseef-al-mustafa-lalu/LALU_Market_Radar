@@ -247,6 +247,34 @@ Deno.serve(async (req) => {
         summary: `Set list size on ${co.properties?.name ?? companyId} from ${co.properties?.patient_list_size ?? "blank"} to ${size.toLocaleString()}`, detail: { companyId, before: co.properties?.patient_list_size ?? null, after: size } });
       return reply({ ok: true, size });
     }
+    if (b.action === "entity_change") {     // a merged practice stays in HubSpot as Merged under its successor; a closed code whose site goes on as a branch takes the branch's code. Both are linked to the parent company.
+      const mode = String(b.mode ?? ""), ods = String(b.ods ?? "").trim().toUpperCase(), parentOds = String(b.parentOds ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), parentId = idOf(b.parentCompanyId);
+      const branchCode = String(b.branchCode ?? "").trim().toUpperCase();
+      if (!["merged", "branch"].includes(mode)) throw new Fail("Unknown change");
+      if (![ods, parentOds].every((c) => /^[A-Z0-9]{3,12}$/.test(c)) || (mode === "branch" && !/^[A-Z0-9]{3,12}$/.test(branchCode))) throw new Fail("Invalid ODS code");
+      if (companyId === parentId) throw new Fail("A company cannot be its own parent");
+      const props = "name,partner_organisation_code,org_type,operating_status,hs_parent_company_id";
+      const [co, parent] = await Promise.all([hs(`/crm/v3/objects/companies/${companyId}?properties=${props}`), hs(`/crm/v3/objects/companies/${parentId}?properties=${props}`)]);
+      if (String(co.properties?.partner_organisation_code ?? "").toUpperCase() !== ods) throw new Fail("That HubSpot company does not carry this practice's ODS code");
+      if (String(parent.properties?.partner_organisation_code ?? "").toUpperCase() !== parentOds) throw new Fail("The parent company does not carry the expected ODS code");
+      if (mode === "branch") {
+        const dup = (await hs(`/crm/v3/objects/companies/search`, { method: "POST", body: JSON.stringify({ properties: ["name"], limit: 3, filterGroups: [{ filters: [{ propertyName: "partner_organisation_code", operator: "EQ", value: branchCode }] }] }) }))?.results ?? [];
+        if (dup.some((c: any) => String(c.id) !== companyId)) throw new Fail(`Another HubSpot company already carries ${branchCode}`);
+      }
+      const set = mode === "merged" ? { operating_status: "merged", org_type: "practice" } : { partner_organisation_code: branchCode, org_type: "branch_site", operating_status: "active" };
+      await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: set }) });
+      const warnings: string[] = [];
+      try {   // HubSpot's company hierarchy: typeId 14 is "Parent Company" from the child's side
+        await hs(`/crm/v4/objects/companies/${companyId}/associations/companies/${parentId}`, { method: "PUT", body: JSON.stringify([{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 14 }]) });
+        const after = await hs(`/crm/v3/objects/companies/${companyId}?properties=hs_parent_company_id`);
+        if (String(Math.round(Number(after.properties?.hs_parent_company_id))) !== parentId) warnings.push("The company was updated but HubSpot does not show the parent link yet; check it in HubSpot.");
+      } catch (e) { warnings.push(`The company was updated but could not be linked to its parent: ${(e as Error).message}`); }
+      await admin.from("gp_practices").update(mode === "merged" ? { hubspot_operating_status: "merged", hubspot_org_type: "practice", hubspot_parent_company_id: parentId } : { hubspot_company_id: null, hubspot_org_type: null, hubspot_operating_status: null, hubspot_parent_company_id: null }).eq("ods_code", ods);
+      await log({ actor: who, kind: "entity_change", ods_code: ods, target: String(co.properties?.name ?? ""), hubspot_type: "company", hubspot_id: companyId,
+        summary: mode === "merged" ? `Marked ${co.properties?.name ?? ods} as Merged and linked it to ${parent.properties?.name ?? parentOds}` : `Re-coded ${co.properties?.name ?? ods} from ${ods} to ${branchCode} (Branch, Active) and linked it to ${parent.properties?.name ?? parentOds}`,
+        detail: { mode, companyId, parentId, before: co.properties, after: set, warnings } });
+      return reply({ ok: true, warnings });
+    }
     if (b.action === "write") {
       const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), dealId = idOf(b.dealId);
       if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");

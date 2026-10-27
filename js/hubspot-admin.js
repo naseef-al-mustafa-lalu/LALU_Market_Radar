@@ -152,6 +152,7 @@ async function renderHubspotPanel() {
   };
   $("hsp-size-prev").onclick = () => { const { auto } = hsSizePlan(); audModal("Would update on the next sync", auto.length ? hsSizeList(auto, false) : '<p class="text-sm text-slate-600">Every non-customer list size already matches the NHS figure.</p>', null); };
   const held = $("hsp-size-held"); if (held) held.onclick = () => audModal("Held back: changed by more than 25%", '<p class="mb-2 text-xs text-slate-500">Check these are real (not a merge, split or bad row), then approve to write the NHS figure to HubSpot.</p>' + hsSizeList(hsSizePlan().held, true), null);
+  const ac = $("hsp-align-cases"); if (ac) ac.onclick = alignCasesOpen;
   $("hsp-align").onclick = () => { const n = alignDownload(); $("hsp-msg").textContent = n.toLocaleString() + " companies in the alignment file"; };
   $("hsp-sizes").onclick = () => {      // active, unmerged practices already in HubSpot: Record ID matches the company, so the import updates it
     const rows = practices.filter(p => p.hubspot_company_id && p.status === "Active" && !p.merged_into && p.total_patients > 0).sort((a, b) => a.ods_code.localeCompare(b.ods_code));
