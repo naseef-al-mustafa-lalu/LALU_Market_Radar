@@ -670,3 +670,22 @@ def test_oscar_contacts_step_keeps_hubspot_contacts_adopts_by_email_and_gates_ne
     assert stats["contacts_held"] == 2 and sorted(r[1] for r in rejects if "held back" in r[2]) == ["13", "14"], rejects      # the second shared mailbox and the unclear address are held back
     rest2 = R(db, [dict(ods_code="A1", email="old@nhs.net", source="oscar")]); ingest.contacts_step(rest2, [oc(12, "A", "B", "enquiries@nhs.net")], {"A1": {}}, [], {}, [])
     assert "practice_generic_emails" not in rest2.up      # the practice already has an Oscar generic address: nothing more is ingested
+
+
+def test_primary_contact_is_picked_from_hubspot_sourced_contacts():
+    from src import hubspot_sync as hsy
+    c = lambda urn, title, **k: dict(contact_urn=urn, job_title=title, seniority=None, email=f"p{urn}@nhs.net", email_opt_out=False, **k)
+    best = hsy.pick_primary([c(-1, "Receptionist"), c(-2, "Practice Manager"), c(-3, "Deputy Practice Manager")])
+    assert best["contact_urn"] == -2      # the practice manager, as Oscar would rank them
+    assert hsy.pick_primary([c(-1, "Practice Manager", **{})]) ["contact_urn"] == -1 and hsy.pick_primary([dict(c(-1, "Practice Manager"), email_opt_out=True)]) is None
+
+    class R:
+        def __init__(self): self.up = {}
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "contacts":
+                return [dict(c(-1, "Practice Manager"), ods_code="A1", full_name="A One", phone=None, is_primary=False, source="hubspot"), dict(c(-2, "Practice Manager"), ods_code="A2", full_name="B Two", phone=None, is_primary=False, source="hubspot")]
+            return [dict(ods_code="A1", practice_name="One", manager_name=None, manager_email=None, manager_source=None), dict(ods_code="A2", practice_name="Two", manager_name="Oscar Person", manager_email="o@nhs.net", manager_source="oscar")]
+        def upsert(self, table, rows, on_conflict, batch=500): self.up[table] = rows
+    r = R()
+    assert hsy.fill_hubspot_managers(r) == 1 and r.up["gp_practices"][0]["manager_name"] == "A One" and r.up["gp_practices"][0]["manager_source"] == "hubspot"      # a practice with an Oscar manager is left alone
+    assert r.up["contacts"] == [dict(contact_urn=-1, ods_code="A1", is_primary=True)]

@@ -55,9 +55,10 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
         if oscar_info is not None:
             info = oscar_info.get(code)
             p = info["primary"] if info else None
-            r.update(manager_name=p["full_name"] if p else None, manager_title=p["job_title"] if p else None,
-                     manager_email=p["email"] if p else None, manager_phone=p["phone"] if p else None,
-                     manager_email_opt_out=bool(p and p["email_opt_out"]))
+            if p or not (old and old.get("manager_source") == "hubspot"):   # a primary contact chosen from the HubSpot-sourced contacts stays until Oscar has someone for the practice
+                r.update(manager_name=p["full_name"] if p else None, manager_title=p["job_title"] if p else None,
+                         manager_email=p["email"] if p else None, manager_phone=p["phone"] if p else None,
+                         manager_email_opt_out=bool(p and p["email_opt_out"]), manager_source="oscar" if p else None)
             if info:
                 for k, v in info["org"].items():
                     if v not in (None, ""):

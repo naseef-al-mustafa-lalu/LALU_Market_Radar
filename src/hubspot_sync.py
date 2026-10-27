@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from . import slack, sources
+from . import oscar, slack, sources
 from .common import Rest, need_env, norm_ods, send_alert, title_case
 
 BASE = "https://api.hubapi.com"
@@ -169,6 +169,43 @@ def linked_properties(companies, company_id):
     c = next((c for c in companies if str(c.get("id")) == str(company_id)), {})
     return {"hubspot_org_type": c.get("org_type") or None, "hubspot_operating_status": c.get("operating_status") or None, "hubspot_website": (c.get("website") or "").strip() or None,
             "hubspot_parent_company_id": str(int(float(c["hs_parent_company_id"]))) if c.get("hs_parent_company_id") else None}
+
+
+def pick_primary(contacts):
+    """The most senior contactable decision-maker among a practice's HubSpot-sourced contacts (same ranking as Oscar's primary contact), or None."""
+    ok = [c for c in contacts if c.get("email") and not c.get("email_opt_out")]
+    junior = lambda c: bool(re.search(r"deputy|assistant", c.get("job_title") or "", re.I))
+    return max(ok, key=lambda c: (oscar.score(c.get("job_title"), c.get("seniority")), not junior(c), c["contact_urn"]), default=None)
+
+
+def fill_hubspot_managers(rest):
+    """A practice's primary contact (the Manager column of the Practices table) comes from Oscar when Oscar has someone; otherwise from the HubSpot-sourced contacts. Returns how many practices changed."""
+    try:
+        cs = rest.select_all("contacts", "contact_urn,ods_code,full_name,job_title,seniority,email,phone,email_opt_out,is_primary,source", order="contact_urn")
+        gp = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,manager_name,manager_email,manager_source", order="ods_code")}
+    except Exception as e:  # noqa: BLE001 - the manager_source column arrives with migration 54
+        print("Primary contacts skipped:", str(e)[:200])
+        return 0
+    by = {}
+    for c in cs:
+        if c.get("source") == "hubspot" and c["ods_code"] in gp:
+            by.setdefault(c["ods_code"], []).append(c)
+    prac, prim = [], []
+    for ods, lst in by.items():
+        g = gp[ods]
+        if g.get("manager_source") == "oscar":
+            continue
+        best = pick_primary(lst)
+        if best and (g.get("manager_email") or "").lower() != best["email"].lower():
+            prac.append({"ods_code": ods, "practice_name": g["practice_name"], "manager_name": best["full_name"], "manager_title": best["job_title"], "manager_email": best["email"],
+                         "manager_phone": best["phone"], "manager_email_opt_out": False, "manager_source": "hubspot"})
+        prim += [{"contact_urn": c["contact_urn"], "ods_code": ods, "is_primary": bool(best and c["contact_urn"] == best["contact_urn"])} for c in lst
+                 if bool(best and c["contact_urn"] == best["contact_urn"]) != bool(c.get("is_primary"))]
+    if prac:
+        rest.upsert("gp_practices", prac, "ods_code")
+    if prim:
+        rest.upsert("contacts", prim, "contact_urn")
+    return len(prac)
 
 
 SIZE_HOLD = 0.25   # a one-month jump bigger than this is almost always a merge, split or bad row: a person looks before HubSpot changes
@@ -736,6 +773,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         if (c["hubspot_status"], c.get("hubspot_contact_id")) != (want[0], want[2]):
             crow.append({"contact_urn": c["contact_urn"], "ods_code": c["ods_code"], "hubspot_status": want[0], "hubspot_imported_at": want[1], "hubspot_contact_id": want[2]})
     rest.upsert("contacts", crow, "contact_urn")
+    managers_set = fill_hubspot_managers(rest)
     pcn_stats = {}
     try:   # mirror NHS ODS into HubSpot's PCN object; a failure here must not undo the practice sync above
         icb_objs = fetch_custom(hub, ICB_OBJECT)
@@ -755,7 +793,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         pcn_stats = {"pcn_sync_error": str(e)[:300]}
     audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
-    return {**nets, **pcn_stats, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
+    return {**nets, **pcn_stats, "primary_contacts_set": managers_set, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
             "contacts_updated": len(crow), **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
 
 
