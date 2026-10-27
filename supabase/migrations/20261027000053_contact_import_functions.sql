@@ -32,7 +32,7 @@ begin
 
   -- new contacts
   insert into public.contact_candidates (hubspot_contact_id, email, ods_code, hubspot_company_id, first_name, last_name, job_title, job_role, phone, email_quality, role_tier, status, reason, opted_out, bounced, row_hash)
-  select id, email, ods, company_id, first, last, title, role, quality, tier, status, reason, opted_out, bounced, hash from _cc x
+  select id, email, ods, company_id, first, last, title, role, phone, quality, tier, status, reason, opted_out, bounced, hash from _cc x
    where not exists (select 1 from public.contact_candidates c where c.hubspot_contact_id = x.id);
   get diagnostics n_new = row_count;
 
