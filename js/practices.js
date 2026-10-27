@@ -6,23 +6,21 @@ const SORTERS = {
   name: p => (p.practice_name || "").toLowerCase(), patients: p => p.total_patients || 0, arr: p => p.est_arr || 0, arr_sar: p => p.est_arr_sar || 0, contracted: p => p.hubspot_contracted_arr || 0,
   cqc: p => CQC_RANK[p.cqc_rating] || 9, hubspot: p => HS_RANK[hsState(p)] };
 // The practice filters as a plain object, and the test that applies them: used by the table and by custom audiences (js/audiences.js), which save the object.
-// A customer's HubSpot list size is the contract basis (it only changes at renewal): compare it with the latest NHS figure.
+// The size a customer signed for is the Lalu Care line item's quantity (the company's list size follows NHS, so it is only the fallback when there is no line item).
 function tierOfSize(n) { const t = cfgTiers.filter(x => x.route === "practice").sort((a, b) => a.tier - b.tier).find(x => n >= x.threshold); return t ? "Tier " + t.tier : ""; }
 function sizeDrift(p) {
-  const base = Number(p.hubspot_list_size), now = Number(p.total_patients);
+  const base = Number((p.hubspot_contract_terms || {}).line_qty) || Number(p.hubspot_list_size), now = Number(p.total_patients);
   if (!p.hubspot_customer || !(base > 0) || !(now > 0)) return null;
   const pct = (now - base) / base, tb = tierOfSize(base), tn = tierOfSize(now);
-  return { base, now, diff: now - base, pct, tb, tn, tierChanged: tb !== tn, review: tb !== tn || Math.abs(pct) >= 0.1 };
+  return { base, now, diff: now - base, pct, tb, tn, tierChanged: tb !== tn };
 }
 // Expansion review flag: a customer whose NHS list is 5% or more above the size they signed for (the Lalu Care line item's quantity, else the company's list size).
 // It can only be raised 3 months after the latest closed-won deal; a practice that crosses 5% earlier shows as waiting until then. Resolving it (an expansion deal closing) comes later.
 const EXPAND_PCT = 0.05, EXPAND_WAIT_MONTHS = 3;
 function expansionFlag(p) {
-  const t = p.hubspot_contract_terms || {}, base = Number(t.line_qty) || Number(p.hubspot_list_size), now = Number(p.total_patients);
-  if (!p.hubspot_customer || !(base > 0) || !(now > 0)) return null;
-  const pct = (now - base) / base; if (pct < EXPAND_PCT) return null;
-  const signed = t.closed ? new Date(t.closed + "T00:00:00") : null, from = signed ? new Date(signed.getFullYear(), signed.getMonth() + EXPAND_WAIT_MONTHS, signed.getDate()) : null;
-  return { base, now, diff: now - base, pct, signed: t.closed || null, from, due: !from || from <= new Date() };
+  const d = sizeDrift(p); if (!d || d.pct < EXPAND_PCT) return null;
+  const t = p.hubspot_contract_terms || {}, signed = t.closed ? new Date(t.closed + "T00:00:00") : null, from = signed ? new Date(signed.getFullYear(), signed.getMonth() + EXPAND_WAIT_MONTHS, signed.getDate()) : null;
+  return { ...d, signed: t.closed || null, from, due: !from || from <= new Date() };
 }
 const readFilters = () => ({ drift: $("f-drift").value, q: $("f-search").value.trim().toLowerCase(), tier: $("f-tier").value, sw: $("f-sw").value, hs: $("f-hs").value, cqc: $("f-cqc").value, icb: $("f-icb").value, country: $("f-country").value,
   size: $("f-size").value, st: $("f-status").value, sig: $("f-sig").checked, grp: $("f-grp").checked, net: netFilter });
@@ -30,7 +28,7 @@ function matchPractice(p, f, hits) {
   return (f.st === "all" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : p.status === "Active" && !p.merged_into && !isClosed(p))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
     (!f.sw || p.clinical_software === f.sw) && (!f.hs || (f.hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === f.hs)) &&
     (!f.cqc || (f.cqc === "None" ? !p.cqc_rating : p.cqc_rating === f.cqc)) && (!f.icb || p.icb_name === f.icb) && (!f.country || (p.country || "England") === f.country) && (!f.size || (f.size === "yes") === (p.total_patients > 0)) &&
-    (!f.drift || (f.drift === "expand" ? !!(expansionFlag(p) || {}).due : (d => d && (f.drift === "tier" ? d.tierChanged : d.review))(sizeDrift(p)))) && (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
+    (!f.drift || (f.drift === "expand" ? !!(expansionFlag(p) || {}).due : (d => d && d.tierChanged)(sizeDrift(p)))) && (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
     (!f.q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(f.q)) || !!(hits && hits.has(p.ods_code)));
 }
 function applyFilters() {
@@ -145,31 +143,24 @@ function termsBlock(p) {
     line(`<b>Price</b> <span class="text-slate-400">${"£" + net.toFixed(3)} per patient per month</span>`, `<b class="text-teal-700">${gbpFull(a * (1 - tot))}</b>`) +
     `<div class="text-[11px] text-slate-400 mt-1">At today's list size${t.amount ? `; the deal amount is ${gbpFull(t.amount)}` : ""}. Contracted ARR above is the figure to rely on.</div></div>`;
 }
-function billedRows(p) {      // what the contract bills (the Lalu Care line item's quantity) against the company's list size: they should match
-  const q = p.hubspot_customer ? Number((p.hubspot_contract_terms || {}).line_qty) || 0 : 0, base = Number(p.hubspot_list_size) || 0; if (!q) return "";
-  const off = base && base !== q;
-  return kv("Billed on <span class='text-slate-400'>(line item)</span>", `<span class="font-mono">${q.toLocaleString()}</span>` + (off ? " " + chip("≠ company size", "bg-amber-100 text-amber-800") : "")) +
-    (off ? `<div class="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">The company's list size in HubSpot (${base.toLocaleString()}) and the billed quantity (${q.toLocaleString()}) differ. They should match; renewing from here updates both.</div>` : "");
-}
-function driftRows(p) {      // the contract basis against today's NHS figure, and the renewal action
+function driftRows(p) {      // what the customer signed for against today's NHS figure (the review flag is in expandRows)
   const d = sizeDrift(p); if (!d) return "";
   const sign = d.diff > 0 ? "+" : d.diff < 0 ? "−" : "", pct = Math.round(Math.abs(d.pct) * 1000) / 10, flag = d.tierChanged ? chip(`${d.tb.replace("Tier ", "T")} → ${d.tn.replace("Tier ", "T")}`, "bg-amber-100 text-amber-800") + " " : "";
-  return kv("List size in contract <span class='text-slate-400'>(HubSpot)</span>", `<span class="font-mono">${d.base.toLocaleString()}</span> ${chip(d.tb.replace("Tier ", "T"), TIER_CLS[d.tb] || "")}`) +
-    kv("Change since", `${flag}<span class="font-mono ${d.review ? "text-amber-700 font-semibold" : ""}">${sign}${Math.abs(d.diff).toLocaleString()} (${sign}${pct}%)</span>`) +
-    (d.review ? `<div class="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">${d.tierChanged ? `The size tier has moved from ${esc(d.tb)} to ${esc(d.tn)}` : `The list has changed by ${pct}%`}: Customer Success should check whether a new contract is needed at renewal.</div>` : "") +
-    (d.diff ? `<div class="mt-1 flex items-center gap-2 text-xs text-slate-500"><button type="button" class="hs-size-push rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Renew in HubSpot…</button><span>Updates the list size, size tier and billed quantity together, after you review the changes. A customer's size is not changed automatically.</span></div>` : "");
+  const src = (p.hubspot_contract_terms || {}).line_qty ? "line item" : "HubSpot";
+  return kv(`List size signed for <span class='text-slate-400'>(${src})</span>`, `<span class="font-mono">${d.base.toLocaleString()}</span> ${chip(d.tb.replace("Tier ", "T"), TIER_CLS[d.tb] || "")}`) +
+    kv("Change since", `${flag}<span class="font-mono ${d.pct >= EXPAND_PCT ? "text-amber-700 font-semibold" : ""}">${sign}${Math.abs(d.diff).toLocaleString()} (${sign}${pct}%)</span>`);
 }
-function expandRows(p) {      // the expansion review flag, shown above the renewal figures
+function expandRows(p) {      // the expansion review flag, shown beneath the signed size
   const e = expansionFlag(p); if (!e) return "";
   const pct = Math.round(e.pct * 1000) / 10, when = e.from ? fmtDate(e.from.toISOString().slice(0, 10)) : "";
   return kv("Expansion review", e.due ? chip("Contract review due", "bg-red-100 text-red-800") : chip("Over 5%, review from " + when, "bg-amber-100 text-amber-800")) +
     `<div class="mt-1 rounded-lg ${e.due ? "bg-red-50 text-red-900" : "bg-amber-50 text-amber-900"} px-3 py-2 text-xs">The list is ${pct}% (+${e.diff.toLocaleString()}) above the ${e.base.toLocaleString()} patients signed for.` +
-    (e.due ? " Customer Success can review the contract for an expansion." : ` A contract review can be raised from ${esc(when)}, 3 months after the contract was signed (${esc(fmtDate(e.signed))}).`) + (e.due && !e.signed ? " No signed date is on file, so the 3-month wait could not be checked." : "") + `</div>`;
+    (e.tierChanged ? ` The size tier has moved from ${esc(e.tb)} to ${esc(e.tn)}.` : "") + (e.due ? " Customer Success can review the contract for an expansion." : ` A contract review can be raised from ${esc(when)}, 3 months after the contract was signed (${esc(fmtDate(e.signed))}).`) + (e.due && !e.signed ? " No signed date is on file, so the 3-month wait could not be checked." : "") + `</div>`;
 }
 function contractSection(p) {
   const c = Number(p.hubspot_contracted_arr), est = Number(p.est_arr), end = p.hubspot_contract_end, days = end ? Math.round((new Date(end) - Date.now()) / 864e5) : null;
   const renew = end ? esc(fmtDate(end)) + " " + (days < 0 ? chip("Past renewal date", "bg-red-100 text-red-800") : days <= 90 ? chip("Renews in " + days + " days", "bg-amber-100 text-amber-800") : "") : "";
-  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + billedRows(p) + driftRows(p) + expandRows(p) + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
+  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + driftRows(p) + expandRows(p) + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
     kv("Contract start", p.hubspot_contract_start ? esc(fmtDate(p.hubspot_contract_start)) : "") + kv("Renewal date", renew) +
     termsBlock(p) + (est > 0 ? `<div class="text-xs text-slate-500 mt-1">List-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.</div>` : ""));
 }
@@ -394,5 +385,3 @@ function sigTiles(sg, jobs) {
   return (sg.length ? head("Signals", sg.length) + `<div class="space-y-1.5">${sg.map(sigTile).join("")}</div>` : "") + (jobs.length ? `<div class="${sg.length ? "mt-3" : ""}">${head("Hiring: report / records roles (NHS Jobs)", jobs.length)}<div class="space-y-1.5">${jobs.map(jobTile).join("")}</div></div>` : "");
 }
 
-// At renewal: the pricing push writes the new list size, size tier and line item quantity together (the user reviews the preview first).
-document.addEventListener("click", e => { const b = e.target.closest(".hs-size-push"); if (!b) return; const p = byOds.get(b.dataset.ods); if (p) hsOpen(p); });

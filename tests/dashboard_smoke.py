@@ -141,7 +141,7 @@ with sync_playwright() as p:
     assert mb == ["merged", True, "branch_site", "practice"], mb      # a merged practice whose site goes on as a branch of its successor is a Branch (Site); without that branch it stays a Practice
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector("#dr-body", state="visible"); ct = pg.inner_text("#dr-body")
     assert "List size now" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
-    assert "List size in contract" in ct and "9,000" in ct and "13,000" in ct and "+4,000 (+44.4%)" in ct and "T4 → T3" in ct and "check whether a new contract is needed" in ct, ct      # contract basis against today's NHS figure, tier moved
+    assert "List size signed for" in ct and "line item" in ct and "9,500" in ct and "13,000" in ct and "+3,500 (+36.8%)" in ct and "Renew in HubSpot" not in ct, ct      # contract basis against today's NHS figure, tier moved
     pg.keyboard.press("Escape"); pg.evaluate("document.getElementById('f-drift').value = 'tier'; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
     assert pg.locator("#rows tr").count() == 1 and "Test Surgery 4" in pg.inner_text("#rows"), pg.inner_text("#rows")      # customers whose size tier moved since the contract
     assert "Contract review due" in ct and "9,500 patients signed for" in ct, ct      # 5%+ over the signed (line item) size, more than 3 months after signing
@@ -153,9 +153,6 @@ with sync_playwright() as p:
     pg.evaluate("document.getElementById('f-drift').value = 'expand'; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
     assert pg.locator("#rows tr").count() == 1 and "Test Surgery 4" in pg.inner_text("#rows"), pg.inner_text("#rows")
     pg.evaluate("document.getElementById('f-drift').value = ''; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
-    pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector(".hs-size-push")
-    assert "Billed on" in ct and "9,500" in ct and "differ" in ct, ct      # the line item quantity against the company's list size
-    pg.click(".hs-size-push"); pg.wait_for_selector("#hs-modal:not(.hidden)"); pg.click("#hs-close")      # renewal opens the pricing push, which updates size, tier and quantity together
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 5')"); pg.wait_for_selector("#dr-body [data-rg]", state="visible"); pg.wait_for_function("document.querySelector('#dr-body').innerText.includes('referral group')")
     mb = pg.inner_text("#dr-body"); assert "Part of Test Surgery 3's referral group" in mb and "Group price" in mb and "Referral group discount" in mb and "10%" in mb, mb       # a member is quoted at the group rate by default
@@ -383,7 +380,7 @@ with sync_playwright() as p:
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-align-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync')")
     fa = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync').pop()[1][0]"); assert fa["value"] == {"enabled": True, "approve_once": False}, fa
     pg.wait_for_function("document.querySelector('#d-hubspot').innerText.includes('sets Operating status where it differs')")
-    assert "List sizes in HubSpot" in hp and "would update" in hp and "customers differ from NHS" in hp, hp[:900]      # the list-size sync card
+    assert "List sizes in HubSpot" in hp and "would update" in hp and "paying customers with no line item left alone" in hp, hp[:900]      # the list-size sync card
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-size-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags')")
     fl = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0]"); assert fl["key"] == "list_size_sync" and fl["value"] == {"enabled": True, "last_month": None}, fl
     pg.click("#hsp-size-prev"); pg.wait_for_selector("#aud-modal-body table"); assert "Test Surgery 1" in pg.inner_text("#aud-modal-body"); pg.click("#aud-modal-cancel")

@@ -174,18 +174,28 @@ def linked_properties(companies, company_id):
 SIZE_HOLD = 0.25   # a one-month jump bigger than this is almost always a merge, split or bad row: a person looks before HubSpot changes
 
 
+def contract_basis(r):
+    """(has a paying contract, its signed patients): a customer with contracted ARR or a Lalu Care line item. The line item quantity is the record of what they signed for."""
+    qty = int(((r.get("hubspot_contract_terms") or {}).get("line_qty")) or 0)
+    return bool(r.get("hubspot_customer")) and (qty > 0 or float(r.get("hubspot_contracted_arr") or 0) > 0), qty
+
+
 def plan_list_sizes(practices, rows):
-    """(auto, held): non-customer companies whose HubSpot Patient List Size differs from the NHS figure. Customers keep their contract size until renewal.
-    A merged or closed practice whose NHS figure is 0 is written as 0 (its patients are counted at the successor, so HubSpot's own roll-ups must not count them twice); that is never held back."""
+    """(auto, held): companies whose HubSpot Patient List Size differs from the NHS figure. Non-customers follow it, and so do customers whose contract is recorded on a line item
+    (the line item quantity holds what they signed for, so the company can track ODS). A paying customer with no line item is left alone: nothing else records their contract size.
+    A merged or closed practice whose NHS figure is 0 is written as 0 (its patients are counted at the successor, so HubSpot's own roll-ups must not count them twice); a paying customer is never zeroed. Neither is held back."""
     auto, held = [], []
     for r in rows:
         p = practices.get(r["ods_code"])
-        if not p or not r.get("hubspot_company_id") or r.get("hubspot_customer"):
+        if not p or not r.get("hubspot_company_id"):
+            continue
+        paying, qty = contract_basis(r)
+        if paying and not qty:
             continue
         now, base = int(p.get("total_patients") or 0), int(r.get("hubspot_list_size") or 0)
         item = {"ods": r["ods_code"], "id": str(r["hubspot_company_id"]), "name": p["practice_name"], "from": base or None, "to": now}
         if p.get("merged_into") or p.get("status") != "Active" or p.get("closure_confirmed_at"):
-            if now == 0 and base > 0:
+            if now == 0 and base > 0 and not paying:
                 succ = practices.get(p.get("merged_into") or "", {})
                 auto.append({**item, "to": 0, "gone": expected_status(p), "successor": succ.get("practice_name") or p.get("merged_into")})
             continue
