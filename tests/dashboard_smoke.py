@@ -21,7 +21,7 @@ for p_ in PR:
     p_.update(hubspot_customer=False, hubspot_engaged=False, hubspot_stage=None)
 PR[2].update(hubspot_customer=True, hubspot_stage="customer"); PR[1].update(hubspot_engaged=True, hubspot_stage="opportunity")
 PR[7].update(hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=13056, hubspot_contracted_src="service")
-PR[4].update(hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=9000, hubspot_contracted_src="service", hubspot_contract_terms=dict(deal="Test Surgery 4", closed="2025-03-04", amount=9000, years=2, list_rate=0.08, net_rate=0.0684, size=0.05, speed=0.05, term_length=0.025, referral=0.02, total=0.145))
+PR[4].update(hubspot_list_size=9000, hubspot_company_id="444", hubspot_customer=True, hubspot_commercial_model="eMR Plus", hubspot_contracted_arr=9000, hubspot_contracted_src="service", hubspot_contract_terms=dict(deal="Test Surgery 4", closed="2025-03-04", amount=9000, years=2, list_rate=0.08, net_rate=0.0684, size=0.05, speed=0.05, term_length=0.025, referral=0.02, total=0.145))
 HS = [dict(ods_code=p_["ods_code"], hs_contacts=1, hs_imported=1 if i < 3 else 0, hs_primary_imported=i < 3, hs_last_imported_at="2026-10-12T09:00:00Z", hs_primary_imported_at="2026-10-12T09:00:00Z" if i < 3 else None) for i, p_ in enumerate(PR)]
 PP = [dict(ods_code=p["ods_code"], price_tier=3, tier_label="Tier 3 (Medium-Large)", base_price=0.076, year1_price=0.072, est_arr=round(p["total_patients"] * 0.076 * 12), est_arr_year1=round(p["total_patients"] * 0.072 * 12), base_price_sar=0.0475, est_arr_sar=round(p["total_patients"] * 0.0475 * 12)) for p in PR]
 TIERS = [dict(route="practice", tier=i + 1, label=l, threshold=t, size_discount=d, speed_discount=0.05) for i, (l, t, d) in enumerate([("Very Large", 20000, 0.1), ("Large", 15000, 0.075), ("Medium-Large", 10000, 0.05), ("Medium", 5000, 0), ("Solo", 0, 0)])] + \
@@ -48,6 +48,7 @@ window.supabase = { createClient: () => {
       if (b.action === 'add_contacts') return { data: { ok: true, contacts: (b.contacts || []).map((c, i) => ({ email: c.email.toLowerCase(), id: 'n' + i, existed: false })), warnings: [] } };
       if (b.action === 'sequences') return { data: { sender: 'new@lalu.co.uk', sequences: [{ id: 's1', name: 'Hiring follow-up' }, { id: 's2', name: 'CQC change' }] } };
       if (b.action === 'sequence_status') return { data: { status: Object.fromEntries(b.sequences.map(x => [x.id, x.id === 's2' ? { state: 'empty', sender: 'new@lalu.co.uk' } : { state: 'ready', steps: 3, sender: 'new@lalu.co.uk' }])) } };
+      if (b.action === 'set_list_size') return { data: { ok: true, size: b.size } };
       if (b.action === 'audience_push') return { data: { ok: true, listId: '9001', listed: true, results: b.enrol ? Object.fromEntries(b.contactIds.map(i => [i, 'enrolled'])) : {}, warnings: [] } };
       if (b.action === 'audience_stats') return { data: { contacts: Object.fromEntries(b.contactIds.map(i => [i, { hs_sequences_is_enrolled: 'true', hs_sales_email_last_opened: '2099-01-01T00:00:00Z', hs_sales_email_last_replied: '2099-01-02T00:00:00Z', hs_sales_email_last_clicked: '2099-01-03T00:00:00Z', hs_v2_date_entered_marketingqualifiedlead: '2099-01-04T00:00:00Z' }])) } };
       if (b.action === 'contacts') return { data: { contacts: [{ id: 'c1', firstname: 'Lena', lastname: 'Contact', jobtitle: 'Practice Manager', email: 'l@x.nhs' }, { id: 'c2', firstname: 'Opt', lastname: 'Out', jobtitle: 'GP', email: 'o@x.nhs', hs_email_optout: 'true' }, { id: 'c3', firstname: 'Locked', lastname: 'One', email: 'k@x.nhs' }, { id: 'c4', firstname: 'Pat', lastname: 'Manager', jobtitle: 'Practice Manager', email: 'p@x.nhs' }, { id: 'c5', firstname: 'Gail', lastname: 'Doc', jobtitle: 'GP Partner', email: 'g@x.nhs' }] } };
@@ -114,8 +115,15 @@ with sync_playwright() as p:
     pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     body = pg.inner_text("#dr-body"); assert "Modality Test" in body and "Ann Lee" in body, body
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector("#dr-body", state="visible"); ct = pg.inner_text("#dr-body")
-    assert "Patient list size" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
-    pg.keyboard.press("Escape"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
+    assert "List size now" in ct and "Price build-up" in ct and "Referral group discount" in ct and "−14.5%" in ct and "£0.068 per patient per month" in ct, ct       # customers: the discounts and total price in the Contract section
+    assert "List size in contract" in ct and "9,000" in ct and "13,000" in ct and "+4,000 (+44.4%)" in ct and "T4 → T3" in ct and "check whether a new contract is needed" in ct, ct      # contract basis against today's NHS figure, tier moved
+    pg.keyboard.press("Escape"); pg.evaluate("document.getElementById('f-drift').value = 'tier'; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
+    assert pg.locator("#rows tr").count() == 1 and "Test Surgery 4" in pg.inner_text("#rows"), pg.inner_text("#rows")      # customers whose size tier moved since the contract
+    pg.evaluate("document.getElementById('f-drift').value = ''; document.getElementById('f-drift').dispatchEvent(new Event('change'))")
+    pg.click("#rows tr:has-text('Test Surgery 4')"); pg.wait_for_selector(".hs-size-push")
+    pg.once("dialog", lambda d: d.accept()); pg.click(".hs-size-push"); pg.wait_for_function("!document.querySelector('#dr-body').innerText.includes('Update HubSpot to')")
+    sl = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'set_list_size').pop()[1]"); assert sl["ods"] == "A10004" and sl["size"] == 13000 and sl["companyId"], sl
+    pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
     pg.keyboard.press("Escape"); pg.click("#rows tr:has-text('Test Surgery 5')"); pg.wait_for_selector("#dr-body [data-rg]", state="visible"); pg.wait_for_function("document.querySelector('#dr-body').innerText.includes('referral group')")
     mb = pg.inner_text("#dr-body"); assert "Part of Test Surgery 3's referral group" in mb and "Group price" in mb and "Referral group discount" in mb and "10%" in mb, mb       # a member is quoted at the group rate by default
     assert abs(pg.evaluate("hsDesired(practices.find(x => x.ods_code === 'A10005')).referral") - 0.05) < 1e-9

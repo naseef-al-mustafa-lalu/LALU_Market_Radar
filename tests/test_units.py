@@ -502,3 +502,9 @@ def test_other_uk_records_and_step():
     finally:
         sources.load_ni_gp_practices, sources.fetch_other_uk = orig_ni, orig_fetch
     assert calls == [("ingest_other_uk", 119 + 11)] and stats["other_uk_new"] == 130 and "other_uk_error" not in stats, (calls, stats)
+
+
+def test_list_size_of_the_linked_company():
+    from src import hubspot_sync as hsy
+    cs = [{"id": "1", "patient_list_size": "9000"}, {"id": "3"}]
+    assert hsy.list_size(cs, "1") == 9000 and hsy.list_size(cs, 3) is None and hsy.list_size(cs, "9") is None

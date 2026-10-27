@@ -235,6 +235,18 @@ Deno.serve(async (req) => {
     }
     if (b.action === "read") return reply(await readPair(idOf(b.companyId), idOf(b.dealId)));
 
+    if (b.action === "set_list_size") {     // a customer's renewal: write today's list size to the HubSpot company (the company must carry this practice's ODS code)
+      const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), size = Number(b.size);
+      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      if (!(Number.isInteger(size) && size > 0 && size <= 2000000)) throw new Fail("Invalid list size");
+      const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name,partner_organisation_code,patient_list_size`);
+      if (String(co.properties?.partner_organisation_code ?? "").toUpperCase() !== ods) throw new Fail("That HubSpot company does not carry this practice's ODS code");
+      await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { patient_list_size: String(size) } }) });
+      await admin.from("gp_practices").update({ hubspot_list_size: size }).eq("ods_code", ods);
+      await log({ actor: who, kind: "list_size", ods_code: ods, target: String(co.properties?.name ?? ""), hubspot_type: "company", hubspot_id: companyId,
+        summary: `Set list size on ${co.properties?.name ?? companyId} from ${co.properties?.patient_list_size ?? "blank"} to ${size.toLocaleString()}`, detail: { companyId, before: co.properties?.patient_list_size ?? null, after: size } });
+      return reply({ ok: true, size });
+    }
     if (b.action === "write") {
       const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), dealId = idOf(b.dealId);
       if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");

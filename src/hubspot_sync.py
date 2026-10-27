@@ -51,7 +51,7 @@ def fetch_companies(hub):
     out, after = [], None
     while True:
         body = {"filterGroups": [{"filters": [{"propertyName": "partner_organisation_code", "operator": "HAS_PROPERTY"}]}], "limit": 100,
-                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate"], "sorts": ["createdate"]}
+                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate", "patient_list_size"], "sorts": ["createdate"]}
         if after:
             body["after"] = after
         d = hub.call("POST", "/crm/v3/objects/companies/search", json=body)
@@ -127,6 +127,15 @@ def contract_terms(deal_ids, deals):
         out[k] = _num(d.get(f"{k}_discount"))
     out["total"] = _num(d.get("total_discount"))
     return out if any(v is not None for k, v in out.items() if k not in ("deal", "closed", "amount")) else None
+
+
+def list_size(companies, company_id):
+    """The Patient List Size on the practice's linked HubSpot company (a whole number), or None when blank."""
+    for c in companies:
+        if str(c.get("id")) == str(company_id):
+            n = _num(c.get("patient_list_size"))
+            return int(n) if n and n > 0 else None
+    return None
 
 
 def revenue_fields(deal_ids, deals, service_ids, services, customer, model):
@@ -495,13 +504,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
         f = classify(cs, contact_ids, contacts, deal_ids, deals)
         flags["customers"] += f["hubspot_customer"]; flags["engaged"] += f["hubspot_engaged"]
         service_ids = sorted({i for c in cset for i in to_services.get(c, [])})
-        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"]), "hubspot_synced_at": now})
+        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"]), "hubspot_list_size": list_size(cs, f.get("hubspot_company_id")), "hubspot_synced_at": now})
         hs_contacts[ods] = {(contacts[i].get("email") or "").strip().lower(): (i, contacts[i].get("createdate")) for i in contact_ids if contacts.get(i, {}).get("email")}
     for ods, p in practices.items():   # a practice that had a company before but no longer does: clear the link and flags
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
-                         "hubspot_contract_terms": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
+                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     audit_all = audit_rows(raw, practices, now)
     conflicts = []

@@ -6,13 +6,21 @@ const SORTERS = {
   name: p => (p.practice_name || "").toLowerCase(), patients: p => p.total_patients || 0, arr: p => p.est_arr || 0, arr_sar: p => p.est_arr_sar || 0, contracted: p => p.hubspot_contracted_arr || 0,
   cqc: p => CQC_RANK[p.cqc_rating] || 9, hubspot: p => HS_RANK[hsState(p)] };
 // The practice filters as a plain object, and the test that applies them: used by the table and by custom audiences (js/audiences.js), which save the object.
-const readFilters = () => ({ q: $("f-search").value.trim().toLowerCase(), tier: $("f-tier").value, sw: $("f-sw").value, hs: $("f-hs").value, cqc: $("f-cqc").value, icb: $("f-icb").value, country: $("f-country").value,
+// A customer's HubSpot list size is the contract basis (it only changes at renewal): compare it with the latest NHS figure.
+function tierOfSize(n) { const t = cfgTiers.filter(x => x.route === "practice").sort((a, b) => a.tier - b.tier).find(x => n >= x.threshold); return t ? "Tier " + t.tier : ""; }
+function sizeDrift(p) {
+  const base = Number(p.hubspot_list_size), now = Number(p.total_patients);
+  if (!p.hubspot_customer || !(base > 0) || !(now > 0)) return null;
+  const pct = (now - base) / base, tb = tierOfSize(base), tn = tierOfSize(now);
+  return { base, now, diff: now - base, pct, tb, tn, tierChanged: tb !== tn, review: tb !== tn || Math.abs(pct) >= 0.1 };
+}
+const readFilters = () => ({ drift: $("f-drift").value, q: $("f-search").value.trim().toLowerCase(), tier: $("f-tier").value, sw: $("f-sw").value, hs: $("f-hs").value, cqc: $("f-cqc").value, icb: $("f-icb").value, country: $("f-country").value,
   size: $("f-size").value, st: $("f-status").value, sig: $("f-sig").checked, grp: $("f-grp").checked, net: netFilter });
 function matchPractice(p, f, hits) {
   return (f.st === "all" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : p.status === "Active" && !p.merged_into && !isClosed(p))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
     (!f.sw || p.clinical_software === f.sw) && (!f.hs || (f.hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === f.hs)) &&
     (!f.cqc || (f.cqc === "None" ? !p.cqc_rating : p.cqc_rating === f.cqc)) && (!f.icb || p.icb_name === f.icb) && (!f.country || (p.country || "England") === f.country) && (!f.size || (f.size === "yes") === (p.total_patients > 0)) &&
-    (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
+    (!f.drift || (d => d && (f.drift === "tier" ? d.tierChanged : d.review))(sizeDrift(p))) && (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
     (!f.q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(f.q)) || !!(hits && hits.has(p.ods_code)));
 }
 function applyFilters() {
@@ -58,7 +66,7 @@ function renderChips() {
     add((NET_KINDS[netFilter.kind] || "").replace(/s$/, "") + ": " + netFilter.label, () => { netFilter = null; fromNetworks = false; applyFilters(); });
   }
   if ($("f-search").value.trim()) add("Search: " + $("f-search").value.trim(), () => { $("f-search").value = ""; applyFilters(); });
-  sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country"); sel("f-size", "List size"); sel("f-status", "Status");
+  sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country"); sel("f-size", "List size"); sel("f-drift", "Contract size"); sel("f-status", "Status");
   if ($("f-sig").checked) add("Has recent signals", () => { $("f-sig").checked = false; applyFilters(); });
   if ($("f-grp").checked) add("Group-run only", () => { $("f-grp").checked = false; applyFilters(); });
   const nf = box.querySelectorAll(".chip").length - ($("f-search").value.trim() ? 1 : 0) - (netFilter ? 1 : 0), badge = $("f-badge");      // filters inside the panel (search and a network have their own place)
@@ -69,7 +77,7 @@ function renderChips() {
   }
 }
 function clearFilters() {
-  for (const id of ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-status"]) $(id).value = "";
+  for (const id of ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-drift", "f-status"]) $(id).value = "";
   $("f-sig").checked = false; $("f-grp").checked = false; netFilter = null; fromNetworks = false; applyFilters();
 }
 function renderSortHeaders() {
@@ -87,7 +95,7 @@ $("f-done").onclick = () => filterPanel(false);
 $("f-clear").onclick = () => { clearFilters(); };
 document.addEventListener("click", e => { if (!$("f-more").classList.contains("hidden") && !e.target.closest("#f-more, #f-more-btn")) filterPanel(false); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("f-more").classList.contains("hidden")) filterPanel(false); });
-["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-status", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
+["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-drift", "f-status", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
 
 /* ---------- practices: compact rows ---------- */
 function networkCell(p) {
@@ -127,10 +135,18 @@ function termsBlock(p) {
     line(`<b>Price</b> <span class="text-slate-400">${"£" + net.toFixed(3)} per patient per month</span>`, `<b class="text-teal-700">${gbpFull(a * (1 - tot))}</b>`) +
     `<div class="text-[11px] text-slate-400 mt-1">At today's list size${t.amount ? `; the deal amount is ${gbpFull(t.amount)}` : ""}. Contracted ARR above is the figure to rely on.</div></div>`;
 }
+function driftRows(p) {      // the contract basis against today's NHS figure, and the renewal action
+  const d = sizeDrift(p); if (!d) return "";
+  const sign = d.diff > 0 ? "+" : d.diff < 0 ? "−" : "", pct = Math.round(Math.abs(d.pct) * 1000) / 10, flag = d.tierChanged ? chip(`${d.tb.replace("Tier ", "T")} → ${d.tn.replace("Tier ", "T")}`, "bg-amber-100 text-amber-800") + " " : "";
+  return kv("List size in contract <span class='text-slate-400'>(HubSpot)</span>", `<span class="font-mono">${d.base.toLocaleString()}</span> ${chip(d.tb.replace("Tier ", "T"), TIER_CLS[d.tb] || "")}`) +
+    kv("Change since", `${flag}<span class="font-mono ${d.review ? "text-amber-700 font-semibold" : ""}">${sign}${Math.abs(d.diff).toLocaleString()} (${sign}${pct}%)</span>`) +
+    (d.review ? `<div class="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">${d.tierChanged ? `The size tier has moved from ${esc(d.tb)} to ${esc(d.tn)}` : `The list has changed by ${pct}%`}: Customer Success should check whether a new contract is needed at renewal.</div>` : "") +
+    (d.diff ? `<div class="mt-1 flex items-center gap-2 text-xs text-slate-500"><button type="button" class="hs-size-push rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Update HubSpot to ${d.now.toLocaleString()}</button><span>Do this at renewal; a customer's size is not changed automatically.</span></div>` : "");
+}
 function contractSection(p) {
   const c = Number(p.hubspot_contracted_arr), est = Number(p.est_arr), end = p.hubspot_contract_end, days = end ? Math.round((new Date(end) - Date.now()) / 864e5) : null;
   const renew = end ? esc(fmtDate(end)) + " " + (days < 0 ? chip("Past renewal date", "bg-red-100 text-red-800") : days <= 90 ? chip("Renews in " + days + " days", "bg-amber-100 text-amber-800") : "") : "";
-  return sec("Contract", kv("Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
+  return sec("Contract", kv(sizeDrift(p) ? "List size now <span class='text-slate-400'>(NHS)</span>" : "Patient list size", p.total_patients > 0 ? `<span class="font-mono">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "")}` : "") + driftRows(p) + kv("Contracted ARR", `<span class="font-mono font-semibold text-teal-700">${gbpFull(c)}</span> <span class="text-xs text-slate-500">${p.hubspot_contracted_src === "deal" ? "from closed-won deals, unverified" : "Service ACV"}</span>`) +
     kv("Contract start", p.hubspot_contract_start ? esc(fmtDate(p.hubspot_contract_start)) : "") + kv("Renewal date", renew) +
     termsBlock(p) + (est > 0 ? `<div class="text-xs text-slate-500 mt-1">List-price estimate ${gbpFull(est)}; the contract is ${c >= est ? "+" : "−"}${gbpFull(Math.abs(c - est))} against it.</div>` : ""));
 }
@@ -353,3 +369,13 @@ function sigTiles(sg, jobs) {
   if (!sg.length && !jobs.length) return "";   // nothing to show: the whole section hides
   return (sg.length ? head("Signals", sg.length) + `<div class="space-y-1.5">${sg.map(sigTile).join("")}</div>` : "") + (jobs.length ? `<div class="${sg.length ? "mt-3" : ""}">${head("Hiring: report / records roles (NHS Jobs)", jobs.length)}<div class="space-y-1.5">${jobs.map(jobTile).join("")}</div></div>` : "");
 }
+
+// At renewal: write today's NHS list size to the customer's HubSpot company (the only place a customer's size is changed from here).
+document.addEventListener("click", async e => {
+  const b = e.target.closest(".hs-size-push"); if (!b) return;
+  const p = byOds.get(b.dataset.ods); if (!p || !p.hubspot_company_id) return;
+  if (!confirm(`Update ${p.practice_name} in HubSpot from ${Number(p.hubspot_list_size).toLocaleString()} to ${Number(p.total_patients).toLocaleString()} patients?\n\nDo this when the contract renews. HubSpot recalculates the size tier, which can start its renewal workflows.`)) return;
+  b.disabled = true; b.textContent = "Updating…";
+  try { await hsCall({ action: "set_list_size", ods: p.ods_code, companyId: String(p.hubspot_company_id), size: Number(p.total_patients) }); p.hubspot_list_size = p.total_patients; openDrawer(p); }
+  catch (err) { b.disabled = false; b.textContent = "Update failed: " + err.message; }
+});
