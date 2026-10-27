@@ -636,7 +636,7 @@ def test_contact_email_quality_and_role():
     assert cq.email_quality("pat.example@nhs.net", "", "")[0] == "likely_direct" and cq.email_quality("charlotte.other@nhs.net", "Charlotte", "Sample")[0] == "likely_direct"
     assert cq.email_quality("", "A", "B")[0] == "no_email" and cq.email_quality("not-an-email")[0] == "invalid"
     assert [cq.role_tier(*a)[0] for a in [("Practice Manager", ""), ("Senior Partner", ""), ("Deputy Practice Manager", ""), ("Practice Nurse", ""), ("Advanced Nurse Practitioner", ""), ("", "Practice Manager"),
-            ("Receptionist", ""), ("dropped on 2019-06-11", ""), ("", ""), ("Salaried GP", ""), ("Assistant Practice Manager", ""), ("Finance Manager", ""), ("Assistant Manager", "")]] == ["A", "A", "A", "x", "x", "A", "x", "x", "?", "x", "A", "B", "B"]
+            ("Receptionist", ""), ("dropped on 2019-06-11", ""), ("", ""), ("Salaried GP", ""), ("Assistant Practice Manager", ""), ("Finance Manager", ""), ("Assistant Manager", ""), ("Service Manager", ""), ("Senior Partner / PCN Clinical Director", "")]] == ["A", "A", "A", "x", "x", "A", "x", "x", "?", "x", "A", "B", "B", "A", "A"]
 
 
 def test_contact_status_suggestion():
