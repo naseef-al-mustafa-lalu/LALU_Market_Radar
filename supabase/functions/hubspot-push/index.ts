@@ -103,7 +103,7 @@ async function leadsOf(companyId: string) {
 }
 
 // Find-or-create each contact by email and associate it with the company; mirrors the result onto the tool's own contacts table.
-async function importContacts(admin: any, companyId: string, ods: string, list: any[], warnings: string[]) {
+async function importContacts(admin: any, companyId: string, ods: string, list: any[], warnings: string[], who = "Atlas", companyName = "") {
   const out: any[] = [];
   for (const c of list.slice(0, 10)) {
     const email = String(c.email ?? "").trim().toLowerCase();
@@ -115,9 +115,12 @@ async function importContacts(admin: any, companyId: string, ods: string, list: 
       const cid = found[0]?.id ?? String((await hs(`/crm/v3/objects/contacts`, { method: "POST", body: JSON.stringify({ properties: { email, firstname: first || undefined, lastname: rest.join(" ") || undefined,
         phone: c.phone || undefined, jobtitle: c.jobtitle || undefined } }) })).id);
       await hs(`/crm/v4/objects/contacts/${cid}/associations/default/companies/${companyId}`, { method: "PUT" });
-      out.push({ email, id: cid, existed: !!found[0] });
+      out.push({ email, id: cid, existed: !!found[0], name: String(c.name ?? "").trim() });
+      await noteOn("contacts", cid, noteBody(who, found[0] ? `linked to ${companyName || "the practice company"} from the practice profile` : `created from the practice profile and linked to ${companyName || "the practice company"}`,
+        found[0] ? [] : [`Email: blank → ${email}`, ...(c.name ? [`Name: blank → ${String(c.name).trim()}`] : []), ...(c.jobtitle ? [`Job title: blank → ${c.jobtitle}`] : []), ...(c.phone ? [`Phone: blank → ${c.phone}`] : [])]), warnings);
     } catch (e) { warnings.push(`Contact ${email}: ${(e as Error).message}`); }
   }
+  if (out.length) await noteOn("companies", companyId, noteBody(who, `${out.length} contact${out.length > 1 ? "s" : ""} added from the practice profile`, out.map((c) => `${c.name || c.email} (${c.email}): ${c.existed ? "already in HubSpot, linked" : "created"}`)), warnings);
   const now = new Date().toISOString();
   for (const c of out) await admin.from("contacts").update({ hubspot_status: "Imported", hubspot_contact_id: c.id, hubspot_imported_at: now }).eq("ods_code", ods).ilike("email", c.email);
   return out;
@@ -194,11 +197,34 @@ async function linkIntoGroup(admin: any, ods: string, dealId: string, warnings: 
   return done;
 }
 
-async function note(dealId: string, body: string, warnings: string[]) {
-  try { await hs(`/crm/v3/objects/notes`, { method: "POST", body: JSON.stringify({ properties: { hs_timestamp: new Date().toISOString(), hs_note_body: body },
-    associations: [{ to: { id: dealId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: NOTE_TO_DEAL }] }] }) }); }
-  catch (e) { warnings.push(`Note not added: ${(e as Error).message}`); }
+// Atlas's audit trail: every change it makes to a HubSpot record leaves a note on that record saying who, when, and what changed from and to.
+const NOTE_TO: Record<string, number> = { companies: 190, deals: NOTE_TO_DEAL, contacts: 202 };   // HubSpot-defined association types: note -> company / deal / contact
+const LABELS: Record<string, string> = { patient_list_size: "Patient List Size", size_tier: "Size tier", size_discount: "Size discount", speed_discount: "Speed discount", term_length_discount: "Term discount",
+  referral_discount: "Referral discount", term_length_years: "Term length (years)", value_per_patient: "Value per patient", commercial_model: "Commercial model", org_type: "Org Type", operating_status: "Operating status",
+  partner_organisation_code: "GP ODS Code", dealname: "Deal name", dealstage: "Deal stage", pipeline: "Pipeline", dealtype: "Deal type", product___service: "Product / Service", amount: "Amount", closedate: "Close date", hubspot_owner_id: "Owner" };
+const esc = (t: unknown) => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const show = (v: unknown) => (v === null || v === undefined || v === "") ? "blank" : String(v);
+const stamp = () => new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
+// "Label: from → to" for every key whose value changes (numbers compared as numbers, so 12000 and "12000.0" are the same)
+const same = (a: unknown, b: unknown) => show(a) === show(b) || (!Number.isNaN(Number(a)) && !Number.isNaN(Number(b)) && show(a) !== "blank" && show(b) !== "blank" && Number(a) === Number(b));
+const changes = (before: any, after: Record<string, unknown>): string[] => Object.entries(after).filter(([k, v]) => !same(before?.[k], v)).map(([k, v]) => `${LABELS[k] ?? k}: ${show(before?.[k])} → ${show(v)}`);
+const noteBody = (who: string, headline: string, lines: string[] = []) => [esc(`Atlas, ${stamp()}, by ${who}: ${headline}`), ...lines.map((l) => esc("• " + l))].join("<br>");
+async function noteOn(obj: string, id: string, body: string, warnings: string[]) {
+  try {
+    const props = { hs_timestamp: new Date().toISOString(), hs_note_body: body };
+    if (NOTE_TO[obj]) await hs(`/crm/v3/objects/notes`, { method: "POST", body: JSON.stringify({ properties: props, associations: [{ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: NOTE_TO[obj] }] }] }) });
+    else { const n = await hs(`/crm/v3/objects/notes`, { method: "POST", body: JSON.stringify({ properties: props }) }); await hs(`/crm/v4/objects/notes/${n.id}/associations/default/${obj}/${id}`, { method: "PUT" }); }
+  } catch (e) { warnings.push(`Note not added on ${obj} ${id}: ${(e as Error).message}`); }
 }
+async function notesBatch(obj: string, items: [string, string][], warnings: string[]) {   // up to 100 notes per call, for the many contacts of an audience push
+  for (let i = 0; i < items.length; i += 100) {
+    try {
+      await hs(`/crm/v3/objects/notes/batch/create`, { method: "POST", body: JSON.stringify({ inputs: items.slice(i, i + 100).map(([id, body]) => ({ properties: { hs_timestamp: new Date().toISOString(), hs_note_body: body },
+        associations: [{ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: NOTE_TO[obj] }] }] })) }) });
+    } catch (e) { warnings.push(`Notes not added on ${obj}: ${(e as Error).message}`); }
+  }
+}
+const note = (dealId: string, body: string, warnings: string[]) => noteOn("deals", dealId, body, warnings);
 
 // Sequences belong to HubSpot users: the sequences API wants the user id, which the owners list carries beside the owner id.
 async function userIdOf(email: string): Promise<string> {
@@ -243,9 +269,11 @@ Deno.serve(async (req) => {
       if (String(co.properties?.partner_organisation_code ?? "").toUpperCase() !== ods) throw new Fail("That HubSpot company does not carry this practice's ODS code");
       await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { patient_list_size: String(size) } }) });
       await admin.from("gp_practices").update({ hubspot_list_size: size }).eq("ods_code", ods);
+      const sizeWarn: string[] = [];
+      await noteOn("companies", companyId, noteBody(who, "list size set from the practice profile (an approved NHS figure)", changes(co.properties, { patient_list_size: size })), sizeWarn);
       await log({ actor: who, kind: "list_size", ods_code: ods, target: String(co.properties?.name ?? ""), hubspot_type: "company", hubspot_id: companyId,
-        summary: `Set list size on ${co.properties?.name ?? companyId} from ${co.properties?.patient_list_size ?? "blank"} to ${size.toLocaleString()}`, detail: { companyId, before: co.properties?.patient_list_size ?? null, after: size } });
-      return reply({ ok: true, size });
+        summary: `Set list size on ${co.properties?.name ?? companyId} from ${co.properties?.patient_list_size ?? "blank"} to ${size.toLocaleString()}`, detail: { companyId, before: co.properties?.patient_list_size ?? null, after: size, warnings: sizeWarn } });
+      return reply({ ok: true, size, warnings: sizeWarn });
     }
     if (b.action === "entity_change") {     // a merged practice stays in HubSpot as Merged under its successor; a closed code whose site goes on as a branch stays as Closed, and the site gets its own Branch company. Companies are linked for traceability; no ODS code is ever rewritten.
       const mode = String(b.mode ?? ""), ods = String(b.ods ?? "").trim().toUpperCase(), parentOds = String(b.parentOds ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), parentId = idOf(b.parentCompanyId);
@@ -273,10 +301,7 @@ Deno.serve(async (req) => {
           if (!linked) warnings.push(`${label}: HubSpot does not show the parent link yet; check it in HubSpot.`);
         } catch (e) { warnings.push(`${label} could not be linked to its parent: ${(e as Error).message}`); }
       };
-      const noteOn = async (id: string, text: string) => {
-        try { await hs(`/crm/v3/objects/notes`, { method: "POST", body: JSON.stringify({ properties: { hs_timestamp: new Date().toISOString(), hs_note_body: text }, associations: [{ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 190 }] }] }) }); }
-        catch (e) { warnings.push(`Note not added: ${(e as Error).message}`); }
-      };
+      const coNote = (id: string, text: string) => noteOn("companies", id, text, warnings);   // same helper as everywhere else, on a company, collecting this action's warnings
       await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { org_type: mode === "merged" ? orgType : "practice", operating_status: mode === "merged" ? "merged" : "closed", ...(zero ? { patient_list_size: "0" } : {}) } }) });
       await toParent(companyId, oldName);
       let branchId: string | null = null, created = false, moved = 0;
@@ -301,8 +326,9 @@ Deno.serve(async (req) => {
       }
       const text = mode === "merged" ? `Atlas, ${day}, by ${who}: practice ${ods} has merged into ${parentName} (${parentOds}). Operating status set to Merged${orgType === "branch_site" ? ", Org Type set to Branch (Site) because its site continues as a branch of the successor," : ""} and linked to ${parentName} as its parent company. The company and its history stay here.${zero ? ` List size set to 0 (was ${co.properties?.patient_list_size ?? "blank"}) because its patients are counted at ${parentName}; this stops HubSpot counting them twice.` : ""}`
         : `Atlas, ${day}, by ${who}: practice code ${ods} has closed, but its site continues as ${br.name} (${branchCode}), a branch of ${parentName} (${parentOds}). This company is marked Closed and linked to ${parentName} as its parent and to the branch company${created ? " (created by Atlas)" : ""}. Its history stays here.${zero ? ` List size set to 0 (was ${co.properties?.patient_list_size ?? "blank"}) because its patients are counted at ${parentName}; this stops HubSpot counting them twice.` : ""}`;
-      await noteOn(companyId, text);
-      if (branchId) await noteOn(branchId, `Atlas, ${day}, by ${who}: this branch site took over from the closed practice code ${ods} (${oldName}), which is linked to this company for history. Parent: ${parentName} (${parentOds}).`);
+      const diff = changes(co.properties, { org_type: mode === "merged" ? orgType : "practice", operating_status: mode === "merged" ? "merged" : "closed", ...(zero ? { patient_list_size: 0 } : {}) });
+      await coNote(companyId, esc(text) + (diff.length ? "<br>" + diff.map((l) => esc("• " + l)).join("<br>") : ""));
+      if (branchId) await coNote(branchId, esc(`Atlas, ${day}, by ${who}: this branch site took over from the closed practice code ${ods} (${oldName}), which is linked to this company for history. Parent: ${parentName} (${parentOds}).`) + (created ? "<br>" + esc("• Company: not in HubSpot → created by Atlas") : ""));
       const changeNote = (mode === "merged" ? `Merged into ${parentName} (${parentOds}); marked Merged${orgType === "branch_site" ? " and as a Branch (Site)" : ""} and linked to its parent in HubSpot` : `Closed; site continues as ${branchCode}, a branch of ${parentName} (${parentOds}); marked Closed in HubSpot and linked to the parent and the branch company`) + ` on ${day} by ${who}`;
       await admin.from("gp_practices").update({ hubspot_operating_status: mode === "merged" ? "merged" : "closed", hubspot_org_type: mode === "merged" ? orgType : "practice", hubspot_parent_company_id: parentId, hubspot_change_note: changeNote, ...(zero ? { hubspot_list_size: 0 } : {}) }).eq("ods_code", ods);
       if (branchId) await admin.from("practice_branches").update({ hubspot_company_id: branchId }).eq("branch_code", branchCode);
@@ -337,7 +363,10 @@ Deno.serve(async (req) => {
       if (Object.keys(companyProps).length) await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: companyProps }) });
       if (Object.keys(dealProps).length) await hs(`/crm/v3/objects/deals/${dealId}`, { method: "PATCH", body: JSON.stringify({ properties: dealProps }) });
 
-      let lineResult: any = null;
+      const noteWarn: string[] = [];
+      const dealLines = changes(before.deal, dealProps), pushed = "pricing pushed from the Atlas pricing tool";
+      if (Object.keys(companyProps).length) await noteOn("companies", companyId, noteBody(who, pushed + " (company)", changes(before.company, companyProps)), noteWarn);
+      let lineResult: any = null, lineLines: string[] = [];
       if (li) {
         const ours = before.lineItems.filter((x: any) => LINE_PRODUCTS.has(String(x.hs_product_id)));
         if (ours.length > 1) throw new Fail("This deal has more than one Lalu Care line item. Remove the extras in HubSpot first.");
@@ -358,13 +387,17 @@ Deno.serve(async (req) => {
         const discount = Math.max(0, Math.round((unit - Number(li.netUnit)) * 10000) / 10000);   // flat per-unit discount: the tool's list price less the calculator's net price
         await hs(`/crm/v3/objects/line_items/${lineId}`, { method: "PATCH", body: JSON.stringify({ properties: { discount: String(discount), hs_discount_percentage: "" } }) });
         lineResult = { id: lineId, action, unit, discount };
+        const old = action === "updated" ? ours[0] : null;
+        lineLines = [`Line item ${action}${action === "replaced" && ours[0] ? ` (was ${ours[0].name ?? ours[0].hs_product_id})` : ""}`, ...changes(old ?? {}, { quantity: li.quantity, price: unit, discount, recurringbillingfrequency: li.frequency, hs_recurring_billing_terms: li.terms, ...(li.termMonths != null ? { hs_recurring_billing_period: `P${Number(li.termMonths)}M` } : {}) })
+          .map((l) => l.replace(/^quantity:/, "Patients:").replace(/^price:/, "List price p/patient/month:").replace(/^discount:/, "Unit discount:").replace(/^recurringbillingfrequency:/, "Billing frequency:").replace(/^hs_recurring_billing_terms:/, "Billing terms:").replace(/^hs_recurring_billing_period:/, "Billing period:"))];
       }
+      if (dealLines.length || lineLines.length) await noteOn("deals", dealId, noteBody(who, pushed, [...dealLines, ...lineLines]), noteWarn);
       await admin.from("hubspot_links").upsert({ ods_code: ods, company_id: companyId, company_name: before.company.name ?? null, deal_id: dealId, deal_name: before.deal.dealname ?? null,
         linked_by: who, linked_at: new Date().toISOString(), last_pushed_at: new Date().toISOString() }, { onConflict: "ods_code" });
       await log({ actor: who, kind: "push", ods_code: ods, target: before.deal.dealname ?? before.company.name ?? null, hubspot_type: "deal", hubspot_id: dealId,
         summary: `Pushed pricing to ${before.deal.dealname ?? "deal"}: ${Object.keys(dealProps).length} deal field(s)${Object.keys(companyProps).length ? ", company list size" : ""}${lineResult ? `, line item ${lineResult.action}` : ""}`,
         detail: { companyId, dealId, before: { company: before.company, deal: before.deal, lineItems: before.lineItems }, written: { company: companyProps, deal: dealProps, lineItem: li, lineResult } } });
-      const warnings: string[] = [];
+      const warnings: string[] = [...noteWarn];
       const grouped = b.referral ? [] : await linkIntoGroup(admin, ods, dealId, warnings).catch(() => []);
       const referral = b.referral ? await referralFollowUp(admin, who, ods, dealId, String(before.deal.dealname ?? "deal"), b.referral, warnings).catch((e) => { warnings.push(`Referral group: ${(e as Error).message}`); return null; }) : null;
       return reply({ ok: true, ...(await readPair(companyId, dealId)), referral, grouped, warnings });
@@ -382,6 +415,7 @@ Deno.serve(async (req) => {
         const cur = await hs(`/crm/v3/objects/companies/${companyId}?properties=partner_organisation_code,name`);
         if (cur.properties?.partner_organisation_code) throw new Fail("That company already has a GP ODS Code");
         await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { partner_organisation_code: ods } }) });
+        await noteOn("companies", companyId, noteBody(who, "linked to its NHS practice record in Atlas", changes(cur.properties, { partner_organisation_code: ods })), warnings);
       } else {
         const props: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(b.company ?? {})) { if (!COMPANY_CREATE.has(k)) throw new Fail(`Not allowed to set company property ${k}`); if (v !== null && v !== "") props[k] = v; }
@@ -389,12 +423,16 @@ Deno.serve(async (req) => {
         if (props.company_status && !COMPANY_STATUS.has(String(props.company_status))) throw new Fail("Unsupported Company Status for a new company");
         props.partner_organisation_code = ods;
         companyId = String((await hs(`/crm/v3/objects/companies`, { method: "POST", body: JSON.stringify({ properties: props }) })).id);
+        await noteOn("companies", companyId, noteBody(who, "company created from the practice profile", changes({}, props)), warnings);
       }
       const done: any = { companyId, contacts: [] as any[], networks: [] as string[] };
-      done.contacts = await importContacts(admin, companyId, ods, Array.isArray(b.contacts) ? b.contacts : [], warnings);
+      done.contacts = await importContacts(admin, companyId, ods, Array.isArray(b.contacts) ? b.contacts : [], warnings, who, String((b.company ?? {}).name ?? ""));
       for (const n of (Array.isArray(b.networks) ? b.networks : []).slice(0, 4)) {
         if (!NETWORK_TYPES.has(String(n.type))) continue;
-        try { await hs(`/crm/v4/objects/companies/${companyId}/associations/default/${n.type}/${idOf(n.id)}`, { method: "PUT" }); done.networks.push(`${n.type}:${n.id}`); }
+        try {
+          await hs(`/crm/v4/objects/companies/${companyId}/associations/default/${n.type}/${idOf(n.id)}`, { method: "PUT" }); done.networks.push(`${n.type}:${n.id}`);
+          await noteOn("companies", companyId, noteBody(who, `associated with a ${n.type === "p145802630_pcns" ? "PCN" : "ICB"} record`, [`${n.type === "p145802630_pcns" ? "PCN" : "ICB"}: blank → ${String(n.name ?? n.id)}`]), warnings);
+        }
         catch (e) { warnings.push(`Association to ${n.type === "p145802630_pcns" ? "PCN" : "ICB"} record: ${(e as Error).message}`); }
       }
       const now = new Date().toISOString();
@@ -447,8 +485,9 @@ Deno.serve(async (req) => {
         if (!listId || listId === "undefined") throw new Fail("HubSpot did not return the new list id");
         await admin.from("audiences").update({ hubspot_list_id: listId }).eq("id", a.id);
       }
+      const perContact: Record<string, string[]> = {};
       let listed = false;
-      try { await hs(`/crm/v3/lists/${listId}/memberships/add`, { method: "PUT", body: JSON.stringify(ids) }); listed = true; } catch (e) { warnings.push(`Could not add to the HubSpot list: ${(e as Error).message}`); }
+      try { await hs(`/crm/v3/lists/${listId}/memberships/add`, { method: "PUT", body: JSON.stringify(ids) }); listed = true; for (const id of ids) perContact[id] = [`HubSpot list "Atlas: ${a.name}": not a member → added`]; } catch (e) { warnings.push(`Could not add to the HubSpot list: ${(e as Error).message}`); }
       if (b.enrol === true) {
         const { data: test } = await admin.from("audience_tests").select("*").eq("audience_id", a.id).eq("status", "running").maybeSingle();
         if (test ? !(test.seq_a_id && test.seq_b_id) : !a.sequence_id) throw new Fail(test ? "This audience's test needs both sequences" : "Choose a sequence for this audience first");
@@ -466,10 +505,12 @@ Deno.serve(async (req) => {
           try {
             await hs(`/automation/v4/sequences/enrollments?userId=${uid}`, { method: "POST", body: JSON.stringify({ sequenceId: seq, contactId: id, senderEmail: sender }) });
             results[id] = "enrolled";
+            (perContact[id] = perContact[id] ?? []).push(`Sequence ${seq}${arm ? ` (test arm ${arm.toUpperCase()})` : ""}: not enrolled → enrolled as ${sender}`);
             await admin.from("audience_members").update({ state: "enrolled", enrolled_at: now, hubspot_note: null, ...(test ? { test_id: test.id, arm } : {}) }).eq("audience_id", a.id).eq("contact_id", id);
           } catch (e) { results[id] = (e as Error).message; if (test && !arms[id]) count[arm as "a" | "b"]--; await admin.from("audience_members").update({ hubspot_note: (e as Error).message.slice(0, 300) }).eq("audience_id", a.id).eq("contact_id", id); }
         }
       }
+      await notesBatch("contacts", Object.entries(perContact).map(([id, lines]) => [id, noteBody(who, `audience "${a.name}" pushed from Atlas`, lines)] as [string, string]), warnings);
       return reply({ ok: true, listId, listed, results, warnings });
     }
     if (b.action === "audience_stats") {    // contact-level sequence and sales email fields for the performance view
@@ -485,7 +526,7 @@ Deno.serve(async (req) => {
       const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), warnings: string[] = [];
       if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
       const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name`);
-      const done = await importContacts(admin, companyId, ods, Array.isArray(b.contacts) ? b.contacts : [], warnings);
+      const done = await importContacts(admin, companyId, ods, Array.isArray(b.contacts) ? b.contacts : [], warnings, who, String(co.properties?.name ?? ""));
       await log({ actor: who, kind: "add_contacts", ods_code: ods, target: String(co.properties?.name ?? ""), hubspot_type: "company", hubspot_id: companyId,
         summary: `Added ${done.length} contact(s) to ${co.properties?.name ?? companyId}`, detail: { done, warnings } });
       return reply({ ok: true, contacts: done, warnings });
@@ -531,6 +572,7 @@ Deno.serve(async (req) => {
       await log({ actor: who, kind: "create_deal", ods_code: ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
         summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s)`, detail: { companyId, properties: props, contactIds } });
       const warnings: string[] = [];
+      await noteOn("deals", String(d.id), noteBody(who, `deal created from the practice profile on ${co.properties?.name ?? companyId}`, changes({}, props)), warnings);
       const grouped = await linkIntoGroup(admin, ods, String(d.id), warnings).catch(() => []);
       return reply({ ok: true, dealId: String(d.id), grouped, warnings });
     }
@@ -554,9 +596,11 @@ Deno.serve(async (req) => {
         { to: { id: contactId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: LEAD_TO_PRIMARY_CONTACT }] }] }) });
       let companyLinked = true;
       try { await hs(`/crm/v4/objects/leads/${l.id}/associations/default/companies/${companyId}`, { method: "PUT" }); } catch (_) { companyLinked = false; }
+      const leadWarn: string[] = [];
+      await noteOn("companies", companyId, noteBody(who, `lead created from the practice profile`, [`Lead: none → ${name} (${type}${campaign ? `, ${campaign}` : ""}), pipeline Prospecting, stage New`]), leadWarn);
       await log({ actor: who, kind: "create_lead", ods_code: ods, target: name, hubspot_type: "lead", hubspot_id: String(l.id),
         summary: `Created lead ${name} on ${co.properties?.name ?? companyId}${open.length ? " (contact already had an open lead)" : ""}`, detail: { companyId, contactId, properties: props, companyLinked, existing: open } });
-      return reply({ ok: true, leadId: String(l.id), companyLinked });
+      return reply({ ok: true, leadId: String(l.id), companyLinked, warnings: leadWarn });
     }
     if (b.action === "log_check") {          // the dashboard reports whether HubSpot's recalculated fields matched the tool after a push
       const ods = String(b.ods ?? "").trim().toUpperCase();

@@ -73,11 +73,11 @@ const HS_KINDS = { push: ["Pricing pushed", "bg-blue-100 text-blue-800"], push_c
   link_company: ["Company linked", "bg-emerald-100 text-emerald-800"], pcn_created: ["PCN created", "bg-violet-100 text-violet-800"], pcn_repaired: ["PCN corrected", "bg-violet-100 text-violet-800"],
   pcn_inactivated: ["PCN inactive", "bg-amber-100 text-amber-800"], associations: ["Associations", "bg-violet-100 text-violet-800"], sync_run: ["Sync", "bg-slate-100 text-slate-700"],
   list_size_sync: ["List sizes synced", "bg-violet-100 text-violet-800"], list_size: ["List size set", "bg-blue-100 text-blue-800"] };
-let hsSizeOn = false, hsSizeLast = "";
-function hsSizePlan() {      // mirrors the sync: every linked company follows the NHS figure (customers too: their contract size is on the line item); a jump of more than 25% waits for a person
+let hsSizeOn = false, hsSizeLast = "", hsSizeCust = false;      // app_flags.list_size_sync: { enabled, last_month, include_customers }
+function hsSizePlan() {      // mirrors the sync: every linked company follows the NHS figure, customers only when the switch includes them; a jump of more than 25% waits for a person
   const auto = [], held = [];
   for (const p of practices) {
-    if (!p.hubspot_company_id) continue;
+    if (!p.hubspot_company_id || (p.hubspot_customer && !hsSizeCust)) continue;
     const base = Number(p.hubspot_list_size) || 0, now = Number(p.total_patients) || 0;
     if (p.merged_into || p.status !== "Active" || isClosed(p)) { if (now === 0 && base > 0) auto.push({ p, base, now: 0 }); continue; }      // merged or closed and NHS says 0: HubSpot says 0 too, so nothing is counted twice
     if (now <= 0 || now === base) continue;
@@ -86,10 +86,12 @@ function hsSizePlan() {      // mirrors the sync: every linked company follows t
   return { auto, held };
 }
 function hsSizeCard() {
-  const { auto, held } = hsSizePlan();
-  return `<div class="mt-4 rounded-lg border border-slate-200 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div><div class="text-sm font-bold">List sizes in HubSpot</div><div class="text-xs text-slate-500">Every linked company follows the NHS figure once after each monthly NHS load, not every day. Customers too: what they signed for is on their line item and HubSpot works their deal values from it, so the company's list size is only the practice's size.</div></div>
-    <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="hsp-size-auto" class="h-4 w-4 accent-lalu-teal-700" ${hsSizeOn ? "checked" : ""}> Update automatically</label></div>
+  const { auto, held } = hsSizePlan(), nCust = practices.filter(p => p.hubspot_company_id && p.hubspot_customer && (Number(p.total_patients) || 0) > 0 && Number(p.total_patients) !== Number(p.hubspot_list_size)).length;
+  return `<div class="mt-4 rounded-lg border border-slate-200 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div><div class="text-sm font-bold">List sizes in HubSpot</div><div class="text-xs text-slate-500">Linked companies follow the NHS figure once after each monthly NHS load, not every day. Customers are left alone unless you include them below: what they signed for is on their line item, so the company's list size is only the practice's size.</div></div>
+    <div class="flex flex-col items-end gap-1.5"><label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="hsp-size-auto" class="h-4 w-4 accent-lalu-teal-700" ${hsSizeOn ? "checked" : ""}> Update automatically</label>
+    <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="hsp-size-cust" class="h-4 w-4 accent-lalu-teal-700" ${hsSizeCust ? "checked" : ""}> Include customers</label></div></div>
     <div class="mt-2 text-sm"><b>${auto.length.toLocaleString()}</b> would update · <b>${held.length.toLocaleString()}</b> held back (changed by more than 25%)</div>
+    <div class="mt-1 text-xs text-slate-500">${hsSizeCust ? "Customers are included." : `Customers are not changed (${nCust.toLocaleString()} customer list sizes differ from NHS and are being left as they are).`}</div>
     <div class="mt-1 text-xs text-slate-500">${hsSizeOn ? (hsSizeLast ? `Last applied for NHS data of ${esc(hsSizeLast)}; it runs again when the next monthly load arrives.` : "Not applied yet: the next sync applies this month's figures once.") : "Off."}</div>
     <div class="mt-2 flex flex-wrap gap-2"><button type="button" id="hsp-size-prev" class="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Preview changes</button>${held.length ? '<button type="button" id="hsp-size-held" class="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">Review held back</button>' : ""}</div></div>`;
 }
@@ -113,7 +115,7 @@ async function renderHubspotPanel() {
   const box = $("d-hubspot"); if (!box) return;
   if (!box.innerHTML) box.innerHTML = '<p class="text-sm text-slate-500">Loading HubSpot status…</p>';
   const [{ data: act }, { data: links }, { data: flags }] = await Promise.all([db.from("hubspot_activity").select("*").order("at", { ascending: false }).limit(300), fetchAll("hubspot_network_links", "org_id", "org_id").then(data => ({ data })), db.from("app_flags").select("key,value")]);   // all rows: a plain select stops at 1,000
-  const sizeFlag = ((flags || []).find(f => f.key === "list_size_sync") || {}).value || {}; hsSizeOn = sizeFlag.enabled === true; hsSizeLast = sizeFlag.last_month || ""; hsAlignFlag = ((flags || []).find(f => f.key === "alignment_sync") || {}).value || {};
+  const sizeFlag = ((flags || []).find(f => f.key === "list_size_sync") || {}).value || {}; hsSizeOn = sizeFlag.enabled === true; hsSizeLast = sizeFlag.last_month || ""; hsSizeCust = sizeFlag.include_customers === true; hsAlignFlag = ((flags || []).find(f => f.key === "alignment_sync") || {}).value || {};
   hsLog = act || [];
   const run = hsLog.find(r => r.kind === "sync_run"), st = (run && run.detail) || {}, ok = run ? run.ok : null;
   const eligible = practices.filter(p => p.status === "Active" && p.total_patients > 0), missing = eligible.filter(p => !p.hubspot_company_id);
@@ -148,11 +150,17 @@ async function renderHubspotPanel() {
   $("hsp-csv").onclick = () => downloadCsv("Lalu_HubSpot_Activity", ["Time", "Who", "Type", "Practice", "Record", "Summary", "OK"], hsLogRows().map(r => [r.at, r.actor, (HS_KINDS[r.kind] || [r.kind])[0], r.ods_code, r.target, r.summary, r.ok ? "yes" : "no"]));
   $("hsp-size-auto").onchange = async e => {
     const on = e.target.checked, n = hsSizePlan().auto.length;
-    if (on && !confirm(`Turn on automatic list-size updates?\n\nThe next sync (or Run sync now) will write ${n.toLocaleString()} list sizes to non-customer HubSpot companies, once for the current NHS data. After that it only runs again when a new monthly NHS load arrives, not daily. Customers are never changed this way, and jumps of more than 25% are held for review.`)) { e.target.checked = false; return; }
-    const { error } = await db.from("app_flags").upsert([{ key: "list_size_sync", value: { enabled: on, last_month: hsSizeLast || null }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) { e.target.checked = !on; $("hsp-msg").textContent = error.message; return; }
+    if (on && !confirm(`Turn on automatic list-size updates?\n\nThe next sync (or Run sync now) will write ${n.toLocaleString()} list sizes to HubSpot companies, once for the current NHS data. After that it only runs again when a new monthly NHS load arrives, not daily. ${hsSizeCust ? "Customers are included." : "Customers are not changed."} Jumps of more than 25% are held for review, and every change leaves a note on the company.`)) { e.target.checked = false; return; }
+    const { error } = await db.from("app_flags").upsert([{ key: "list_size_sync", value: { enabled: on, last_month: hsSizeLast || null, include_customers: hsSizeCust }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) { e.target.checked = !on; $("hsp-msg").textContent = error.message; return; }
     hsSizeOn = on; $("hsp-msg").textContent = on ? "Automatic list-size updates are on from the next sync." : "Automatic list-size updates are off.";
   };
-  $("hsp-size-prev").onclick = () => { const { auto } = hsSizePlan(); audModal("Would update on the next sync", auto.length ? hsSizeList(auto, false) : '<p class="text-sm text-slate-600">Every non-customer list size already matches the NHS figure.</p>', null); };
+  $("hsp-size-cust").onchange = async e => {
+    const on = e.target.checked;
+    if (on) { hsSizeCust = true; const n = hsSizePlan().auto.length; hsSizeCust = false; if (!confirm(`Include customers in the list-size update?\n\nWith this on, customer companies follow the NHS figure too (${n.toLocaleString()} companies would change in total, including the non-customers). A merged or closed customer is set to 0. Each change leaves a note on the HubSpot company with the old and new size.`)) { e.target.checked = false; return; } }
+    const { error } = await db.from("app_flags").upsert([{ key: "list_size_sync", value: { enabled: hsSizeOn, last_month: hsSizeLast || null, include_customers: on }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) { e.target.checked = !on; $("hsp-msg").textContent = error.message; return; }
+    hsSizeCust = on; renderHubspotPanel().then(() => { $("hsp-msg").textContent = on ? "Customers are now included in list-size updates." : "Customers are no longer changed by list-size updates."; });
+  };
+  $("hsp-size-prev").onclick = () => { const { auto } = hsSizePlan(); audModal("Would update on the next sync", auto.length ? hsSizeList(auto, false) : `<p class="text-sm text-slate-600">Every ${hsSizeCust ? "" : "non-customer "}list size already matches the NHS figure.</p>`, null); };
   const held = $("hsp-size-held"); if (held) held.onclick = () => audModal("Held back: changed by more than 25%", '<p class="mb-2 text-xs text-slate-500">Check these are real (not a merge, split or bad row), then approve to write the NHS figure to HubSpot.</p>' + hsSizeList(hsSizePlan().held, true), null);
   const ac = $("hsp-align-cases"); if (ac) ac.onclick = alignCasesOpen;
   const putAlign = async (value, msg) => { const { error } = await db.from("app_flags").upsert([{ key: "alignment_sync", value, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) { $("hsp-msg").textContent = error.message; return false; } hsAlignFlag = value; $("hsp-msg").textContent = msg; renderHubspotPanel(); return true; };

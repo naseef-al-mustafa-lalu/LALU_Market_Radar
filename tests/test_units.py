@@ -510,7 +510,7 @@ def test_list_size_of_the_linked_company():
     assert hsy.list_size(cs, "1") == 9000 and hsy.list_size(cs, 3) is None and hsy.list_size(cs, "9") is None
 
 
-def test_list_size_plan_holds_big_jumps_and_includes_customers():
+def test_list_size_plan_holds_big_jumps_and_customers_follow_the_switch():
     from src import hubspot_sync as hsy
     pr = {c: dict(ods_code=c, practice_name=c, status="Active", merged_into=None, total_patients=n) for c, n in [("A", 10500), ("B", 10000), ("C", 20000), ("D", 9000), ("E", 8000), ("F", 0)]}
     pr["E"]["merged_into"] = "A"
@@ -519,7 +519,9 @@ def test_list_size_plan_holds_big_jumps_and_includes_customers():
             dict(ods_code="C", hubspot_company_id="3", hubspot_customer=False, hubspot_list_size=10000), dict(ods_code="D", hubspot_company_id="4", hubspot_customer=True, hubspot_contracted_arr=5000, hubspot_contract_terms=None, hubspot_list_size=8000),
             dict(ods_code="E", hubspot_company_id="5", hubspot_customer=False, hubspot_list_size=7000), dict(ods_code="F", hubspot_company_id="6", hubspot_customer=False, hubspot_list_size=7000)]
     auto, held = hsy.plan_list_sizes(pr, rows)
-    assert [c["ods"] for c in auto] == ["A", "D", "E"] and auto[0]["to"] == 10500 and auto[1]["to"] == 9000 and auto[2]["to"] == 0 and auto[2]["gone"] == "merged" and [c["ods"] for c in held] == ["C"]      # B unchanged, F has no size; D is a customer and follows NHS like the rest; the merged E (NHS 0, HubSpot 7,000) is zeroed, never held
+    assert [c["ods"] for c in auto] == ["A", "E"] and auto[0]["to"] == 10500 and auto[1]["to"] == 0 and auto[1]["gone"] == "merged" and [c["ods"] for c in held] == ["C"]      # B unchanged, F has no size; customer D is left alone by default; the merged E (NHS 0, HubSpot 7,000) is zeroed, never held
+    auto, held = hsy.plan_list_sizes(pr, rows, include_customers=True)
+    assert [c["ods"] for c in auto] == ["A", "D", "E"] and auto[1]["to"] == 9000      # the switch in the Data panel lets customers follow NHS too
 
 
 def test_list_size_push_batches_and_stops_on_error():
@@ -530,6 +532,7 @@ def test_list_size_push_batches_and_stops_on_error():
     class H:
         def __init__(self, fail_at=None): self.calls, self.fail_at = [], fail_at
         def call(self, method, path, **kw):
+            if "/notes" in path: return {}
             self.calls.append(kw["json"])
             if self.fail_at == len(self.calls): raise RuntimeError("403 missing scope")
     auto = [dict(ods=f"A{i}", id=str(i), name="n", **{"from": 1, "to": 2}) for i in range(150)]
@@ -606,14 +609,12 @@ def test_zeroing_a_merged_company_leaves_a_note_with_the_old_size():
           "X": dict(ods_code="X", practice_name="No Data", status="Active", merged_into=None, total_patients=0), "K": dict(ods_code="K", practice_name="Paying", status="Active", merged_into="P", total_patients=0)}
     rows = [dict(ods_code="M", hubspot_company_id="1", hubspot_customer=False, hubspot_list_size=3717), dict(ods_code="X", hubspot_company_id="2", hubspot_customer=False, hubspot_list_size=500),
             dict(ods_code="K", hubspot_company_id="3", hubspot_customer=True, hubspot_contracted_arr=None, hubspot_contract_terms=None, hubspot_list_size=7879)]
-    auto, held = hsy.plan_list_sizes(pr, rows)
-    assert [(c["ods"], c["to"], c.get("successor")) for c in auto] == [("M", 0, "Parent Practice"), ("K", 0, "Parent Practice")] and not held      # a practice with no NHS data is not zeroed, and a freemium customer without a contract follows NHS and is zeroed like a non-customer
-
-    rows[2].update(hubspot_contracted_arr=4227, hubspot_contract_terms={"line_qty": 7045})      # a paying customer's merged company goes to 0 too: its contract size is on the line item, not the company
-    assert [(c["ods"], c["to"]) for c in hsy.plan_list_sizes(pr, rows)[0]] == [("M", 0), ("K", 0)]
+    auto, held = hsy.plan_list_sizes(pr, rows, include_customers=True)
+    assert [(c["ods"], c["to"], c.get("successor")) for c in auto] == [("M", 0, "Parent Practice"), ("K", 0, "Parent Practice")] and not held      # a practice with no NHS data is not zeroed; with the switch on a customer is zeroed like anyone else
+    assert [c["ods"] for c in hsy.plan_list_sizes(pr, rows)[0]] == ["M"]      # with it off (the default) the customer's company is not touched, merged or not
     pr["P"]["total_patients"] = 9500
     rows.append(dict(ods_code="P", hubspot_company_id="9", hubspot_customer=True, hubspot_contracted_arr=4227, hubspot_contract_terms=None, hubspot_list_size=9000))
-    assert [(c["ods"], c["to"]) for c in hsy.plan_list_sizes(pr, rows)[0]] == [("M", 0), ("K", 0), ("P", 9500)]      # a customer follows NHS whether or not it has a line item
+    assert [(c["ods"], c["to"]) for c in hsy.plan_list_sizes(pr, rows, True)[0]] == [("M", 0), ("K", 0), ("P", 9500)] and [c["ods"] for c in hsy.plan_list_sizes(pr, rows)[0]] == ["M"]
     rows.pop(); rows[2].update(hubspot_customer=False, hubspot_contracted_arr=None)
     auto = [c for c in hsy.plan_list_sizes(pr, rows)[0] if c["ods"] == "M"]
     class H:
@@ -621,9 +622,37 @@ def test_zeroing_a_merged_company_leaves_a_note_with_the_old_size():
         def call(self, method, path, **kw): self.calls.append((path, kw.get("json")))
     class R:
         def upsert(self, *a, **k): pass
-    h = H(); done, err = hsy.push_list_sizes(R(), h, auto)
-    note = [c for c in h.calls if c[0] == "/crm/v3/objects/notes"][0][1]
-    assert err is None and "was 3,717" in note["properties"]["hs_note_body"] and "Parent Practice" in note["properties"]["hs_note_body"] and note["associations"][0]["to"]["id"] == "1"
+    h = H(); done, err = hsy.push_list_sizes(R(), h, auto, "2026-10")
+    note = [c for c in h.calls if c[0] == "/crm/v3/objects/notes/batch/create"][0][1]["inputs"][0]
+    body = note["properties"]["hs_note_body"]
+    assert err is None and "Patient List Size: 3,717 → 0" in body and "Parent Practice" in body and "merged" in body and body.startswith("Atlas, ") and note["associations"][0]["to"]["id"] == "1"
+
+
+def test_every_atlas_write_to_hubspot_leaves_a_note_with_the_old_and_new_values():
+    from src import hubspot_sync as hsy
+    class R:
+        def upsert(self, *a, **k): pass
+    class H:
+        def __init__(self): self.calls = []
+        def call(self, method, path, **kw):
+            self.calls.append((method, path, kw.get("json")))
+            return {"id": "n1"}
+    h = H()
+    done, err = hsy.push_list_sizes(R(), h, [dict(ods="A", id="7", name="Alpha", **{"from": None, "to": 12000}), dict(ods="B", id="8", name="Beta", **{"from": 9000, "to": 9500})], "2026-10")
+    notes = [i["properties"]["hs_note_body"] for c in h.calls if c[1] == "/crm/v3/objects/notes/batch/create" for i in c[2]["inputs"]]
+    assert err is None and len(notes) == 2 and "Patient List Size: blank → 12,000" in notes[0] and "Patient List Size: 9,000 → 9,500" in notes[1] and "NHS figure for 2026-10" in notes[1]
+    h = H()
+    auto = [dict(ods="A", id="7", name="Alpha", props={"operating_status": "active", "org_type": "practice"}, was={"org_type": None, "operating_status": "closed"})]
+    hsy.push_alignment(R(), h, auto)
+    body = [i["properties"]["hs_note_body"] for c in h.calls if c[1] == "/crm/v3/objects/notes/batch/create" for i in c[2]["inputs"]][0]
+    assert "Operating status: closed → active" in body and "Org Type: blank → practice" in body
+    h = H()
+    assert hsy.add_notes(h, "p1_pcns", [("55", hsy.note_text("PCN record created", ["Status: blank → active"]))]) == 0      # a custom object gets the note, then the default association
+    assert [c[:2] for c in h.calls] == [("POST", "/crm/v3/objects/notes"), ("PUT", "/crm/v4/objects/notes/n1/associations/default/p1_pcns/55")]
+    class Bad:
+        def call(self, *a, **k): raise RuntimeError("403")
+    assert hsy.add_notes(Bad(), "companies", [("1", "x"), ("2", "y")]) == 2      # a failed note is counted, never raised
+    assert "&lt;b&gt;" in hsy.note_text("a <b> practice")
 
 
 def test_contact_email_quality_and_role():

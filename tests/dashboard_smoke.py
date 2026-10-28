@@ -250,8 +250,9 @@ with sync_playwright() as p:
     pg.click('#dr-body .bill-opt[data-b="annual"]'); sa = pg.inner_text("#dr-body")   # SAR annual 0.05, size 5% + speed 5% on -> £0.045 = £5,400; the price floor does not apply to SAR
     assert "£0.045" in sa and "£5,400" in sa and "Price floor" not in sa, sa
     pg.click('#dr-body .prod-opt[data-p="all"]'); assert pg.locator("#dr-body .term-opt").count() == 3
+    tiles = pg.inner_text("#dr-body .term-opt[data-yrs='2']"); assert "MRR" in tiles and "ARR" in tiles and "/yr" not in tiles, tiles      # the contract states MRR; ARR is the extra figure under it
     pg.click('#dr-body .term-opt[data-yrs="3"]'); t3 = pg.inner_text("#dr-body"); assert "Term discount" in t3 and "3-year" in t3 and "£0.068" in t3 and "annual plan, 3-year commitment" in t3 and "12-month" not in t3, t3  # 5% size + 5% term + 5% speed off £0.080
-    assert "Year 2" in t3 and "Year 3" in t3 and "Total over 3 years" in t3 and "£24,480" in t3 and "Renewal (year 4 onwards)" in t3 and "£8,640" in t3 and t3.count("−15%") >= 4 and "−10%" in t3, t3  # speed applies to all 3 years: 3 x 10,000 x £0.068 x 12; renewal loses speed
+    assert "Year 2" in t3 and "Year 3" in t3 and "Total over 3 years" in t3 and "£24,480" in t3 and "Renewal (year 4 onwards)" in t3 and "£8,640" in t3 and "£680" in t3 and "MRR" in t3 and "£720" in t3 and t3.count("−15%") >= 4 and "−10%" in t3, t3  # speed applies to all 3 years: 3 x 10,000 x £0.068 x 12; renewal loses speed
     pg.click('#dr-body .term-opt[data-yrs="1"]'); assert "Term discount" not in pg.inner_text("#dr-body")
     # Referral group: this practice has no PCN, so search; the price follows the card's speed and term choices, and the group is conditional
     assert pg.locator("#dr-body .rg-toggle").count() == 1 and "Referral group discount" not in pg.inner_text("#dr-body")
@@ -403,9 +404,13 @@ with sync_playwright() as p:
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-align-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync')")
     fa = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'alignment_sync').pop()[1][0]"); assert fa["value"] == {"enabled": True, "approve_once": False}, fa
     pg.wait_for_function("document.querySelector('#d-hubspot').innerText.includes('sets Operating status where it differs')")
-    assert "List sizes in HubSpot" in hp and "would update" in hp and "Customers too" in hp, hp[:900]      # the list-size sync card
+    assert "List sizes in HubSpot" in hp and "would update" in hp and "Customers are not changed" in hp, hp[:900]      # the list-size sync card
     pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-size-auto"); pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags')")
-    fl = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0]"); assert fl["key"] == "list_size_sync" and fl["value"] == {"enabled": True, "last_month": None}, fl
+    fl = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0]"); assert fl["key"] == "list_size_sync" and fl["value"] == {"enabled": True, "last_month": None, "include_customers": False}, fl
+    assert not pg.is_checked("#hsp-size-cust") and "Customers are not changed" in pg.inner_text("#d-hubspot")      # customers are left alone by default
+    pg.once("dialog", lambda d: d.accept()); pg.check("#hsp-size-cust"); pg.wait_for_function("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0].value.include_customers === true")
+    fl = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags').pop()[1][0]"); assert fl["key"] == "list_size_sync" and fl["value"]["enabled"] is True and fl["value"]["include_customers"] is True, fl
+    pg.wait_for_function("document.querySelector('#d-hubspot').innerText.includes('Customers are included')")
     pg.click("#hsp-size-prev"); pg.wait_for_selector("#aud-modal-body table"); assert "Test Surgery 1" in pg.inner_text("#aud-modal-body"); pg.click("#aud-modal-cancel")
     tt = pg.evaluate("document.querySelector('#d-hubspot').textContent"); assert "Create company" in tt and "Median" in tt and "Find company" in tt, tt[-600:]   # every edge call is timed
     pg.select_option("#hsp-filter", "sync"); assert "Pushed pricing" not in pg.inner_text("#hsp-log") and "practices linked" in pg.inner_text("#hsp-log"); pg.select_option("#hsp-filter", "all")

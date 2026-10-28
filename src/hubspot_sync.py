@@ -5,6 +5,7 @@ Customer: company lifecycle stage is Customer, the company has a Commercial Mode
 Engaged: the company's lifecycle stage is past New / Prospecting (Engaged, MQL, SQL, Opportunity, Evangelist, Client Services).
 """
 import difflib
+import html
 import os
 import re
 import sys
@@ -211,14 +212,16 @@ def fill_hubspot_managers(rest):
 SIZE_HOLD = 0.25   # a one-month jump bigger than this is almost always a merge, split or bad row: a person looks before HubSpot changes
 
 
-def plan_list_sizes(practices, rows):
-    """(auto, held): companies whose HubSpot Patient List Size differs from the NHS figure. Every practice follows it, customers too: a contract's size lives on its line item and the deal figures
-    (MRR, ACV, TCV) are HubSpot's native ones from the line item, so the company's list size is only the practice's size and no longer part of a customer's price.
+def plan_list_sizes(practices, rows, include_customers=False):
+    """(auto, held): companies whose HubSpot Patient List Size differs from the NHS figure. Customers are left alone unless the list_size_sync switch says include_customers (a contract's size lives on
+    its line item and HubSpot's deal figures come from it, so their company size can follow NHS, but that is a choice the Data panel makes, off by default).
     A merged or closed practice whose NHS figure is 0 is written as 0 (its patients are counted at the successor, so HubSpot's own roll-ups must not count them twice); that is never held back."""
     auto, held = [], []
     for r in rows:
         p = practices.get(r["ods_code"])
         if not p or not r.get("hubspot_company_id"):
+            continue
+        if r.get("hubspot_customer") and not include_customers:
             continue
         now, base = int(p.get("total_patients") or 0), int(r.get("hubspot_list_size") or 0)
         item = {"ods": r["ods_code"], "id": str(r["hubspot_company_id"]), "name": p["practice_name"], "from": base or None, "to": now}
@@ -253,15 +256,49 @@ def list_size_due(flag, month):
     return flag.get("enabled") is True and bool(month) and flag.get("last_month") != month
 
 
-def company_note(hub, company_id, text):
-    hub.call("POST", "/crm/v3/objects/notes", json={"properties": {"hs_timestamp": datetime.now(timezone.utc).isoformat(), "hs_note_body": text},
-                                                    "associations": [{"to": {"id": str(company_id)}, "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 190}]}]})
+NOTE_TYPE = {"companies": 190}   # HubSpot-defined association type: note -> company; other objects (the PCN custom object) use the default association
 
 
-def push_list_sizes(rest, hub, auto):
+def stamp():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def note_text(headline, lines=()):
+    """The audit note Atlas leaves on every HubSpot record it changes: who and when, then one line per field as 'Label: from → to'. HubSpot notes are HTML, so the lines are joined with <br>."""
+    return "<br>".join([html.escape(f"Atlas, {stamp()}: {headline}")] + [html.escape("• " + x) for x in lines])
+
+
+def change_line(label, was, now):
+    show = lambda v: "blank" if v in (None, "") else f"{v:,}" if isinstance(v, int) else str(v)
+    return f"{label}: {show(was)} → {show(now)}"
+
+
+def add_notes(hub, object_type, items):
+    """Put a note on each (record id, text). Returns how many could not be written: the change itself is already in HubSpot, so a missing note is reported, never fatal."""
+    failed, when = 0, datetime.now(timezone.utc).isoformat()
+    if object_type in NOTE_TYPE:
+        for ch in chunks(list(items), 100):
+            try:
+                hub.call("POST", "/crm/v3/objects/notes/batch/create", json={"inputs": [{"properties": {"hs_timestamp": when, "hs_note_body": text},
+                         "associations": [{"to": {"id": str(i)}, "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": NOTE_TYPE[object_type]}]}]} for i, text in ch]})
+            except Exception as e:  # noqa: BLE001
+                failed += len(ch)
+                print("Notes skipped:", str(e)[:200])
+        return failed
+    for i, text in items:
+        try:
+            n = hub.call("POST", "/crm/v3/objects/notes", json={"properties": {"hs_timestamp": when, "hs_note_body": text}})
+            hub.call("PUT", f"/crm/v4/objects/notes/{n['id']}/associations/default/{object_type}/{i}")
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            print("Note skipped:", str(e)[:200])
+    return failed
+
+
+def push_list_sizes(rest, hub, auto, month=""):
     """Write the changed sizes to HubSpot in batches; returns (written, error). A token without the company write scope stops here and says so.
-    A company set to 0 because its practice merged or closed gets a note with the old size, so the history is not lost."""
-    done, err, day = [], None, datetime.now(timezone.utc).date().isoformat()
+    Every company changed gets a note with the old and new size (a company set to 0 because its practice merged or closed also says why), so HubSpot keeps its own history."""
+    done, err = [], None
     for ch in chunks(auto, 100):
         try:
             hub.call("POST", "/crm/v3/objects/companies/batch/update", json={"inputs": [{"id": c["id"], "properties": {"patient_list_size": str(c["to"])}} for c in ch]})
@@ -269,13 +306,12 @@ def push_list_sizes(rest, hub, auto):
             err = str(e)[:300]
             break
         rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], "hubspot_list_size": c["to"]} for c in ch], "ods_code")
+        notes = []
         for c in ch:
-            if c.get("gone"):
-                try:
-                    company_note(hub, c["id"], f"Atlas, {day}: list size set to 0 (was {c['from']:,}). NHS data shows this practice as {c['gone']}"
-                                 + (f", with its patients counted under {c['successor']}" if c.get("successor") else "") + ". Setting it to 0 stops HubSpot counting the same patients twice. The previous size is kept in this note.")
-                except Exception as e:  # noqa: BLE001 - the size is already written; a missing note is not worth failing the run
-                    print("Note skipped:", str(e)[:200])
+            why = (f"NHS data shows this practice as {c['gone']}" + (f", with its patients counted under {c['successor']}" if c.get("successor") else "") + ". Set to 0 so HubSpot does not count the same patients twice.") if c.get("gone") \
+                else f"set from the NHS figure{' for ' + month if month else ''}."
+            notes.append((c["id"], note_text("list size updated by the daily sync, " + why, [change_line("Patient List Size", c["from"], c["to"])])))
+        add_notes(hub, "companies", notes)
         done += ch
     return done, err
 
@@ -341,6 +377,8 @@ def push_alignment(rest, hub, auto):
             err = str(e)[:300]
             break
         rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], **{"hubspot_" + k: v for k, v in c["props"].items()}} for c in ch], "ods_code")
+        labels = {"org_type": "Org Type", "operating_status": "Operating status"}
+        add_notes(hub, "companies", [(c["id"], note_text("set from NHS data by the daily sync", [change_line(labels[k], (c.get("was") or {}).get(k), v) for k, v in c["props"].items()])) for c in ch])
         done += ch
     return done, err
 
@@ -528,6 +566,7 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None,
         r = hub.call("POST", f"/crm/v3/objects/{PCN_OBJECT}", json={"properties": props})
         by_code[c] = {"id": r["id"], **props}
         stats["pcn_records_created"] += 1
+        add_notes(hub, PCN_OBJECT, [(r["id"], note_text("PCN record created from NHS ODS by the daily sync", [change_line(k, None, v) for k, v in props.items() if k in ("name", "ods_code", "status")]))])
         lines.append(f"Created PCN {props['name']} ({c})")
         ev("pcn_created", c, props["name"], r["id"], f"Created PCN record {props['name']} ({c}) from NHS ODS", {"properties": props})
     stats["pcn_create_capped"] = max(0, len(missing) - MAX_PCN_CREATES)
@@ -542,6 +581,7 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None,
             blank = {k: v for k, v in blank.items() if v is not None}
             fix.pop("status", None)
             hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {**blank, **fix}})
+            add_notes(hub, PCN_OBJECT, [(pr["id"], note_text("address details corrected from NHS ODS by the daily sync", [change_line(k, pr.get(k), v) for k, v in {**blank, **fix}.items()]))])
             stats["pcn_records_repaired"] += 1
             lines.append(f"Corrected the address details of PCN {pr.get('name', c)} ({c})")
             ev("pcn_repaired", c, pr.get("name", c), pr["id"], f"Corrected the address details of PCN {pr.get('name', c)} ({c})", {"properties": {**blank, **fix}})
@@ -550,6 +590,7 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None,
         if c in inactive and pr.get("status") != "inactive" and stats["pcn_records_inactivated"] < MAX_INACTIVATE:
             end = ods_pcn_props(getj(f"{sources.ODS_API}/organisations/{c}")).get("operational_end_date")
             hub.call("PATCH", f"/crm/v3/objects/{PCN_OBJECT}/{pr['id']}", json={"properties": {"status": "inactive", **({"operational_end_date": end} if end else {})}})
+            add_notes(hub, PCN_OBJECT, [(pr["id"], note_text("marked inactive because NHS ODS shows it closed, by the daily sync", [change_line("Status", pr.get("status"), "inactive")] + ([change_line("Operational end date", pr.get("operational_end_date"), end)] if end else [])))])
             stats["pcn_records_inactivated"] += 1
             lines.append(f"Marked PCN {pr.get('name', c)} ({c}) inactive" + (f" (closed {end})" if end else ""))
             ev("pcn_inactivated", c, pr.get("name", c), pr["id"], f"Marked PCN {pr.get('name', c)} ({c}) inactive" + (f" (closed {end})" if end else ""), {"end": end})
@@ -572,8 +613,10 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None,
             if extra:
                 conflicts.append((cid, practices.get(ods_of.get(cid), {}).get("practice_name"), ods_of.get(cid), extra))
     todo = [{"from": {"id": cid}, "to": {"id": pid}} for cid, pid in want.items() if pid not in have.get(cid, set())][:MAX_ASSOCIATIONS]
+    pcn_name = {str(pr["id"]): f"{pr.get('name') or pr.get('ods_code')} ({pr.get('ods_code')})" for pr in by_code.values()}
     for ch in chunks(todo, 100):
         hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/associate/default", json={"inputs": ch})
+        add_notes(hub, "companies", [(t["from"]["id"], note_text("linked to its PCN record by the daily sync", [change_line("PCN", None, pcn_name.get(t["to"]["id"], t["to"]["id"]))])) for t in ch])
     stats["pcn_associations_added"] = len(todo)
     if todo:
         lines.append(f"Associated {len(todo)} practice companies with their PCN record")
@@ -790,11 +833,11 @@ def sync(rest, hub, now=None, actor="daily sync"):
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
                          "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_company_status": None, "hubspot_service_name": None, "hubspot_product": None, "hubspot_product_service": None, "hubspot_first_start": None, "hubspot_churned_date": None, "hubspot_signed_size": None, "hubspot_size_history": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
-    auto, held = plan_list_sizes(practices, rows)
-    sizes = {"list_sizes_pending": len(auto), "list_sizes_held": len(held)}
     flag, month = list_size_flag(rest), max((p.get("data_month") or "" for p in practices.values()), default="")
+    auto, held = plan_list_sizes(practices, rows, flag.get("include_customers") is True)
+    sizes = {"list_sizes_pending": len(auto), "list_sizes_held": len(held)}
     if list_size_due(flag, month):
-        written, err = push_list_sizes(rest, hub, auto) if auto else ([], None)
+        written, err = push_list_sizes(rest, hub, auto, month) if auto else ([], None)
         sizes["list_sizes_written"] = len(written)
         if err:
             sizes["list_size_error"] = err
