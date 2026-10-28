@@ -361,8 +361,15 @@ def graph_step(rest, stats):
         stats["junk_rows_removed"] = maintenance.purge_never_loaded_closed(rest)
     except Exception as e:  # noqa: BLE001
         stats["maintenance_error"] = str(e)[:200]
+    def federations(key):   # a federation defined by its PCNs (One Care): set before the graph is built, and again after it so practices that only now have graph nodes are linked the same day
+        try:
+            stats[key] = rest.rpc("apply_federation_pcns")
+        except Exception as e:  # noqa: BLE001 - never stops the graph
+            stats[key + "_error"] = str(e)[:200]
+    federations("federations")
     try:
         stats["graph"] = rest.rpc("refresh_org_graph")
+        federations("federations_after")
         stats["graph_nodes_pruned"] = maintenance.prune_closed_practice_nodes(rest)
     except Exception as e:  # noqa: BLE001
         stats["graph_error"] = str(e)[:200]

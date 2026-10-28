@@ -243,7 +243,7 @@ with sync_playwright() as p:
     pg.click("#dr-body .speed-toggle"); assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "true"
     assert "£8,640" in kpi() and "on renewal" in kpi().lower() and "£9,120" in kpi() and "£0.072" in pg.inner_text("#dr-body .price-card tbody") and "Speed discount" in pg.inner_text("#dr-body .price-card tbody")
     assert pg.evaluate("document.activeElement.classList.contains('speed-toggle')")
-    rc = pg.inner_text("#dr-body .route-cmp"); assert "speed discount on" in rc and "£8,640" in rc and "£0.072" in rc, rc   # the route comparison follows the speed switch
+    rc = pg.inner_text("#dr-body .route-cmp"); assert "speed discount on" in rc and "£8,640" in rc and "£0.072" in rc and "£720 MRR" in rc and "£8,640 ARR" in rc, rc   # the route comparison follows the speed switch
     pg.click('#dr-body .bill-opt[data-b="monthly"]'); mo = pg.inner_text("#dr-body")   # monthly plan: list rate only, no discounts, no speed switch
     assert "monthly plan" in mo.lower() and "£0.100" in mo and "£12,000" in mo and "no discounts" in mo and "Size discount" not in mo and pg.locator("#dr-body .term-opt").count() == 0 and pg.locator("#dr-body .speed-toggle").count() == 0, mo
     pg.click('#dr-body .prod-opt[data-p="sar"]'); sm = pg.inner_text("#dr-body"); assert "SAR only" in sm and "£0.060" in sm and "£7,200" in sm, sm   # SAR monthly 0.06

@@ -767,3 +767,22 @@ def test_freemium_services_start_when_the_service_record_was_created():
     sv = {"f1": {"hs_name": "ReportSure Freemium", "current_subscription": "Freemium", "contract_start_date": None, "hs_start_date": None, "hs_createdate": "2025-03-05T10:00:00Z", "date_churned": None}}
     f = hsy.lifecycle_fields([{"id": "1", "company_status": "Current Customer"}], [], {}, ["f1"], sv, {}, 6200)
     assert (f["hubspot_product"], f["hubspot_first_start"], f["hubspot_signed_size"]) == ("freemium", "2025-03-05", 6200)
+
+
+def test_graph_step_applies_pcn_federations_around_the_graph_and_survives_their_failure():
+    from src import ingest, maintenance
+    calls = []
+    class R:
+        def __init__(self, fail): self.fail = fail
+        def rpc(self, name, *a, **k):
+            calls.append(name)
+            if self.fail and name == "apply_federation_pcns": raise RuntimeError("function missing")
+            return {"ok": True}
+    maintenance.purge_never_loaded_closed = lambda rest: 0
+    maintenance.prune_closed_practice_nodes = lambda rest: 0
+    stats = {}
+    ingest.graph_step(R(False), stats)
+    assert calls == ["apply_federation_pcns", "refresh_org_graph", "apply_federation_pcns"] and "graph_error" not in stats      # set before the graph is built, linked again after it
+    calls.clear(); stats = {}
+    ingest.graph_step(R(True), stats)
+    assert "refresh_org_graph" in calls and "federations_error" in stats and "graph_error" not in stats      # a missing function never stops the graph

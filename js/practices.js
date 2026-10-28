@@ -298,9 +298,10 @@ function routeComparisonBody(p) {
     return `<div class="flex items-start justify-between gap-4 rounded-lg border ${base ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white"} px-3 py-2.5">
       <div class="min-w-0"><div class="font-medium leading-tight">${base ? "On its own" : `<a href="#" class="text-lalu-teal-700 hover:underline" data-net="${r.net}">${esc(r.name)}</a>`}${r.price === best && best < worst ? ' <span class="ml-1 align-middle rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Lowest</span>' : ""}</div>
         <div class="mt-0.5 text-xs text-slate-500">${esc(r.sub)}</div><div class="text-xs text-slate-400">${esc(r.sub2)}</div></div>
-      <div class="shrink-0 text-right tabular-nums"><div class="font-mono font-semibold">${gbpFull(r.arr)}<span class="text-xs font-normal text-slate-500"> /yr</span></div>
-        <div class="text-xs text-slate-600">${list > 0 && r.price < list - 1e-9 ? "−" + pct(1 - r.price / list) + " off · " : ""}£${rate3(r.price)} /mo</div>
-        <div class="text-xs">${base ? '<span class="text-slate-400">baseline</span>' : Math.abs(d) < 1 ? '<span class="text-slate-500">same as alone</span>' : `<span class="font-medium ${d < 0 ? "text-emerald-700" : "text-amber-700"}">${d < 0 ? "−" : "+"}${gbpFull(Math.abs(d))} vs alone</span>`}</div></div></div>`; };
+      <div class="shrink-0 text-right tabular-nums"><div class="font-mono font-semibold">${gbpFull(r.arr / 12)}<span class="text-xs font-normal text-slate-500"> MRR</span></div>
+        <div class="font-mono text-xs text-slate-500">${gbpFull(r.arr)} ARR</div>
+        <div class="text-xs text-slate-600">${list > 0 && r.price < list - 1e-9 ? "−" + pct(1 - r.price / list) + " off · " : ""}£${rate3(r.price)} per patient /mo</div>
+        <div class="text-xs">${base ? '<span class="text-slate-400">baseline</span>' : Math.abs(d) < 1 ? '<span class="text-slate-500">same as alone</span>' : `<span class="font-medium ${d < 0 ? "text-emerald-700" : "text-amber-700"}">${d < 0 ? "−" : "+"}${gbpFull(Math.abs(d) / 12)} MRR · ${d < 0 ? "−" : "+"}${gbpFull(Math.abs(d))} ARR vs alone</span>`}</div></div></div>`; };
   return `<div class="text-xs font-semibold text-slate-600">Other ways to sign this practice</div><div class="text-xs text-slate-500 mb-1.5">${esc(ctx)}</div>
     <div class="space-y-2">${all.map(card).join("")}</div>
     <p class="mt-1.5 text-xs text-slate-500">Alternatives, not additive. A network price needs the whole network to sign.</p>`;
