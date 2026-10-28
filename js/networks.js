@@ -18,12 +18,14 @@ function netLinkedParts(n, members) {
   const by = (a, b) => b.patients - a.patients;
   return { pcns: n.kind === "pcn" || n.kind === "icb" ? [] : [...pcns.values()].sort(by), icbs: n.kind === "icb" ? [] : [...icbs.values()].sort(by) };
 }
+// Same look as the practice profile: a small-caps section title with a chevron (folds like "Linked practices"), then rows with the name on the left and the figures on the right.
+const netFold = (title, count, body, open) => `<details ${open ? "open" : ""} class="group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">${title}</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${count}</span></summary><div class="mt-1">${body}</div></details>`;
 function netLinkedHtml(parts) {
   const row = o => { const net = networks.find(x => x.kind === o.kind && keyOf(x) === o.key);
-    return `<div class="flex items-center justify-between gap-3 border-t border-slate-100 py-1.5 first:border-0"><div class="min-w-0">${net ? `<button type="button" class="np-link text-left font-medium text-lalu-teal-700 hover:underline" data-nk="${o.kind}" data-nkey="${esc(o.key)}">${esc(o.name)}</button>` : `<span class="font-medium">${esc(o.name)}</span>`}
-      <span class="np-hs ml-1 text-xs" data-org="${net ? esc(net.id) : ""}"></span></div><div class="shrink-0 text-right text-xs text-slate-500"><span class="font-mono">${o.practices}</span> practice${o.practices === 1 ? "" : "s"} · <span class="font-mono">${o.patients.toLocaleString()}</span> patients</div></div>`; };
-  const block = (title, list) => list.length ? `<div class="${title === "ICB" ? "mt-3" : ""}"><div class="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">${title} <span class="font-normal normal-case text-slate-400">· ${list.length}</span></div><div class="max-h-64 overflow-y-auto">${list.map(row).join("")}</div></div>` : "";
-  return block("PCNs", parts.pcns) + block("ICB", parts.icbs);
+    return `<div class="flex items-start justify-between gap-3 py-0.5 text-sm"><span class="min-w-0 break-words">${net ? `<button type="button" class="np-link text-left text-lalu-teal-700 hover:underline" data-nk="${o.kind}" data-nkey="${esc(o.key)}">${esc(o.name)}</button>` : `<span class="text-slate-800">${esc(o.name)}</span>`}
+      <span class="np-hs ml-1 text-xs" data-org="${net ? esc(net.id) : ""}"></span></span><span class="shrink-0 text-right text-slate-800"><span class="font-mono">${o.practices}</span> <span class="text-slate-500">practice${o.practices === 1 ? "" : "s"}</span> · <span class="font-mono">${o.patients.toLocaleString()}</span> <span class="text-slate-500">patients</span></span></div>`; };
+  const block = (title, list, open) => list.length ? netFold(title, list.length, list.map(row).join(""), open) : "";
+  return block("Linked PCNs", parts.pcns, parts.pcns.length <= 8) + block("ICB", parts.icbs, true);
 }
 function openNetworkProfile(n) {
   hsShowBar(null);
@@ -60,7 +62,7 @@ function openNetworkProfile(n) {
   $("dr-body").innerHTML =
     `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices, siteCount ? "+" + siteCount.toLocaleString() + " branch site" + (siteCount > 1 ? "s" : "") : ""], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
       .map(([k, v, small]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div>${small ? `<div class="text-[11px] text-sky-800">${small}</div>` : ""}</div>`).join("")}</div>` +
-    (linkedHtml ? sec("Linked PCNs and ICB", linkedHtml) : "") +
+    linkedHtml +
     sec("HubSpot", '<div id="dr-hsnet" class="text-sm text-slate-500">Checking HubSpot…</div>') +
     sec("Pricing: " + KIND + " route", price) +
     `<details open class="group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Linked practices: price singly vs in the network</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${members.length}</span></summary><div class="overflow-x-auto mt-1"><table class="w-full text-xs"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div></details>` +

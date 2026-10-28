@@ -330,7 +330,9 @@ with sync_playwright() as p:
     pg.wait_for_selector("#drawer:not(.translate-x-full)")
     prof = pg.inner_text("#dr-body")
     assert "pricing" in prof.lower() and "size discount" in prof.lower() and "estimated annual revenue" in prof.lower() and "signed separately" in prof and "Network discount" in prof and "Test Surgery 0" in prof, prof
-    assert "linked pcns and icb" in prof.lower() and "West PCN" in prof and "NHS Test ICB" in prof and "Create deal in HubSpot" in prof, prof      # a group's PCNs and ICB, and the way to make its deal
+    assert "linked pcns" in prof.lower() and "West PCN" in prof and "NHS Test ICB" in prof and "Create deal in HubSpot" in prof, prof
+    fold = pg.locator("#dr-body details:has(h4:text-matches('Linked PCNs', 'i'))").first; assert fold.get_attribute("open") is not None      # folds like Linked practices
+    fold.locator("summary").click(); assert fold.get_attribute("open") is None and pg.locator("#dr-body .np-link").first.is_hidden(); fold.locator("summary").click()      # a group's PCNs and ICB, and the way to make its deal
     pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#nd-create")
     nd = pg.inner_text("#hs-body"); assert "new deal on" in nd.lower() and "already has 1 deal" in nd and "Link the deal to its HubSpot" in nd, nd      # existing deals are shown before another is made
     pg.click("#nd-create"); pg.wait_for_function("document.querySelector('#hs-body').innerText.includes('Deal created')")
