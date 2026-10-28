@@ -1,14 +1,22 @@
 // HubSpot, part 3 of 3: PCN / ICB links, creating a company, and the Data > Overview integration panel with its activity log and response times. Loaded after hubspot-company.js.
 /* ---------- PCN / ICB: link to HubSpot's custom objects, shown on the network profile ---------- */
 const HS_NET = { p145802630_pcns: { id: "2-203659326", label: "PCN" }, p145802630_icbs: { id: "2-203659324", label: "ICB" } };
-async function hsNetworkSection(n) {
-  const { data } = await db.from("hubspot_network_links").select("*").eq("org_id", n.id).limit(1);
+async function hsNetworkSection(n, parts) {
+  const orgIds = [n.id, ...[...(parts?.pcns || []), ...(parts?.icbs || [])].map(o => networks.find(x => x.kind === o.kind && keyOf(x) === o.key)).filter(Boolean).map(x => x.id)];
+  const { data } = await db.from("hubspot_network_links").select("*").in("org_id", orgIds);
   const box = $("dr-hsnet"); if (!box) return;
-  const l = (data || [])[0];
-  box.outerHTML = l ? `<div id="dr-hsnet">${kv(HS_NET[l.object_type].label + " record", hsLink(HS_NET[l.object_type].id, l.object_id, "Open in HubSpot"))}${kv("Matched on", esc(l.matched_on))}
+  const byOrg = new Map((data || []).map(x => [x.org_id, x])), l = byOrg.get(n.id);
+  document.querySelectorAll("#dr-body .np-hs").forEach(el => { const k = byOrg.get(el.dataset.org); if (k) el.innerHTML = hsLink(HS_NET[k.object_type].id, k.object_id, "HubSpot"); else if (el.dataset.org) el.innerHTML = '<span class="text-slate-300" title="No HubSpot record found">no HubSpot record</span>'; });
+  const own = n.kind === "pcn" || n.kind === "icb";
+  const found = (parts ? [...parts.pcns, ...parts.icbs] : []).filter(o => { const x = networks.find(y => y.kind === o.kind && keyOf(y) === o.key); return x && byOrg.has(x.id); }).length, total = parts ? parts.pcns.length + parts.icbs.length : 0;
+  const record = own ? (l ? `${kv(HS_NET[l.object_type].label + " record", hsLink(HS_NET[l.object_type].id, l.object_id, "Open in HubSpot"))}${kv("Matched on", esc(l.matched_on))}
       ${kv("Practices in HubSpot record", l.associated_practices != null ? Number(l.associated_practices).toLocaleString() : "")}${kv("Active eMR+ practices", l.active_emr_practices != null ? Number(l.active_emr_practices).toLocaleString() : "")}
-      ${kv("Open deals", l.open_deals_amount != null ? gbpFull(l.open_deals_amount) : "")}${kv("Won deals", l.won_deals_amount != null ? gbpFull(l.won_deals_amount) : "")}</div>`
-    : `<div id="dr-hsnet" class="text-sm italic text-slate-500">No ${n.kind === "icb" ? "ICB" : "PCN"} record found in HubSpot (matched by ${n.kind === "icb" ? "name" : "ODS code"}). Scottish clusters and Welsh boards are not held there.</div>`;
+      ${kv("Open deals", l.open_deals_amount != null ? gbpFull(l.open_deals_amount) : "")}${kv("Won deals", l.won_deals_amount != null ? gbpFull(l.won_deals_amount) : "")}`
+    : `<div class="text-sm italic text-slate-500">No ${n.kind === "icb" ? "ICB" : "PCN"} record found in HubSpot (matched by ${n.kind === "icb" ? "name" : "ODS code"}). Scottish clusters and Welsh boards are not held there.</div>`)
+    : `<div class="text-sm text-slate-600">${total ? `${found} of ${total} linked PCN / ICB records found in HubSpot.` : "No linked PCNs or ICB."}</div>`;
+  box.outerHTML = `<div id="dr-hsnet">${record}<div class="mt-3"><button type="button" id="hs-netdeal" class="rounded-lg bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Create deal in HubSpot…</button>
+      <span class="ml-2 text-xs text-slate-500">linked to its ${own ? "record" : "PCN and ICB records"}</span></div></div>`;
+  $("hs-netdeal").onclick = () => hsNetDealOpen(n, parts);
 }
 
 /* ---------- practices that are not in HubSpot: flag, then create (or link an existing company) after a preview ---------- */

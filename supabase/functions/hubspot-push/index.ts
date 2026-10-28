@@ -548,9 +548,23 @@ Deno.serve(async (req) => {
       } else warnings.push("Owners could not be read: add the crm.objects.owners.read scope to the HubSpot token.");
       return reply({ contacts, pipelines, owners, ownerId, warnings });
     }
+    if (b.action === "create_company_for_network") {   // a federation or provider group has no ODS code: a company named for it, marked Federation where that is what it is
+      const name = String(b.name ?? "").trim().slice(0, 200), kind = String(b.kind ?? "");
+      if (!name) throw new Fail("A name is required");
+      if (!["federation", "group", "pcn", "icb"].includes(kind)) throw new Fail("Unknown network");
+      const same = ((await hs(`/crm/v3/objects/companies/search`, { method: "POST", body: JSON.stringify({ properties: ["name"], limit: 10, query: name }) }))?.results ?? []).find((c: any) => String(c.properties?.name ?? "").trim().toLowerCase() === name.toLowerCase());
+      if (same) throw new Fail(`A HubSpot company called ${same.properties?.name} already exists: choose it from the search results.`);
+      const props: Record<string, unknown> = { name, company_status: "Prospective Customer", ...(kind === "federation" ? { org_type: "federation" } : {}) };
+      const id = String((await hs(`/crm/v3/objects/companies`, { method: "POST", body: JSON.stringify({ properties: props }) })).id), warnings: string[] = [];
+      await noteOn("companies", id, noteBody(who, `company created for the ${kind} ${name} from its Atlas network profile`, changes({}, props)), warnings);
+      await log({ actor: who, kind: "create_company", target: name, hubspot_type: "company", hubspot_id: id, summary: `Created company ${name} for the ${kind}`, detail: { properties: props, warnings } });
+      return reply({ ok: true, companyId: id, warnings });
+    }
     if (b.action === "create_deal") {
+      const net = b.network && typeof b.network === "object" ? b.network : null;   // a deal for a whole network (federation, group, PCN, ICB) instead of one practice
       const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId);
-      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      if (net) { if (!["pcn", "icb", "group", "federation"].includes(String(net.kind)) || !String(net.name ?? "").trim()) throw new Fail("Unknown network"); }
+      else if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
       const props: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(b.deal ?? {})) { if (!DEAL_CREATE.has(k)) throw new Fail(`Not allowed to set deal property ${k}`); if (v !== null && v !== "") props[k] = v; }
       if (!String(props.dealname ?? "").trim()) throw new Fail("A deal name is required");
@@ -569,12 +583,21 @@ Deno.serve(async (req) => {
       const d = await hs(`/crm/v3/objects/deals`, { method: "POST", body: JSON.stringify({ properties: props, associations: [
         { to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ASSOC_DEAL_TO_COMPANY }] },
         ...contactIds.map((id: string) => ({ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ASSOC_DEAL_TO_CONTACT }] }))] }) });
-      await log({ actor: who, kind: "create_deal", ods_code: ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
-        summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s)`, detail: { companyId, properties: props, contactIds } });
-      const warnings: string[] = [];
-      await noteOn("deals", String(d.id), noteBody(who, `deal created from the practice profile on ${co.properties?.name ?? companyId}`, changes({}, props)), warnings);
-      const grouped = await linkIntoGroup(admin, ods, String(d.id), warnings).catch(() => []);
-      return reply({ ok: true, dealId: String(d.id), grouped, warnings });
+      const warnings: string[] = [], linked: string[] = [];
+      const objs = net ? (Array.isArray(b.networkObjects) ? b.networkObjects : []).filter((o: any) => NETWORK_TYPES.has(String(o.type))).slice(0, 60).map((o: any) => ({ type: String(o.type), id: idOf(o.id), name: String(o.name ?? "").slice(0, 80) })) : [];
+      for (let i = 0; i < objs.length; i += 10) {   // the deal is linked to the network's own PCN and ICB records, so HubSpot shows it on each of them
+        await Promise.all(objs.slice(i, i + 10).map(async (o: any) => {
+          try { await hs(`/crm/v4/objects/deals/${d.id}/associations/default/${o.type}/${o.id}`, { method: "PUT" }); linked.push(o.name || o.id); }
+          catch (e) { warnings.push(`Could not link ${o.name || o.id}: ${(e as Error).message}`); }
+        }));
+      }
+      const label = net ? ({ pcn: "PCN", icb: "ICB", group: "provider group", federation: "federation" } as Record<string, string>)[String(net.kind)] : "";
+      await noteOn("deals", String(d.id), noteBody(who, net ? `deal created from the ${label} ${String(net.name).slice(0, 120)}'s Atlas network profile on ${co.properties?.name ?? companyId}` : `deal created from the practice profile on ${co.properties?.name ?? companyId}`,
+        [...changes({}, props), ...(net ? [`Network: blank → ${label} ${String(net.name).slice(0, 120)}`, `ICB and PCN records: blank → ${linked.length} linked${linked.length ? " (" + linked.sort().join(", ") + ")" : ""}`] : [])]), warnings);
+      await log({ actor: who, kind: "create_deal", ods_code: net ? null : ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
+        summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s)${net ? ` for the ${label} ${net.name}, linked to ${linked.length} ICB / PCN record(s)` : ""}`, detail: { companyId, properties: props, contactIds, network: net ? { kind: net.kind, name: net.name, linked } : null, warnings } });
+      const grouped = net ? [] : await linkIntoGroup(admin, ods, String(d.id), warnings).catch(() => []);
+      return reply({ ok: true, dealId: String(d.id), grouped, linked: linked.length, warnings });
     }
     if (b.action === "create_lead") {       // a Prospecting-pipeline lead at New, before any deal; warns when the contact already has an open lead
       const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), contactId = idOf(b.contactId);

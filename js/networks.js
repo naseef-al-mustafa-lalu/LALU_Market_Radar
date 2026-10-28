@@ -8,6 +8,23 @@ function openNetwork(kind, key, label) {
   showTab("practices"); applyFilters();
 }
 /* ---------- network profile (side panel): how the network price is built and what it does to each practice ---------- */
+// The PCNs and ICB a network is made of, worked out from its practices (so they always match the practice list): one clickable row each, with a HubSpot link where the record is known.
+function netLinkedParts(n, members) {
+  const pcns = new Map(), icbs = new Map();
+  for (const p of members) {
+    if (p.pcn_code) { const o = pcns.get(p.pcn_code) || { kind: "pcn", key: p.pcn_code, name: p.pcn_name || p.pcn_code, practices: 0, patients: 0 }; o.practices++; o.patients += Number(p.total_patients) || 0; pcns.set(p.pcn_code, o); }
+    if (p.icb_name && p.icb_name !== "Unallocated ICB") { const k = p.icb_name.toLowerCase(), o = icbs.get(k) || { kind: "icb", key: k, name: p.icb_name, practices: 0, patients: 0 }; o.practices++; o.patients += Number(p.total_patients) || 0; icbs.set(k, o); }
+  }
+  const by = (a, b) => b.patients - a.patients;
+  return { pcns: n.kind === "pcn" || n.kind === "icb" ? [] : [...pcns.values()].sort(by), icbs: n.kind === "icb" ? [] : [...icbs.values()].sort(by) };
+}
+function netLinkedHtml(parts) {
+  const row = o => { const net = networks.find(x => x.kind === o.kind && keyOf(x) === o.key);
+    return `<div class="flex items-center justify-between gap-3 border-t border-slate-100 py-1.5 first:border-0"><div class="min-w-0">${net ? `<button type="button" class="np-link text-left font-medium text-lalu-teal-700 hover:underline" data-nk="${o.kind}" data-nkey="${esc(o.key)}">${esc(o.name)}</button>` : `<span class="font-medium">${esc(o.name)}</span>`}
+      <span class="np-hs ml-1 text-xs" data-org="${net ? esc(net.id) : ""}"></span></div><div class="shrink-0 text-right text-xs text-slate-500"><span class="font-mono">${o.practices}</span> practice${o.practices === 1 ? "" : "s"} · <span class="font-mono">${o.patients.toLocaleString()}</span> patients</div></div>`; };
+  const block = (title, list) => list.length ? `<div class="${title === "ICB" ? "mt-3" : ""}"><div class="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">${title} <span class="font-normal normal-case text-slate-400">· ${list.length}</span></div><div class="max-h-64 overflow-y-auto">${list.map(row).join("")}</div></div>` : "";
+  return block("PCNs", parts.pcns) + block("ICB", parts.icbs);
+}
 function openNetworkProfile(n) {
   hsShowBar(null);
   drawerCode = null; document.querySelectorAll("#rows tr.bg-lalu-teal-50").forEach(r => r.classList.remove("bg-lalu-teal-50"));
@@ -39,10 +56,12 @@ function openNetworkProfile(n) {
       <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net) : "–"}</td></tr>` +
       (sitesOf(p).length ? `<tr class="np-sub hidden bg-slate-50" data-sub="${esc(p.ods_code)}"><td colspan="7" class="pl-4 pr-2 pb-1.5"><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 pt-1">Branch sites of ${esc(p.practice_name)} <span class="normal-case font-normal">(list size, price and HubSpot sit on the practice)</span></div>${sitesOf(p).map(siteDetails).join("")}</td></tr>` : ""); }).join("");
   const hdr = ["Practice", "Patients", "Tier", "£/pt/mo singly", "ARR singly", "SAR-only singly", "ARR in network"].map((h, i) => `<th class="${i === 0 ? "text-left" : i === 2 ? "text-left px-2" : "text-right"} font-medium">${h}</th>`).join("");
+  const parts = netLinkedParts(n, members), linkedHtml = netLinkedHtml(parts);
   $("dr-body").innerHTML =
     `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices, siteCount ? "+" + siteCount.toLocaleString() + " branch site" + (siteCount > 1 ? "s" : "") : ""], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
       .map(([k, v, small]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div>${small ? `<div class="text-[11px] text-sky-800">${small}</div>` : ""}</div>`).join("")}</div>` +
-    (n.kind === "pcn" || n.kind === "icb" ? sec("HubSpot", '<div id="dr-hsnet" class="text-sm text-slate-500">Checking HubSpot…</div>') : "") +
+    (linkedHtml ? sec("Linked PCNs and ICB", linkedHtml) : "") +
+    sec("HubSpot", '<div id="dr-hsnet" class="text-sm text-slate-500">Checking HubSpot…</div>') +
     sec("Pricing: " + KIND + " route", price) +
     `<details open class="group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Linked practices: price singly vs in the network</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${members.length}</span></summary><div class="overflow-x-auto mt-1"><table class="w-full text-xs"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div></details>` +
     sec("Recent signals across this network", (() => {
@@ -52,8 +71,9 @@ function openNetworkProfile(n) {
     })()) +
     `<button id="np-view" class="w-full bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;
-  if (n.kind === "pcn" || n.kind === "icb") hsNetworkSection(n);
+  hsNetworkSection(n, parts);
   $("dr-body").onclick = ev => { const tg = ev.target.closest(".np-sites"); if (tg) { const sub = $("dr-body").querySelector(`tr.np-sub[data-sub="${tg.dataset.for}"]`), open = sub.classList.toggle("hidden") === false; tg.setAttribute("aria-expanded", open); tg.textContent = (open ? "▾ " : "▸ ") + tg.textContent.slice(2); return; }
+    const lk = ev.target.closest(".np-link"); if (lk) { const x = networks.find(y => y.kind === lk.dataset.nk && keyOf(y) === lk.dataset.nkey); if (x) openNetworkProfile(x); return; }
     const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
 }

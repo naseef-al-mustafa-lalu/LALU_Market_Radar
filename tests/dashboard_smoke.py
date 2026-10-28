@@ -43,6 +43,7 @@ window.supabase = { createClient: () => {
   return { auth: { getSession: async () => ({ data: { session: { user: { email: 'new@lalu.co.uk' } } } }), signOut: async () => {}, updateUser: async (a) => { (window.__rpc = window.__rpc || []).push(['updateUser', a]); return {}; }, resetPasswordForEmail: async (e, o) => { (window.__rpc = window.__rpc || []).push(['reset', e, o]); return {}; }, signInWithPassword: async () => ({}) },
     from: q, channel: () => ({ on() { return this; }, subscribe(cb) { cb && cb('SUBSCRIBED'); return this; } }), removeChannel() {}, rpc: async (n, a) => { (window.__rpc = window.__rpc || []).push([n, a]); return { data: { stored: ((a && a.p_rows) || []).length, new: 1, practices_updated: 0 } }; }, functions: { invoke: async (name, o) => { const b = (o && o.body) || {}; (window.__rpc = window.__rpc || []).push(['fn:' + name, b]);
       if (name !== 'hubspot-push') return { data: {} };
+      (window.__hsCalls = window.__hsCalls || []).push(b);
       const H = window.__hsdb = window.__hsdb || { company: { id: '77', name: 'Test Surgery 1 (HubSpot)', partner_organisation_code: 'A10001', patient_list_size: '9000' },
         deal: { id: '88', dealname: 'Test Surgery 1 - SAR', dealstage: 'contractsent', size_tier: 'Tier 4', commercial_model: 'eMR+ SAR Only', value_per_patient: '£0.10', size_discount: '0', speed_discount: '0', term_length_discount: '0', term_length_years: '1', total_discount: '0', actual_value_per_patient_calculated: '0.10' }, lineItems: [] };
       if (b.action === 'find') return { data: { companies: [Object.assign({ match: 'ODS code' }, H.company)] } };
@@ -61,7 +62,8 @@ window.supabase = { createClient: () => {
         const t = Math.round((Number(d.size_discount) + Number(d.speed_discount) + Number(d.term_length_discount)) * 1000) / 1000; d.total_discount = String(t);
         d.actual_value_per_patient_calculated = String(Math.round(Number(String(d.value_per_patient).replace('£', '')) * (1 - t) * 100000) / 100000); if (window.__hsBlank) d.actual_value_per_patient_calculated = ''; window.__hslink = b.ods; const L = b.lineItem; if (L) { const P = L.listUnit; H.lineItems = [{ id: 'L1', name: 'Lalu Care line', hs_product_id: L.productId, quantity: String(L.quantity), price: String(P), discount: String(Math.round((P - L.netUnit) * 10000) / 10000), recurringbillingfrequency: L.frequency }]; } return { data: { ok: true, lineItems: H.lineItems } }; }
       if (b.action === 'deal_prefill') return { data: { contacts: [{ id: 'c1', firstname: 'Lena', lastname: 'Contact', jobtitle: 'Manager', email: 'l@x.nhs' }], pipelines: [{ id: 'default', label: 'Sales Pipeline', stages: [{ id: 'appointmentscheduled', label: 'New' }, { id: 'contractsent', label: 'Contract Sent' }] }], owners: [{ id: '38848375', name: 'Naseef', email: 'new@lalu.co.uk' }], ownerId: '38848375', warnings: [] } };
-      if (b.action === 'create_deal') return { data: { ok: true, dealId: '88' } };
+      if (b.action === 'create_deal') return { data: { ok: true, dealId: '88', linked: (b.networkObjects || []).length, warnings: [] } };
+      if (b.action === 'create_company_for_network') return { data: { ok: true, companyId: '901', warnings: [] } };
       if (b.action === 'create_lead') return { data: window.__leadExisting && !b.force ? { ok: false, existing: [{ id: '9', name: 'Old lead' }] } : { ok: true, leadId: '99', companyLinked: true } };
       if (b.action === 'create_company' || b.action === 'link_company') return { data: { ok: true, companyId: '900', contacts: [], networks: [], warnings: [] } };
       return { data: {} }; } } };
@@ -328,6 +330,12 @@ with sync_playwright() as p:
     pg.wait_for_selector("#drawer:not(.translate-x-full)")
     prof = pg.inner_text("#dr-body")
     assert "pricing" in prof.lower() and "size discount" in prof.lower() and "estimated annual revenue" in prof.lower() and "signed separately" in prof and "Network discount" in prof and "Test Surgery 0" in prof, prof
+    assert "linked pcns and icb" in prof.lower() and "West PCN" in prof and "NHS Test ICB" in prof and "Create deal in HubSpot" in prof, prof      # a group's PCNs and ICB, and the way to make its deal
+    pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#nd-create")
+    nd = pg.inner_text("#hs-body"); assert "new deal on" in nd.lower() and "already has 1 deal" in nd and "Link the deal to its HubSpot" in nd, nd      # existing deals are shown before another is made
+    pg.click("#nd-create"); pg.wait_for_function("document.querySelector('#hs-body').innerText.includes('Deal created')")
+    cd = pg.evaluate("window.__hsCalls.filter(c => c.action === 'create_deal').pop()"); assert cd["network"] == {"kind": "group", "name": "Modality Test"} and "ods" not in cd and cd["deal"]["dealname"] == "Modality Test", cd
+    pg.click("#nd-done"); pg.wait_for_selector("#hs-modal.hidden", state="attached")
     pg.wait_for_timeout(500); pg.screenshot(path=SHOTS + "/netprofile.png")
     lp = pg.locator("#dr-body details:has-text('Linked practices')").first; assert lp.get_attribute("open") is not None and lp.locator("summary").inner_text().strip().endswith("3") and "Customer" in lp.inner_text()      # collapsible, customers tagged
     lp.locator("summary").click(); assert lp.get_attribute("open") is None; lp.locator("summary").click()
