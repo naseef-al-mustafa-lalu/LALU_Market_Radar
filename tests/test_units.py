@@ -566,6 +566,8 @@ def test_line_item_quantity_is_the_contract_basis():
     assert q == {"d1": 9500}      # only the Lalu Care product counts
     deals = {"d1": {"hs_is_closed_won": "true", "pipeline": "default", "closedate": "2026-01-01", "value_per_patient": "0.08"}}
     assert hsy.contract_terms(["d1"], deals, q)["line_qty"] == 9500
+    deals["d1"]["contracted_patient_list_size"] = "9400"
+    assert hsy.contract_terms(["d1"], deals, q)["contracted"] == 9400
     assert hsy.deal_line_quantities(type("Bad", (), {"call": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("403"))})(), ["d1"]) == {}      # no scope: the figure is simply absent
 
 

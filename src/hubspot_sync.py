@@ -149,7 +149,7 @@ def contract_terms(deal_ids, deals, line_qty=None):
         return None
     did, d = max(won, key=lambda x: _date(x[1].get("closedate")) or "")
     out = {"deal": d.get("dealname"), "closed": _date(d.get("closedate")), "amount": _num(d.get("amount")), "years": _num(d.get("term_length_years")),
-           "list_rate": _num(d.get("value_per_patient")), "net_rate": _num(d.get("actual_value_per_patient_calculated")), "line_qty": (line_qty or {}).get(did)}
+           "list_rate": _num(d.get("value_per_patient")), "net_rate": _num(d.get("actual_value_per_patient_calculated")), "line_qty": (line_qty or {}).get(did), "contracted": _num(d.get("contracted_patient_list_size"))}
     for k in ("size", "speed", "term_length", "referral"):
         out[k] = _num(d.get(f"{k}_discount"))
     out["total"] = _num(d.get("total_discount"))

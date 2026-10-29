@@ -9,7 +9,7 @@ const SORTERS = {
 // The size a customer signed for is the Lalu Care line item's quantity (the company's list size follows NHS, so it is only the fallback when there is no line item).
 function tierOfSize(n) { const t = cfgTiers.filter(x => x.route === "practice").sort((a, b) => a.tier - b.tier).find(x => n >= x.threshold); return t ? "Tier " + t.tier : ""; }
 function sizeDrift(p) {
-  const base = Number((p.hubspot_contract_terms || {}).line_qty) || Number(p.hubspot_list_size), now = Number(p.total_patients);
+  const t = p.hubspot_contract_terms || {}, base = Number(t.contracted) || Number(t.line_qty) || Number(p.hubspot_list_size), now = Number(p.total_patients);
   if (!p.hubspot_customer || !(base > 0) || !(now > 0)) return null;
   const pct = (now - base) / base, tb = tierOfSize(base), tn = tierOfSize(now);
   return { base, now, diff: now - base, pct, tb, tn, tierChanged: tb !== tn };
@@ -151,7 +151,7 @@ function termsBlock(p) {
 function driftRows(p) {      // what the customer signed for against today's NHS figure (the review flag is in expandRows)
   const d = sizeDrift(p); if (!d) return "";
   const sign = d.diff > 0 ? "+" : d.diff < 0 ? "−" : "", pct = Math.round(Math.abs(d.pct) * 1000) / 10, flag = d.tierChanged ? chip(`${d.tb.replace("Tier ", "T")} → ${d.tn.replace("Tier ", "T")}`, "bg-amber-100 text-amber-800") + " " : "";
-  const src = (p.hubspot_contract_terms || {}).line_qty ? "line item" : "HubSpot";
+  const t = p.hubspot_contract_terms || {}, src = t.contracted ? "contract" : t.line_qty ? "line item" : "HubSpot";
   return kv(`List size signed for <span class='text-slate-400'>(${src})</span>`, `<span class="font-mono">${d.base.toLocaleString()}</span> ${chip(d.tb.replace("Tier ", "T"), TIER_CLS[d.tb] || "")}`) +
     kv("Change since", `${flag}<span class="font-mono ${d.pct >= EXPAND_PCT ? "text-amber-700 font-semibold" : ""}">${sign}${Math.abs(d.diff).toLocaleString()} (${sign}${pct}%)</span>`);
 }
