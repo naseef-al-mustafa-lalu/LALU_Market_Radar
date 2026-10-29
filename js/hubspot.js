@@ -65,7 +65,9 @@ function hsSection(p, st) {
 
 /* ---------- the adaptive HubSpot bar on the price card: Add to HubSpot / Set up in HubSpot / Push pricing (n changes) / Manage in HubSpot ---------- */
 const hsInfo = {};   // ods -> { link, pair: {company, deal}, loading, error }
-const HS_WON_STAGES = new Set(["closedwon", "3135979736", "5300015315"]);   // Contract Signed (Sales), Closed Won (Conversion), Renewal Secured
+const HS_WON_STAGES = new Set(["closedwon", "3135979736", "5300015315"]);
+const hsIsWon = deal => HS_WON_STAGES.has(String((deal || {}).dealstage));   // a won deal is the signed contract: Atlas never changes it
+const HS_WON_MSG = "This deal is won, so it is the signed contract and Atlas will not change it. Any change has to be made by hand in HubSpot.";   // Contract Signed (Sales), Closed Won (Conversion), Renewal Secured
 const hsSame = (a, b) => hsNum(a) != null && Math.abs(hsNum(a) - b) < 1e-6;
 // Everything that differs between HubSpot and the tool for the current profile selection. `fixes` need approval; `writes` are always sent.
 function hsChanges(p, want, company, deal, pair) {
@@ -91,6 +93,7 @@ function hsBarHtml(p) {
   else if (!i.link && p.hubspot_commercial_model === "Freemium") { dot = "bg-teal-500"; text = "Freemium customer: no deal needed"; right = act("push", "Manage in HubSpot"); }
   else if (!i.link) { dot = "bg-amber-400"; text = "Company in HubSpot, no deal linked yet"; right = act("push", "Set up in HubSpot"); }
   else if (i.error) { dot = "bg-rose-500"; text = "Could not read the linked deal"; right = act("push", "Retry"); }
+  else if (i.pair && hsIsWon(i.pair.deal)) { dot = "bg-slate-400"; text = `${esc(i.pair.deal.dealname || "deal")}: won, locked. Change it in HubSpot`; right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", i.pair.deal.id, "Open deal")}${act("manage", "Manage in HubSpot")}</div>`; }
   else if (i.pair) {
     const { count } = hsChanges(p, hsDesired(p), i.pair.company, i.pair.deal, i.pair), name = esc(i.pair.deal.dealname || "deal");
     if (count) { dot = "bg-amber-400"; text = `${name}: ${count} change${count > 1 ? "s" : ""} to push`; right = act("push", `Push pricing <span class="ml-1 rounded-full bg-white/25 px-1.5">${count}</span>`); }

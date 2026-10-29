@@ -31,6 +31,7 @@ const LINE_READ = ["name", "hs_product_id", "quantity", "price", "discount", "hs
   "hs_recurring_billing_terms", "hs_recurring_billing_number_of_payments"];
 const DEAL_CREATE = new Set(["dealname", "pipeline", "dealstage", "dealtype", "product___service", "hubspot_owner_id", "closedate", "amount"]);
 const DEAL_TYPES = new Set(["newbusiness", "New Business GP eMR", "Existing Business - Freemium", "Existing Business - PAYG", "Existing Business - SAR Only", "Existing Business - GP eMR", "Renewal"]);
+const WON_STAGES = new Set(["closedwon", "3135979736", "5300015315"]);   // Contract Signed (Sales), Closed Won (Conversion), Renewal Secured
 const PRODUCT_SERVICE = new Set(["eMR", "eMR+"]);
 const ASSOC_DEAL_TO_COMPANY = 5, ASSOC_DEAL_TO_CONTACT = 3;   // HubSpot-defined association types
 const LEAD_PIPELINE = "1654501563", LEAD_STAGE_NEW = "2248591599";   // Prospecting Pipeline, stage New
@@ -360,6 +361,7 @@ Deno.serve(async (req) => {
         if (li.payments != null && !(Number.isInteger(li.payments) && li.payments >= 1 && li.payments <= 36)) throw new Fail("Invalid number of payments");
       }
       const before = await readPair(companyId, dealId);   // also proves the deal belongs to the company
+      if (WON_STAGES.has(String(before.deal.dealstage))) throw new Fail("This deal is won, so it is the signed contract and Atlas will not change it. Change it by hand in HubSpot.", 409);
       if (li && before.lineItems == null) throw new Fail("The HubSpot token cannot read line items: add the crm.objects.line_items.read and write scopes (and e-commerce for products). Nothing was written.");
       if (Object.keys(companyProps).length) await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: companyProps }) });
       if (Object.keys(dealProps).length) await hs(`/crm/v3/objects/deals/${dealId}`, { method: "PATCH", body: JSON.stringify({ properties: dealProps }) });

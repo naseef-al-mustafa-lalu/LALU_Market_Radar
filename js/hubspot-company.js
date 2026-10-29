@@ -203,6 +203,11 @@ async function hsLeadForm(company) {
 const monthlyNote = () => " p/month";
 function hsPreview() {
   hsTitle(hs.auto ? "Create deal" : "Push pricing");
+  if (hsIsWon(hs.deal)) {   // a won deal is read-only here
+    hsRender(`<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900" role="alert"><div class="font-semibold">${esc(hs.deal.dealname || "This deal")} is won</div><p class="mt-1 text-sm">${esc(HS_WON_MSG)}</p><p class="mt-2 text-sm">${hsLink("0-3", hs.deal.id, "Open the deal in HubSpot")}</p></div>
+      <div class="mt-4 flex justify-end"><button id="hs-cancel" class="rounded-lg border border-slate-300 px-3 py-2 font-semibold">Close</button></div>`);
+    $("hs-cancel").onclick = hsClose; return;
+  }
   const { p, want, company, deal } = hs, pctShow = v => v == null ? "not set" : pct(v / HS_PCT);
   const sameNum = hsSame;
   const row = (label, now, next, same, note = "") => `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2">${label}${note ? `<div class="text-xs text-slate-500">${note}</div>` : ""}</td><td class="py-1.5 px-2 text-right font-mono text-slate-600">${now}</td><td class="py-1.5 pl-2 text-right font-mono font-semibold ${same ? "text-slate-400" : "text-emerald-700"}">${same ? "no change" : next}</td></tr>`;

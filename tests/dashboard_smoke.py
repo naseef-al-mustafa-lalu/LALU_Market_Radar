@@ -310,10 +310,12 @@ with sync_playwright() as p:
       const deal = { id: '9', dealname: 'Sync Deal', size_tier: w.tier, commercial_model: w.model, value_per_patient: w.vpp, size_discount: hsPct(w.size), speed_discount: hsPct(w.speed), term_length_discount: hsPct(w.term), term_length_years: String(w.termYears), contracted_patient_list_size: String(w.line.quantity) };
       hsInfo['A10003'] = { link: { company_id: '1', deal_id: '9' }, pair: { company: { patient_list_size: String(p.total_patients) }, deal } }; hsRefreshBars(); const a = document.querySelector('#dr-hs .hs-bar').innerText;
       deal.size_tier = 'Tier 5'; hsRefreshBars(); const b = document.querySelector('#dr-hs .hs-bar').innerText;
-      delete deal.contracted_patient_list_size; deal.size_tier = w.tier; hsRefreshBars(); return [a, b, document.querySelector('#dr-hs .hs-bar').innerText]; }""")
+      delete deal.contracted_patient_list_size; deal.size_tier = w.tier; hsRefreshBars(); const c = document.querySelector('#dr-hs .hs-bar').innerText;
+      deal.dealstage = 'closedwon'; hsRefreshBars(); return [a, b, c, document.querySelector('#dr-hs .hs-bar').innerText]; }""")
     assert "in sync" in state[0] and "Push pricing" not in state[0] and "Manage in HubSpot" in state[0] and "Open deal" in state[0], state
     assert "1 change to push" in state[1] and "Push pricing" in state[1], state
-    assert "1 change to push" in state[2], state   # an unsigned deal with no contracted list size is offered one
+    assert "1 change to push" in state[2], state
+    assert "won, locked" in state[3] and "Push pricing" not in state[3], state      # a won deal cannot be pushed to   # an unsigned deal with no contracted list size is offered one
     # practices that are not in HubSpot: filter, flag, create
     pg.select_option("#f-hs", "missing", force=True); assert pg.locator("#rows tr:has-text('Test Surgery 1')").count() == 0 and pg.locator("#rows tr:has-text('Test Surgery 2')").count() == 1
     pg.click("#rows tr:has-text('Test Surgery 2')"); pg.wait_for_selector('#dr-hs .hs-bar [data-hs-act="create"]'); assert "No company record" in pg.inner_text("#dr-body")
