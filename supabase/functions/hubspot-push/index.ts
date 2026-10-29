@@ -361,6 +361,7 @@ Deno.serve(async (req) => {
         if (li.payments != null && !(Number.isInteger(li.payments) && li.payments >= 1 && li.payments <= 36)) throw new Fail("Invalid number of payments");
       }
       const before = await readPair(companyId, dealId);   // also proves the deal belongs to the company
+      if (before.deal.contracted_patient_list_size && String(before.deal.contracted_patient_list_size).trim() !== "") delete dealProps.contracted_patient_list_size;   // set once: a figure already on the deal is never changed
       if (WON_STAGES.has(String(before.deal.dealstage))) throw new Fail("This deal is won, so it is the signed contract and Atlas will not change it. Change it by hand in HubSpot.", 409);
       if (li && before.lineItems == null) throw new Fail("The HubSpot token cannot read line items: add the crm.objects.line_items.read and write scopes (and e-commerce for products). Nothing was written.");
       if (Object.keys(companyProps).length) await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: companyProps }) });
