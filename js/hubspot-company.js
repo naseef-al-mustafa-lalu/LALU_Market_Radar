@@ -214,7 +214,7 @@ function hsPreview() {
   const ch = hsChanges(p, want, company, deal, hs), checks = ch.fixes, diffs = checks.filter(c => !c.same), line = ch.line, w = want.line;
   const warn = diffs.length ? `<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3"><label class="flex items-start gap-2"><input id="hs-fix-all" type="checkbox" class="mt-0.5" checked>
         <span class="font-semibold text-amber-900">Update HubSpot to match the tool <span class="font-normal text-xs">(${diffs.length} field${diffs.length > 1 ? "s" : ""})</span></span></label>
-      <ul class="mt-2 space-y-1 text-sm">${diffs.map(c => `<li class="flex justify-between gap-3"><span class="text-amber-900">${c.label}</span><span class="font-mono">${esc(c.now)} <span class="text-slate-400">→</span> <b>${esc(c.next)}</b></span></li>`).join("")}</ul>
+      <ul class="mt-2 space-y-1 text-sm">${diffs.map(c => `<li class="flex justify-between gap-3"><span class="text-amber-900">${c.label}${c.warn ? `<span class="mt-0.5 block text-xs font-semibold text-rose-700">⚠ ${esc(c.warn)}</span>` : ""}</span><span class="font-mono">${esc(c.now)} <span class="text-slate-400">→</span> <b>${esc(c.next)}</b></span></li>`).join("")}</ul>
       <div class="mt-1 text-xs text-amber-800">Check this is the right company and deal before writing. Untick to leave these fields alone.</div></div>`
     : '<div class="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">List size, contracted list size, size tier, commercial model and value per patient all match the tool.</div>';
   // Sectioned preview: who it goes to, what changes (before -> after), the line item as a card, and what HubSpot will recalculate.

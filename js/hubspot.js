@@ -76,9 +76,10 @@ function hsChanges(p, want, company, deal, pair) {
     { id: "tier", label: "Deal size tier", now: deal.size_tier || "not set", next: want.tier, same: deal.size_tier === want.tier },
     { id: "cm", label: "Deal commercial model", now: HS_MODELS[deal.commercial_model] || deal.commercial_model || "not set", next: want.modelLabel, same: deal.commercial_model === want.model },
     { id: "vpp", label: "Deal value per patient", now: deal.value_per_patient || "not set", next: want.vpp, same: deal.value_per_patient === want.vpp }];
-  // The static size the contract is signed for: set once, when the deal has none. A figure already on the deal is never changed.
+  // The static size the contract is signed for. On an open deal a push brings it in line with the quote, and warns when that replaces a figure already there (won deals never reach here: they are locked).
   const have = hsNum(deal.contracted_patient_list_size);
-  if (have == null) fixes.push({ id: "cls", label: "Deal contracted list size", now: have != null ? have.toLocaleString() : "not set", next: want.line.quantity.toLocaleString(), same: have === want.line.quantity });
+  fixes.push({ id: "cls", label: "Deal contracted list size", now: have != null ? have.toLocaleString() : "not set", next: want.line.quantity.toLocaleString(), same: have === want.line.quantity,
+    warn: have != null && have !== want.line.quantity ? "Replaces the contracted list size already on this deal. Only do this if the quote, not the contract, has changed." : "" });
   const writes = [hsSame(deal.size_discount, hsPct(want.size)), hsSame(deal.speed_discount, hsPct(want.speed)), hsSame(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), hsSame(deal.referral_discount || 0, hsPct(want.referral))];
   const line = hsLineStatus(want, pair);
   return { fixes, writes, line, count: fixes.filter(f => !f.same).length + writes.filter(s => !s).length + (line.unreadable || line.same ? 0 : 1) };

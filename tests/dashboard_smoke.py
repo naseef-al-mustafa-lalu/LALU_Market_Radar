@@ -319,7 +319,8 @@ with sync_playwright() as p:
     cs = pg.evaluate("() => { const p = byOds.get('A10004'); p.hubspot_contract_terms.contracted = 9400; const h = contractSection(p); delete p.hubspot_contract_terms.contracted; return h.replace(/<[^>]+>/g, ' '); }")
     assert "Contracted list size" in cs and "9,400" in cs and "signed for" not in cs, cs      # the fixed size from the won deal is in the Contract section
     assert pg.evaluate("""() => { const p = practices.find(x => x.ods_code === 'A10003'), w = hsDesired(p), mk = v => ({ dealname: 'd', contracted_patient_list_size: v });
-      const f = d => hsChanges(p, w, { patient_list_size: String(p.total_patients) }, d, { company: {}, deal: d }).fixes.filter(x => x.id === 'cls' && !x.same).length; return [f(mk('1234')), f(mk(''))]; }""") == [0, 1]   # a figure already on the deal is never changed; an empty one is filled
+      const f = d => hsChanges(p, w, { patient_list_size: String(p.total_patients) }, d, { company: {}, deal: d }).fixes.filter(x => x.id === 'cls' && !x.same).length; const warn = hsChanges(p, w, { patient_list_size: String(p.total_patients) }, mk('1234'), { company: {}, deal: mk('1234') }).fixes.find(x => x.id === 'cls').warn, none = hsChanges(p, w, { patient_list_size: String(p.total_patients) }, mk(''), { company: {}, deal: mk('') }).fixes.find(x => x.id === 'cls').warn;
+      return [f(mk('1234')), f(mk('')), !!warn, !!none]; }""") == [1, 1, True, False]   # an open deal's figure is replaced, with a warning; filling an empty one needs none
     # practices that are not in HubSpot: filter, flag, create
     pg.select_option("#f-hs", "missing", force=True); assert pg.locator("#rows tr:has-text('Test Surgery 1')").count() == 0 and pg.locator("#rows tr:has-text('Test Surgery 2')").count() == 1
     pg.click("#rows tr:has-text('Test Surgery 2')"); pg.wait_for_selector('#dr-hs .hs-bar [data-hs-act="create"]'); assert "No company record" in pg.inner_text("#dr-body")
