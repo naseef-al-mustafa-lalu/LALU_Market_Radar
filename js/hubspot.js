@@ -65,6 +65,7 @@ function hsSection(p, st) {
 
 /* ---------- the adaptive HubSpot bar on the price card: Add to HubSpot / Set up in HubSpot / Push pricing (n changes) / Manage in HubSpot ---------- */
 const hsInfo = {};   // ods -> { link, pair: {company, deal}, loading, error }
+const HS_WON_STAGES = new Set(["closedwon", "3135979736", "5300015315"]);   // Contract Signed (Sales), Closed Won (Conversion), Renewal Secured
 const hsSame = (a, b) => hsNum(a) != null && Math.abs(hsNum(a) - b) < 1e-6;
 // Everything that differs between HubSpot and the tool for the current profile selection. `fixes` need approval; `writes` are always sent.
 function hsChanges(p, want, company, deal, pair) {
@@ -73,6 +74,9 @@ function hsChanges(p, want, company, deal, pair) {
     { id: "tier", label: "Deal size tier", now: deal.size_tier || "not set", next: want.tier, same: deal.size_tier === want.tier },
     { id: "cm", label: "Deal commercial model", now: HS_MODELS[deal.commercial_model] || deal.commercial_model || "not set", next: want.modelLabel, same: deal.commercial_model === want.model },
     { id: "vpp", label: "Deal value per patient", now: deal.value_per_patient || "not set", next: want.vpp, same: deal.value_per_patient === want.vpp }];
+  // The static size the contract is signed for. A signed deal already holds the contract's figure, so it is only offered when empty; an open deal is kept in step with the quote.
+  const signed = HS_WON_STAGES.has(String(deal.dealstage)), have = hsNum(deal.contracted_patient_list_size);
+  if (!signed || have == null) fixes.push({ id: "cls", label: "Deal contracted list size", now: have != null ? have.toLocaleString() : "not set", next: want.line.quantity.toLocaleString(), same: have === want.line.quantity });
   const writes = [hsSame(deal.size_discount, hsPct(want.size)), hsSame(deal.speed_discount, hsPct(want.speed)), hsSame(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), hsSame(deal.referral_discount || 0, hsPct(want.referral))];
   const line = hsLineStatus(want, pair);
   return { fixes, writes, line, count: fixes.filter(f => !f.same).length + writes.filter(s => !s).length + (line.unreadable || line.same ? 0 : 1) };

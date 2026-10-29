@@ -113,7 +113,7 @@ def _date(v):
     return None
 
 
-TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "total_discount", "term_length_years", "value_per_patient", "actual_value_per_patient_calculated", "product___service", "commercial_model"]
+TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "total_discount", "term_length_years", "value_per_patient", "actual_value_per_patient_calculated", "product___service", "commercial_model", "contracted_patient_list_size"]
 
 
 LALU_PRODUCTS = {"440423339237", "440425147578", "440434162881", "440498134244"}   # the four Lalu Care products: a deal's line item quantity is the patients it bills
@@ -406,8 +406,11 @@ def _price(v):
 
 
 def contract_patients(deal, qty=None, ref=None):
-    """Patients a won deal contracts for: its Lalu Care line item quantity when there is one, else the Amount (a year's price) over twelve months of the net price per patient.
-    The deal's own Patient List Size is no use: HubSpot keeps syncing it from the company, so it drifts after signing."""
+    """Patients a won deal contracts for, best source first: the deal's own Contracted Patient List Size (a static figure that matches the signed contract; HubSpot's Patient List Size is synced
+    from the company, so it drifts), then its Lalu Care line item quantity, else the Amount (a year's price) over twelve months of the net price per patient."""
+    fixed = _num(deal.get("contracted_patient_list_size"))
+    if fixed and fixed > 0 and (not ref or 0.35 * ref <= fixed <= 2.5 * ref):   # a group deal's figure far from this practice's own size is not this practice's contract
+        return int(fixed)
     if qty:
         return int(qty)
     amount, net, tot = _num(deal.get("amount")), _num(deal.get("actual_value_per_patient_calculated")), _num(deal.get("total_discount"))

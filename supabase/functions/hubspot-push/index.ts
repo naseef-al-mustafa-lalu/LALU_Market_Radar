@@ -19,9 +19,9 @@ const COMPANY_STATUS = new Set(["Prospective Customer"]);   // the only status a
 const NETWORK_TYPES = new Set(["p145802630_pcns", "p145802630_icbs"]);
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const DEAL_READ = ["dealname", "dealstage", "amount", "size_tier", "size_discount", "speed_discount", "term_length_discount", "term_length_years",
-  "total_discount", "referral_discount", "value_per_patient", "actual_value_per_patient_calculated", "patient_list_size", "commercial_model"];
+  "total_discount", "referral_discount", "value_per_patient", "actual_value_per_patient_calculated", "patient_list_size", "commercial_model", "contracted_patient_list_size"];
 const COMPANY_WRITE = new Set(["patient_list_size"]);
-const DEAL_WRITE = new Set(["size_tier", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "term_length_years", "value_per_patient", "commercial_model"]);
+const DEAL_WRITE = new Set(["size_tier", "size_discount", "speed_discount", "term_length_discount", "referral_discount", "term_length_years", "value_per_patient", "commercial_model", "contracted_patient_list_size"]);   // contracted_patient_list_size: the static size the contract was signed for
 const COMMERCIAL_MODEL = new Set(["Subscription", "eMR+ SAR Only"]);   // ReportSure - MS - All Reports / ReportSure - MS - SAR Only
 const VALUE_PER_PATIENT = new Set(["£0.05", "£0.06", "£0.07", "£0.08", "£0.10"]);
 
@@ -200,7 +200,7 @@ async function linkIntoGroup(admin: any, ods: string, dealId: string, warnings: 
 // Atlas's audit trail: every change it makes to a HubSpot record leaves a note on that record saying who, when, and what changed from and to.
 const NOTE_TO: Record<string, number> = { companies: 190, deals: NOTE_TO_DEAL, contacts: 202 };   // HubSpot-defined association types: note -> company / deal / contact
 const LABELS: Record<string, string> = { patient_list_size: "Patient List Size", size_tier: "Size tier", size_discount: "Size discount", speed_discount: "Speed discount", term_length_discount: "Term discount",
-  referral_discount: "Referral discount", term_length_years: "Term length (years)", value_per_patient: "Value per patient", commercial_model: "Commercial model", org_type: "Org Type", operating_status: "Operating status",
+  referral_discount: "Referral discount", term_length_years: "Term length (years)", value_per_patient: "Value per patient", commercial_model: "Commercial model", contracted_patient_list_size: "Contracted list size", org_type: "Org Type", operating_status: "Operating status",
   partner_organisation_code: "GP ODS Code", dealname: "Deal name", dealstage: "Deal stage", pipeline: "Pipeline", dealtype: "Deal type", product___service: "Product / Service", amount: "Amount", closedate: "Close date", hubspot_owner_id: "Owner" };
 const esc = (t: unknown) => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const show = (v: unknown) => (v === null || v === undefined || v === "") ? "blank" : String(v);
@@ -347,6 +347,7 @@ Deno.serve(async (req) => {
       if ("commercial_model" in dealProps && !COMMERCIAL_MODEL.has(String(dealProps.commercial_model))) throw new Fail("Unsupported Commercial Model option");
       if ("term_length_years" in dealProps && !["1", "2", "3"].includes(String(dealProps.term_length_years))) throw new Fail("Term length must be 1, 2 or 3");
       if ("size_tier" in dealProps && !/^Tier [1-5]$/.test(String(dealProps.size_tier))) throw new Fail("Invalid size tier");
+      if ("contracted_patient_list_size" in dealProps && !(Number.isInteger(Number(dealProps.contracted_patient_list_size)) && Number(dealProps.contracted_patient_list_size) > 0 && Number(dealProps.contracted_patient_list_size) <= 2000000)) throw new Fail("Invalid contracted list size");
       if ("patient_list_size" in companyProps && !(Number(companyProps.patient_list_size) >= 0)) throw new Fail("Invalid list size");
 
       const li = b.lineItem ?? null;

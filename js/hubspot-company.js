@@ -211,7 +211,7 @@ function hsPreview() {
         <span class="font-semibold text-amber-900">Update HubSpot to match the tool <span class="font-normal text-xs">(${diffs.length} field${diffs.length > 1 ? "s" : ""})</span></span></label>
       <ul class="mt-2 space-y-1 text-sm">${diffs.map(c => `<li class="flex justify-between gap-3"><span class="text-amber-900">${c.label}</span><span class="font-mono">${esc(c.now)} <span class="text-slate-400">→</span> <b>${esc(c.next)}</b></span></li>`).join("")}</ul>
       <div class="mt-1 text-xs text-amber-800">Check this is the right company and deal before writing. Untick to leave these fields alone.</div></div>`
-    : '<div class="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">List size, size tier, commercial model and value per patient all match the tool.</div>';
+    : '<div class="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900">List size, contracted list size, size tier, commercial model and value per patient all match the tool.</div>';
   // Sectioned preview: who it goes to, what changes (before -> after), the line item as a card, and what HubSpot will recalculate.
   const sectionCard = (title, badge, inner) => `<section class="mt-3 rounded-xl border border-slate-200 p-3"><div class="mb-1 flex items-center justify-between"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">${title}</h4>${badge}</div>${inner}</section>`;
   const badge = n => n ? `<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">${n} change${n > 1 ? "s" : ""}</span>` : '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">no changes</span>';
@@ -269,6 +269,7 @@ async function hsWrite(checks) {
   if (ticked("cm")) dealProps.commercial_model = want.model;
   if (ticked("vpp")) dealProps.value_per_patient = want.vpp;
   if (ticked("ls")) companyProps.patient_list_size = p.total_patients;
+  if (ticked("cls")) dealProps.contracted_patient_list_size = want.line.quantity;
   $("hs-write").disabled = true; $("hs-write").textContent = "Writing…"; msg.innerHTML = "";
   try {
     const w = want.line, wr = await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps, referral,

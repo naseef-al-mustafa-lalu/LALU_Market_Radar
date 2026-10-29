@@ -302,11 +302,13 @@ with sync_playwright() as p:
     # the adaptive HubSpot bar: in sync vs changes to push
     pg.click("#rows tr:has-text('Test Surgery 3')"); pg.wait_for_selector("#dr-hs .hs-bar"); pg.wait_for_selector("#dr-body details.dtile"); sg = pg.inner_text("#dr-body"); assert "Records Clerk" in sg and "Hiring" in sg; pg.evaluate("document.querySelector('#dr-body').scrollTop = 250"); pg.screenshot(path=SHOTS + "/signals-tiles.png")
     state = pg.evaluate("""() => { const p = practices.find(x => x.ods_code === 'A10003'), w = hsDesired(p);
-      const deal = { id: '9', dealname: 'Sync Deal', size_tier: w.tier, commercial_model: w.model, value_per_patient: w.vpp, size_discount: hsPct(w.size), speed_discount: hsPct(w.speed), term_length_discount: hsPct(w.term), term_length_years: String(w.termYears) };
+      const deal = { id: '9', dealname: 'Sync Deal', size_tier: w.tier, commercial_model: w.model, value_per_patient: w.vpp, size_discount: hsPct(w.size), speed_discount: hsPct(w.speed), term_length_discount: hsPct(w.term), term_length_years: String(w.termYears), contracted_patient_list_size: String(w.line.quantity) };
       hsInfo['A10003'] = { link: { company_id: '1', deal_id: '9' }, pair: { company: { patient_list_size: String(p.total_patients) }, deal } }; hsRefreshBars(); const a = document.querySelector('#dr-hs .hs-bar').innerText;
-      deal.size_tier = 'Tier 5'; hsRefreshBars(); return [a, document.querySelector('#dr-hs .hs-bar').innerText]; }""")
+      deal.size_tier = 'Tier 5'; hsRefreshBars(); const b = document.querySelector('#dr-hs .hs-bar').innerText;
+      delete deal.contracted_patient_list_size; deal.size_tier = w.tier; hsRefreshBars(); return [a, b, document.querySelector('#dr-hs .hs-bar').innerText]; }""")
     assert "in sync" in state[0] and "Push pricing" not in state[0] and "Manage in HubSpot" in state[0] and "Open deal" in state[0], state
     assert "1 change to push" in state[1] and "Push pricing" in state[1], state
+    assert "1 change to push" in state[2], state   # an unsigned deal with no contracted list size is offered one
     # practices that are not in HubSpot: filter, flag, create
     pg.select_option("#f-hs", "missing", force=True); assert pg.locator("#rows tr:has-text('Test Surgery 1')").count() == 0 and pg.locator("#rows tr:has-text('Test Surgery 2')").count() == 1
     pg.click("#rows tr:has-text('Test Surgery 2')"); pg.wait_for_selector('#dr-hs .hs-bar [data-hs-act="create"]'); assert "No company record" in pg.inner_text("#dr-body")

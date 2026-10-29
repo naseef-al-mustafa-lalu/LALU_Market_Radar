@@ -760,6 +760,8 @@ def test_contract_patients_come_from_the_contract_not_the_synced_deal_size():
     assert c({"amount": "12096", "actual_value_per_patient_calculated": "0.0720", "value_per_patient": "£0.08"}) == 14000 and c({"amount": "5000", "value_per_patient": "Other"}) is None
     assert c({"amount": "1", "value_per_patient": "£0.08"}, 9500) == 9500 and c({"amount": "5760", "value_per_patient": "£0.08", "total_discount": "0.1"}) == 6667
     assert c({"amount": "132800", "value_per_patient": "£0.08"}, None, 15369) is None and c({"amount": "13280", "value_per_patient": "£0.08"}, None, 14000) == 13833      # a deal far from the practice's own list size is not taken as its contract
+    assert c({"contracted_patient_list_size": "17300", "amount": "12456", "value_per_patient": "£0.08"}, 17151, 17151) == 17300      # the signed figure on the deal wins over the line item and the Amount
+    assert c({"contracted_patient_list_size": "500000"}, None, 15369) is None and c({"contracted_patient_list_size": "500000"}, 9500, 15369) == 9500      # a group figure far from the practice's own size is ignored
 
 
 def test_freemium_services_start_when_the_service_record_was_created():
