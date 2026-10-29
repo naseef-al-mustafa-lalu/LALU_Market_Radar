@@ -219,6 +219,8 @@ Pushing pricing also keeps one **Lalu Care line item** on the deal (the tool rec
 
 **Won deals are locked.** Atlas never pushes to a deal in a won stage (Contract Signed, Closed Won, Renewal Secured). The HubSpot strip reads *won, locked. Change it in HubSpot*, the push dialog shows a warning with a link to the deal instead of a preview, and `hubspot-push` refuses a `write` to a won deal (HTTP 409) whatever the dashboard sends. A signed contract is changed by hand in HubSpot.
 
+**Audiences never include customers.** `audPractices` (`js/audiences.js`) drops every practice that is a HubSpot customer (paying or freemium) from signal and custom audiences, hand-picked ones included; the audience header says how many were left out. A practice already *Engaged* in HubSpot (not a customer) carries a blue **Engaged** tag in the list, so the owner can be checked before it is sequenced.
+
 ### Creating a deal from the tool
 
 When a company has no deal (or the right one is missing), **Link deal > + Create a new deal** opens a form where every field is editable: deal name (default "lead contact - company"), pipeline and stage (default Sales Pipeline / New), deal type (New Business), product / service (ReportSure - Managed Service), owner (the signed-in user's HubSpot owner, matched by email), close date (today + 60 days), amount (the calculator's annual revenue) and which of the company's contacts (up to 5) to associate. Creating the deal ("Create deal and push pricing") writes the pricing straight away on the same page (size tier, value per patient, commercial model, discounts, term and the line item) and checks it against HubSpot, with no second confirmation. Needs the token scope `crm.objects.owners.read` to list owners.

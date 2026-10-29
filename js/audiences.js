@@ -7,7 +7,10 @@ const AUD_LOCKS = ["approved", "enrolled"], AUD_PAGE = 100, AUD_EXPAND_ALL = 25;
 const AUD_ROLES = [["all", "All roles"], ["manager", "Practice managers"], ["clinical", "GPs and clinicians"], ["other", "Other"]];
 const audRoleOf = t => /manager|practice lead|administrator|business partner/i.test(t || "") ? "manager" : /\b(gp|general practitioner|doctor|dr\.?|partner|nurse|clinical|pharmacist|paramedic)\b/i.test(t || "") ? "clinical" : "other";
 const audCriteria = a => (a.filters && a.filters.criteria) || null, audPinned = a => (a.filters && a.filters.pinned) || [];
-function audPractices(a) {
+// Customers (paying or freemium) are never in an audience: they are left out of both signal and custom audiences, hand-picked ones included.
+const audIsCustomer = ods => !!(byOds.get(ods) || {}).hubspot_customer;
+const audPractices = a => audPracticesAll(a).filter(r => !audIsCustomer(r.ods)), audLeftOut = a => audPracticesAll(a).filter(r => audIsCustomer(r.ods)).length;
+function audPracticesAll(a) {
   if (a.kind === "signal") {
     const m = new Map();
     for (const s of signals.filter(s => s.trigger_type === a.signal_type && s.ods_code && ["new", "in_progress"].includes(s.status || "new"))) (m.get(s.ods_code) || m.set(s.ods_code, []).get(s.ods_code)).push(s);
@@ -80,6 +83,7 @@ function audienceDetail(a) {
     return `<div class="border-t border-slate-100 first:border-0"><div class="flex items-center hover:bg-slate-50"><button type="button" class="aud-row flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left" data-ods="${esc(ods)}" aria-expanded="${open}">
       <span class="inline-block text-slate-400 transition-transform ${open ? "rotate-90" : ""}">▸</span>
       <span class="min-w-0 flex-1"><span class="block truncate font-semibold">${esc(p ? p.practice_name : ods)}</span><span class="block truncate text-xs text-slate-500">${esc(sub)}</span></span>
+      ${p && hsState(p) === "engaged" ? `<span class="shrink-0 rounded-full ${HS_CLS.engaged} px-2 py-0.5 text-[11px] font-semibold" title="Already engaged in HubSpot: check with the owner before sequencing">Engaged</span>` : ""}
       ${mine ? `<span class="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">${mine} approved</span>` : ""}</button>
       ${pinned ? `<button type="button" class="aud-unpin mr-3 shrink-0 text-xs text-slate-400 hover:text-rose-700" data-ods="${esc(ods)}" title="Remove this practice from the audience">Remove</button>` : ""}</div>
       ${open ? `<div class="bg-slate-50 px-4 pb-3 pt-1" data-rows="${esc(ods)}">${audContactsHtml(a, ods)}</div>` : ""}</div>`;
@@ -89,6 +93,7 @@ function audienceDetail(a) {
       <span class="text-sm text-slate-500">${all.length.toLocaleString()} practice${all.length === 1 ? "" : "s"} · ${audApproved(a)} contact${audApproved(a) === 1 ? "" : "s"} approved</span>
       ${custom ? '<span class="ml-auto flex gap-2"><button type="button" class="aud-rename rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Rename</button><button type="button" class="aud-delete rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">Delete</button></span>' : ""}</div>
     ${custom ? `<p class="mb-3 text-xs text-slate-500">${crit ? "Live filter: " + esc(crit) : "Hand-picked practices"}${crit && audPinned(a).length ? ` plus ${audPinned(a).length} hand-picked` : ""}. Practices that start matching appear here automatically.</p>` : ""}
+    ${audLeftOut(a) ? `<p class="mb-3 text-xs text-slate-500">${audLeftOut(a).toLocaleString()} customer${audLeftOut(a) === 1 ? " is" : "s are"} left out: customers are never added to an audience.</p>` : ""}
     ${audSequenceRow(a)}${audTestNote(a)}${audNotice ? `<p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">${esc(audNotice)}</p>` : ""}
     <div class="mb-3 flex flex-wrap items-center gap-3">${audRoleBar()}<span class="ml-auto flex items-center gap-2"><button type="button" class="aud-expand-all rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Expand first ${AUD_EXPAND_ALL}</button>
       ${ticked ? `<button type="button" class="aud-skip-all rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-slate-50">Skip ${ticked} ticked</button><button type="button" class="aud-approve-all rounded-md border border-lalu-navy bg-white px-3 py-1 text-xs font-semibold text-lalu-navy hover:bg-slate-50">Approve ${ticked} ticked</button><button type="button" class="aud-enrol-all rounded-md bg-lalu-navy px-3 py-1 text-xs font-semibold text-white hover:bg-lalu-navy-700">Approve and enrol ${ticked}</button>` : ""}</span></div>
