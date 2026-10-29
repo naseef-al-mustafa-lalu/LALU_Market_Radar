@@ -23,9 +23,9 @@ function expansionFlag(p) {
   return { ...d, signed: t.closed || null, from, due: !from || from <= new Date() };
 }
 const readFilters = () => ({ drift: $("f-drift").value, q: $("f-search").value.trim().toLowerCase(), tier: $("f-tier").value, sw: $("f-sw").value, hs: $("f-hs").value, cqc: $("f-cqc").value, icb: $("f-icb").value, country: $("f-country").value,
-  size: $("f-size").value, st: $("f-status").value, sig: $("f-sig").checked, grp: $("f-grp").checked, net: netFilter });
+  size: $("f-size").value, st: $("f-status").value, sig: $("f-sig").checked, grp: $("f-grp").checked, closed: $("f-closed").checked, net: netFilter });
 function matchPractice(p, f, hits) {
-  return (f.st === "all" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : p.status === "Active" && !p.merged_into && !isClosed(p))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
+  return (f.st === "all" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : !p.merged_into && (isClosed(p) ? f.closed : p.status === "Active"))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
     (!f.sw || p.clinical_software === f.sw) && (!f.hs || (f.hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === f.hs)) &&
     (!f.cqc || (f.cqc === "None" ? !p.cqc_rating : p.cqc_rating === f.cqc)) && (!f.icb || p.icb_name === f.icb) && (!f.country || (p.country || "England") === f.country) && (!f.size || (f.size === "yes") === (p.total_patients > 0)) &&
     (!f.drift || (f.drift === "expand" ? !!(expansionFlag(p) || {}).due : (d => d && d.tierChanged)(sizeDrift(p)))) && (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
@@ -36,8 +36,14 @@ function applyFilters() {
   const bHits = q.length >= 3 ? branches.filter(b => [b.branch_name, b.branch_code, b.postcode, b.town].some(v => (v || "").toLowerCase().includes(q))) : [];
   branchHit = new Map();
   for (const b of bHits) if (b.practice_code && branchRes(b) !== "other" && branchRes(b) !== "shared" && (branchSite(b) || branchDupe(b))) branchHit.set(b.practice_code, [...(branchHit.get(b.practice_code) || []), b.branch_name]);
+  // a merged practice is found as the practice it became: searching its name or code lists the surviving practice
+  mergedHit = new Map();
+  if (q.length >= 2) for (const m of practices) if (m.merged_into && [m.practice_name, m.ods_code, m.postcode, m.town].some(v => (v || "").toLowerCase().includes(q))) {
+    let t = byOds.get(m.merged_into), hops = 0; while (t && t.merged_into && hops++ < 5) t = byOds.get(t.merged_into);
+    if (t && t.ods_code !== m.ods_code) mergedHit.set(t.ods_code, [...(mergedHit.get(t.ods_code) || []), m.practice_name]);
+  }
   renderBranchHits(bHits.filter(b => !(b.practice_code && (branchSite(b) || branchDupe(b)))));
-  filtered = practices.filter(p => matchPractice(p, flt, branchHit));
+  filtered = practices.filter(p => matchPractice(p, flt, { has: c => branchHit.has(c) || mergedHit.has(c) }));
   const f = SORTERS[sort.key], by = (a, b) => { const x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || b.total_patients - a.total_patients; };
   filtered.sort(by);
   renderChips(); renderSortHeaders();
@@ -61,9 +67,11 @@ const siteDetails = b => `<div class="text-sm py-1"><div class="font-semibold">$
 function branchSection(p) {
   const list = branchesByParent.get(p.ods_code), also = branchAlso.get(p.ods_code);
   const dupes = also ? `<div class="mt-2 text-xs text-slate-500">Also listed in ODS by ${[...new Set(also.map(b => b.parent_name || b.parent_code))].map(esc).join(", ")}${also.some(b => b.match_status === "probable") ? " (some matches are probable, not confirmed)" : ""}. These repeat this practice or one of its sites, so they are not counted again.</div>` : "";
-  if (!list && !also) return "";
-  const n = (list || []).length;
-  return `<details class="branch-card group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Branch sites</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${n || "0"} ${n === 1 ? "site" : "sites"}</span></summary><div class="mt-2">${(list || []).map(siteDetails).join("") + dupes}</div></details>`;
+  const kids = absorbedBy(p.ods_code);
+  if (!list && !also && !kids.length) return "";
+  const n = (list || []).length + kids.length;
+  const merged = kids.map(k => `<div class="text-sm py-1"><div class="font-semibold"><a href="#" data-open="${esc(k.ods_code)}" class="hover:underline">${esc(k.practice_name)}</a> <span class="font-mono text-xs text-slate-500">${esc(k.ods_code)}</span> ${chip("Merged" + (k.merged_at ? " " + fmtDate(k.merged_at) : ""), "bg-indigo-100 text-indigo-800", "Its patients are counted in this practice's list")}</div><div class="text-xs text-slate-500">${[k.address, k.town, k.postcode].filter(Boolean).map(esc).join(", ")}</div></div>`).join("");
+  return `<details class="branch-card group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Branch sites</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${n || "0"} ${n === 1 ? "site" : "sites"}</span></summary><div class="mt-2">${(list || []).map(siteDetails).join("") + merged + dupes}</div></details>`;
 }
 function renderChips() {
   const box = $("f-chips"); box.innerHTML = "";
@@ -76,6 +84,7 @@ function renderChips() {
   if ($("f-search").value.trim()) add("Search: " + $("f-search").value.trim(), () => { $("f-search").value = ""; applyFilters(); });
   sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country"); sel("f-size", "List size"); sel("f-drift", "Contract size"); sel("f-status", "Status");
   if ($("f-sig").checked) add("Has recent signals", () => { $("f-sig").checked = false; applyFilters(); });
+  if ($("f-closed").checked) add("Showing closed", () => { $("f-closed").checked = false; applyFilters(); });
   if ($("f-grp").checked) add("Group-run only", () => { $("f-grp").checked = false; applyFilters(); });
   const nf = box.querySelectorAll(".chip").length - ($("f-search").value.trim() ? 1 : 0) - (netFilter ? 1 : 0), badge = $("f-badge");      // filters inside the panel (search and a network have their own place)
   badge.textContent = nf; badge.classList.toggle("hidden", nf < 1);
@@ -86,7 +95,7 @@ function renderChips() {
 }
 function clearFilters() {
   for (const id of ["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-drift", "f-status"]) $(id).value = "";
-  $("f-sig").checked = false; $("f-grp").checked = false; netFilter = null; fromNetworks = false; applyFilters();
+  $("f-sig").checked = false; $("f-grp").checked = false; $("f-closed").checked = false; netFilter = null; fromNetworks = false; applyFilters();
 }
 function renderSortHeaders() {
   document.querySelectorAll("#view-practices th[data-sort]").forEach(th => {
@@ -103,7 +112,7 @@ $("f-done").onclick = () => filterPanel(false);
 $("f-clear").onclick = () => { clearFilters(); };
 document.addEventListener("click", e => { if (!$("f-more").classList.contains("hidden") && !e.target.closest("#f-more, #f-more-btn")) filterPanel(false); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("f-more").classList.contains("hidden")) filterPanel(false); });
-["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-drift", "f-status", "f-sig", "f-grp"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
+["f-search", "f-tier", "f-sw", "f-hs", "f-cqc", "f-icb", "f-country", "f-size", "f-drift", "f-status", "f-sig", "f-grp", "f-closed"].forEach(id => $(id).addEventListener(id === "f-search" ? "input" : "change", applyFilters));
 
 /* ---------- practices: compact rows ---------- */
 function networkCell(p) {
@@ -177,7 +186,7 @@ function renderMore() {
     tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer" + (p.ods_code === drawerCode ? " bg-lalu-teal-50" : "");
     const sig = signalCounts.get(p.ods_code), hasN = p.total_patients > 0;
     tr.innerHTML = `
-      <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${branchHit.has(p.ods_code) ? " " + chip("Branch: " + branchHit.get(p.ods_code)[0] + (branchHit.get(p.ods_code).length > 1 ? " +" + (branchHit.get(p.ods_code).length - 1) : ""), "bg-sky-100 text-sky-800", "A branch surgery of this practice matched your search") : ""}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}${p.merged_into ? " " + chip("Merged → " + ((byOds.get(p.merged_into) || {}).practice_name || p.merged_into), "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : mergeSugg.has(p.ods_code) || closureCands.has(p.ods_code) ? " " + chip("May have closed or merged", "bg-amber-100 text-amber-800", "Review in Signals > Closures and mergers") : ""}</div>
+      <td class="px-3 py-2"><div class="font-semibold text-slate-900 leading-tight">${esc(p.practice_name)}${branchHit.has(p.ods_code) ? " " + chip("Branch: " + branchHit.get(p.ods_code)[0] + (branchHit.get(p.ods_code).length > 1 ? " +" + (branchHit.get(p.ods_code).length - 1) : ""), "bg-sky-100 text-sky-800", "A branch surgery of this practice matched your search") : ""}${mergedHit.has(p.ods_code) && !branchHit.has(p.ods_code) ? " " + chip("Merged: " + mergedHit.get(p.ods_code)[0] + (mergedHit.get(p.ods_code).length > 1 ? " +" + (mergedHit.get(p.ods_code).length - 1) : ""), "bg-indigo-100 text-indigo-800", "A practice that merged into this one matched your search") : ""}${sig ? " " + chip(sig + " signal" + (sig > 1 ? "s" : ""), "bg-purple-100 text-purple-800") : ""}${p.merged_into ? " " + chip("Merged → " + ((byOds.get(p.merged_into) || {}).practice_name || p.merged_into), "bg-indigo-100 text-indigo-800") : isClosed(p) ? " " + chip("Closed", "bg-slate-200 text-slate-700") : mergeSugg.has(p.ods_code) || closureCands.has(p.ods_code) ? " " + chip("May have closed or merged", "bg-amber-100 text-amber-800", "Review in Signals > Closures and mergers") : ""}</div>
         <div class="text-xs text-slate-500 font-mono">${esc(p.ods_code)} · ${esc(p.town || p.postcode || "")}</div></td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold">${p.total_patients.toLocaleString()}</span> ${chip(tier(p).replace("Tier ", "T"), TIER_CLS[tier(p)] || "", p.tier_label || "")}` : `<span class="text-xs text-slate-500 underline decoration-dotted cursor-help" title="${esc(noSizeReason(p))}">${p.merged_into ? "Merged" : isClosed(p) ? "Closed" : "No list size"}</span>`}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${hasN ? `<span class="font-mono font-semibold text-emerald-700" title="£${rate3(Number(p.base_price))} p/month">${gbpFull(p.est_arr)}</span>` : '<span class="text-slate-300">–</span>'}</td>

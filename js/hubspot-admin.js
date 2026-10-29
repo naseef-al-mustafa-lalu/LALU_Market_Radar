@@ -14,9 +14,9 @@ async function hsNetworkSection(n, parts) {
       ${kv("Open deals", l.open_deals_amount != null ? gbpFull(l.open_deals_amount) : "")}${kv("Won deals", l.won_deals_amount != null ? gbpFull(l.won_deals_amount) : "")}`
     : `<div class="text-sm italic text-slate-500">No ${n.kind === "icb" ? "ICB" : "PCN"} record found in HubSpot (matched by ${n.kind === "icb" ? "name" : "ODS code"}). Scottish clusters and Welsh boards are not held there.</div>`)
     : `<div class="text-sm text-slate-600">${total ? `${found} of ${total} linked PCN / ICB records found in HubSpot.` : "No linked PCNs or ICB."}</div>`;
-  box.outerHTML = `<div id="dr-hsnet">${record}<div class="mt-3"><button type="button" id="hs-netdeal" class="rounded-lg bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Create deal in HubSpot…</button>
-      <span class="ml-2 text-xs text-slate-500">linked to its ${own ? "record" : "PCN and ICB records"}</span></div></div>`;
-  $("hs-netdeal").onclick = () => hsNetDealOpen(n, parts);
+  box.outerHTML = `<div id="dr-hsnet">${record}</div>`;
+  const { data: dl } = await db.from("hubspot_network_deals").select("deal_id,deal_name,company_id").eq("org_id", n.id).order("created_at", { ascending: false });
+  hsNetBar(n, parts, { own, record: l, found, total, deals: dl || [] });
 }
 
 /* ---------- practices that are not in HubSpot: flag, then create (or link an existing company) after a preview ---------- */

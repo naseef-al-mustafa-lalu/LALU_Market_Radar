@@ -597,6 +597,7 @@ Deno.serve(async (req) => {
         [...changes({}, props), ...(net ? [`Network: blank → ${label} ${String(net.name).slice(0, 120)}`, `ICB and PCN records: blank → ${linked.length} linked${linked.length ? " (" + linked.sort().join(", ") + ")" : ""}`] : [])]), warnings);
       await log({ actor: who, kind: "create_deal", ods_code: net ? null : ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
         summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s)${net ? ` for the ${label} ${net.name}, linked to ${linked.length} ICB / PCN record(s)` : ""}`, detail: { companyId, properties: props, contactIds, network: net ? { kind: net.kind, name: net.name, linked } : null, warnings } });
+      if (net && /^[0-9a-f-]{36}$/i.test(String(net.orgId ?? ""))) await admin.from("hubspot_network_deals").upsert({ deal_id: String(d.id), org_id: String(net.orgId), company_id: companyId, deal_name: String(props.dealname), created_by: who }).then(() => null, () => null);
       const grouped = net ? [] : await linkIntoGroup(admin, ods, String(d.id), warnings).catch(() => []);
       return reply({ ok: true, dealId: String(d.id), grouped, linked: linked.length, warnings });
     }

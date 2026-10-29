@@ -62,7 +62,7 @@ async function hsNetDealForm(company) {
     $("nd-create").onclick = async () => {
       const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
-        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", network: { kind: n.kind, name: n.name }, companyId: company.id, contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact),
+        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", network: { kind: n.kind, name: n.name, orgId: n.id }, companyId: company.id, contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact),
           networkObjects: $("nd-link").checked ? objs : [], deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
             hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
         hsRender(`<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900" role="status">Deal created: ${hsLink("0-3", r.dealId, "open it in HubSpot")}<div class="text-xs">Linked to ${r.linked || 0} PCN / ICB record${r.linked === 1 ? "" : "s"}, with a note on the deal.</div></div>
@@ -72,3 +72,17 @@ async function hsNetDealForm(company) {
     };
   } catch (e) { hsRender(`<p class="text-rose-700">${esc(e.message)}</p>`); }
 }
+// The strip at the top of a network profile: same shape and place as a practice's (#dr-hs), with the one action on the right.
+let hsNetCur = null;
+function hsNetBar(n, parts, st) {
+  const box = $("dr-hs"); if (!box || !$("dr-hsnet") || $("dr-title").textContent !== n.name) return;
+  hsNetCur = { n, parts };
+  const KIND = { pcn: "PCN", icb: "ICB", group: "Provider group", federation: "Federation" }[n.kind] || "Network", act = label => `<button type="button" id="hs-netdeal" class="shrink-0 rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">${label}</button>`;
+  let dot, text, right;
+  if (st.deals.length) { const d = st.deals[0]; dot = "bg-emerald-500"; text = `${esc(d.deal_name || "Deal")}${st.deals.length > 1 ? ` and ${st.deals.length - 1} more` : ""}: linked`;
+    right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", d.deal_id, "Open deal")}${act("New deal")}</div>`; }
+  else if (st.own ? st.record : st.found) { dot = "bg-amber-400"; text = st.own ? `${KIND} record in HubSpot, no deal linked yet` : `Company in HubSpot, no deal linked yet`; right = act("Create deal"); }
+  else { dot = "bg-amber-400"; text = `Not in HubSpot yet`; right = act("Create deal"); }
+  box.innerHTML = hsBarShell(dot, text, right); box.classList.remove("hidden");
+}
+document.addEventListener("click", e => { if (e.target.closest("#dr-hs #hs-netdeal") && hsNetCur) hsNetDealOpen(hsNetCur.n, hsNetCur.parts); });

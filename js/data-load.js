@@ -98,7 +98,7 @@ function stateToUrl(push) {
   const u = new URLSearchParams();
   if (currentTab !== "practices") u.set("tab", currentTab);
   for (const [k, id] of Object.entries(STATE_FIELDS)) if ($(id).value) u.set(k, $(id).value);
-  if ($("f-sig").checked) u.set("sig", "1"); if ($("f-grp").checked) u.set("grp", "1");
+  if ($("f-sig").checked) u.set("sig", "1"); if ($("f-grp").checked) u.set("grp", "1"); if ($("f-closed").checked) u.set("cl", "1");
   if (sort.key !== "patients" || sort.dir !== -1) u.set("sort", sort.key + ":" + sort.dir);
   if (netFilter) u.set("net", [netFilter.kind, netFilter.key, netFilter.label].join("|"));
   if (currentTab === "networks" && netKind !== "pcn") u.set("nk", netKind);
@@ -112,7 +112,7 @@ function stateFromUrl() {
   const u = new URLSearchParams(location.search); restoringUrl = true;
   try {
     for (const [k, id] of Object.entries(STATE_FIELDS)) { const el = $(id); el.value = u.get(k) || ""; if (el.value !== (u.get(k) || "")) el.value = ""; }
-    $("f-sig").checked = u.get("sig") === "1"; $("f-grp").checked = u.get("grp") === "1";
+    $("f-sig").checked = u.get("sig") === "1"; $("f-grp").checked = u.get("grp") === "1"; $("f-closed").checked = u.get("cl") === "1";
     const [k, d] = (u.get("sort") || "patients:-1").split(":"); sort = { key: SORTERS[k] ? k : "patients", dir: Number(d) === 1 ? 1 : -1 };
     const nf = (u.get("net") || "").split("|"); netFilter = nf.length === 3 && nf[0] ? { kind: nf[0], key: nf[1], label: nf[2] } : null;
     netKind = ["pcn", "group", "federation", "icb"].includes(u.get("nk")) ? u.get("nk") : "pcn";

@@ -6,7 +6,7 @@ const $ = id => document.getElementById(id);
 const PAGE = 100;
 let practices = [], byOds = new Map(), filtered = [], shown = 0, signals = [], sigShown = 0, sigList = [], channel = null, lastRunDate = null;
 let signalCodes = new Set(), signalCounts = new Map();
-let branches = [], branchesByParent = new Map(), branchAlso = new Map(), branchHit = new Map();   // ODS branch surgeries: sites of a practice (see src/branches.py), found through search
+let branches = [], branchesByParent = new Map(), branchAlso = new Map(), branchHit = new Map(), mergedHit = new Map();   // ODS branch surgeries: sites of a practice (see src/branches.py), found through search
 // A branch record is one of: branch (a real site of its practice), duplicate_branch / duplicate_practice (an operator's listing of something we already hold),
 // hosted (a differently named building a practice uses), shared (a building with several practices) or other (hospital, urgent care, PCN hub...).
 // A person's reject turns a match into "other"; a hosted match counts once confirmed.

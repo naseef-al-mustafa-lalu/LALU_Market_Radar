@@ -66,10 +66,9 @@ function openNetworkProfile(n) {
     sec("HubSpot", '<div id="dr-hsnet" class="text-sm text-slate-500">Checking HubSpot…</div>') +
     sec("Pricing: " + KIND + " route", price) +
     `<details open class="group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Linked practices: price singly vs in the network</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${members.length}</span></summary><div class="overflow-x-auto mt-1"><table class="w-full text-xs"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div></details>` +
-    sec("Recent signals across this network", (() => {
+    sec("Signals and hiring", (() => {   // the practice profile's tiles, for every practice in the network
       const codes = new Set(members.map(p => p.ods_code));
-      return signals.filter(x => (x.ods_code && codes.has(x.ods_code)) || x.org_id === n.id).slice(0, 8).map(x => `<div class="py-1 border-t border-slate-100 first:border-0 text-sm"><span class="font-mono text-xs text-slate-500">${esc(fmtDate(x.detected_at))}</span> <b class="text-xs">${esc(x.headline)}</b>
-        <div class="text-xs text-slate-500">${esc(x.ods_code ? (byOds.get(x.ods_code)?.practice_name || x.ods_code) : "network-level")} · ${esc(x.trigger_type.replaceAll("_", " ").toLowerCase())}</div></div>`).join("");
+      return sigTiles(signals.filter(x => (x.ods_code && codes.has(x.ods_code)) || x.org_id === n.id).slice(0, 8), jobAdverts.filter(j => codes.has(j.ods_code)).sort((a, b) => (b.post_date || "").localeCompare(a.post_date || "")).slice(0, 8));
     })()) +
     `<button id="np-view" class="w-full bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;

@@ -45,7 +45,7 @@ const mgBtn = (act, ods, label, cls, extra = "") => `<button type="button" data-
 const BTN_PRIMARY = "bg-indigo-600 hover:bg-indigo-700 text-white", BTN_DARK = "bg-lalu-navy hover:bg-lalu-navy-700 text-white", BTN_GHOST = "border border-slate-300 bg-white hover:bg-slate-50 text-slate-700";
 const cqcEvidence = p => p.cqc_status === "Deregistered" ? chip("Deregistered from CQC", "bg-rose-100 text-rose-800", p.cqc_last_inspection ? "Last inspected " + p.cqc_last_inspection : "") : "";
 function mergeSection(p) {
-  const kids = absorbedBy(p.ods_code), noList = !(p.total_patients > 0) && (p.country || "England") === "England" && p.status === "Active";
+  const noList = !(p.total_patients > 0) && (p.country || "England") === "England" && p.status === "Active";
   let card = "";
   if (p.merged_into) {
     const t = byOds.get(p.merged_into);
@@ -73,10 +73,7 @@ function mergeSection(p) {
         <div class="mt-2">${mgBtn("close", p.ods_code, "Mark as closed", BTN_GHOST)}</div></div>`;
     card += mergePicker(p);
   }
-  const absorbed = kids.length ? `<div class="${card ? "mt-3" : ""} rounded-xl border border-slate-200 p-3"><div class="text-xs font-semibold text-slate-600 mb-1">Practices merged into this one</div>${kids.map(k =>
-    `<div class="flex justify-between gap-2 py-0.5 text-sm"><a href="#" data-open="${esc(k.ods_code)}" class="text-lalu-teal-700 hover:underline">${esc(k.practice_name)}</a><span class="font-mono text-xs text-slate-500">${esc(k.ods_code)}</span></div>`).join("")}
-    <p class="text-xs text-slate-500 mt-1">Their patients are included in this practice's list size.</p></div>` : "";
-  return card || absorbed ? sec("Status", card + absorbed + '<p id="mg-msg" class="text-xs text-rose-600 mt-1 min-h-[1rem]" role="status"></p>') : "";
+  return card ? sec("Status", card + '<p id="mg-msg" class="text-xs text-rose-600 mt-1 min-h-[1rem]" role="status"></p>') : "";
 }
 function mergePicker(p) {
   return `<details class="mt-2 text-sm"><summary class="cursor-pointer text-lalu-teal-700 hover:underline">Mark as merged into another practice…</summary>

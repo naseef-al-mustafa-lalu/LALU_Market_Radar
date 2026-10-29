@@ -236,8 +236,13 @@ with sync_playwright() as p:
     pg.click("#aud-sub button[data-a=signals]"); pg.click(".aud-card:has-text('Job report role')"); pg.wait_for_selector(".aud-kpis")
     assert "CQC change" in pg.inner_text("#aud-body"), pg.inner_text("#aud-body")      # the winner becomes the audience's sequence
     pg.click("#tab-practices"); pg.click("#rows tr:has-text(\"Test Surgery 1\")"); pg.wait_for_selector("#drawer:not(.translate-x-full)")
-    bc = pg.locator("#dr-body details.branch-card"); assert bc.count() == 1 and bc.get_attribute("open") is None and "1 site" in bc.locator("summary").inner_text(), bc.locator("summary").inner_text()      # branch sites: collapsed, count beside the header
+    bc = pg.locator("#dr-body details.branch-card"); assert bc.count() == 1 and bc.get_attribute("open") is None and "2 sites" in bc.locator("summary").inner_text(), bc.locator("summary").inner_text()      # branch sites: collapsed, count beside the header
     bc.locator("summary").click(); assert bc.get_attribute("open") is not None
+    assert "Test Old Surgery" in bc.inner_text() and "Merged" in bc.inner_text() and "Practices merged into this one" not in pg.inner_text("#dr-body")   # a merged practice sits in the branch list with a Merged tag and date
+    pg.fill("#f-search", "Old Surgery"); pg.wait_for_function("document.querySelectorAll('#rows tr').length === 1"); sr = pg.inner_text("#rows"); assert "Test Surgery 1" in sr and "Merged: Test Old Surgery" in sr, sr   # searching a merged practice finds the practice it became
+    pg.fill("#f-search", ""); pg.wait_for_function("document.querySelectorAll('#rows tr').length > 1")
+    assert pg.evaluate("""() => { const c = { ods_code: 'ZCLOSED', status: 'Active', closure_confirmed_at: '2026-01-01', practice_name: 'Gone Surgery' }, f = { ...readFilters(), st: '' };
+      return [matchPractice(c, { ...f, closed: false }), matchPractice(c, { ...f, closed: true })]; }""") == [False, True]   # closed practices stay out of the list unless Show closed is on
     assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "false"  # the speed discount is not guaranteed, so it is off by default
     kpi = lambda: pg.inner_text("#dr-body .price-card > div > div:first-child").replace("\n", " ")
     tb = pg.inner_text("#dr-body .price-card tbody"); assert "annual plan, 1-year commitment" in tb and "Speed discount" not in tb and "£0.076" in tb and "£0.072" not in tb, tb
@@ -332,13 +337,14 @@ with sync_playwright() as p:
     pg.wait_for_selector("#drawer:not(.translate-x-full)")
     prof = pg.inner_text("#dr-body")
     assert "pricing" in prof.lower() and "size discount" in prof.lower() and "estimated annual revenue" in prof.lower() and "signed separately" in prof and "Network discount" in prof and "Test Surgery 0" in prof, prof
-    assert "linked pcns" in prof.lower() and "West PCN" in prof and "NHS Test ICB" in prof and "Create deal in HubSpot" in prof, prof
+    assert "linked pcns" in prof.lower() and "West PCN" in prof and "NHS Test ICB" in prof and "Create deal" not in prof, prof
+    pg.wait_for_selector("#dr-hs #hs-netdeal"); strip = pg.inner_text("#dr-hs"); assert "HubSpot" in strip and "no deal linked yet" in strip.lower() or "not in hubspot yet" in strip.lower(), strip      # the same strip as a practice, at the top
     fold = pg.locator("#dr-body details:has(h4:text-matches('Linked PCNs', 'i'))").first; assert fold.get_attribute("open") is not None      # folds like Linked practices
     fold.locator("summary").click(); assert fold.get_attribute("open") is None and pg.locator("#dr-body .np-link").first.is_hidden(); fold.locator("summary").click()      # a group's PCNs and ICB, and the way to make its deal
     pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#nd-create")
     nd = pg.inner_text("#hs-body"); assert "new deal on" in nd.lower() and "already has 1 deal" in nd and "Link the deal to its HubSpot" in nd, nd      # existing deals are shown before another is made
     pg.click("#nd-create"); pg.wait_for_function("document.querySelector('#hs-body').innerText.includes('Deal created')")
-    cd = pg.evaluate("window.__hsCalls.filter(c => c.action === 'create_deal').pop()"); assert cd["network"] == {"kind": "group", "name": "Modality Test"} and "ods" not in cd and cd["deal"]["dealname"] == "Modality Test", cd
+    cd = pg.evaluate("window.__hsCalls.filter(c => c.action === 'create_deal').pop()"); assert cd["network"] == {"kind": "group", "name": "Modality Test", "orgId": "2"} and "ods" not in cd and cd["deal"]["dealname"] == "Modality Test", cd
     pg.click("#nd-done"); pg.wait_for_selector("#hs-modal.hidden", state="attached")
     pg.wait_for_timeout(500); pg.screenshot(path=SHOTS + "/netprofile.png")
     lp = pg.locator("#dr-body details:has-text('Linked practices')").first; assert lp.get_attribute("open") is not None and lp.locator("summary").inner_text().strip().endswith("3") and "Customer" in lp.inner_text()      # collapsible, customers tagged
