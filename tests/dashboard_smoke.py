@@ -316,6 +316,8 @@ with sync_playwright() as p:
     assert "1 change to push" in state[1] and "Push pricing" in state[1], state
     assert "1 change to push" in state[2], state
     assert "won, locked" in state[3] and "Push pricing" not in state[3], state      # a won deal cannot be pushed to   # an unsigned deal with no contracted list size is offered one
+    cs = pg.evaluate("() => { const p = byOds.get('A10004'); p.hubspot_contract_terms.contracted = 9400; const h = contractSection(p); delete p.hubspot_contract_terms.contracted; return h.replace(/<[^>]+>/g, ' '); }")
+    assert "Contracted list size" in cs and "9,400" in cs and "signed for" not in cs, cs      # the fixed size from the won deal is in the Contract section
     # practices that are not in HubSpot: filter, flag, create
     pg.select_option("#f-hs", "missing", force=True); assert pg.locator("#rows tr:has-text('Test Surgery 1')").count() == 0 and pg.locator("#rows tr:has-text('Test Surgery 2')").count() == 1
     pg.click("#rows tr:has-text('Test Surgery 2')"); pg.wait_for_selector('#dr-hs .hs-bar [data-hs-act="create"]'); assert "No company record" in pg.inner_text("#dr-body")
