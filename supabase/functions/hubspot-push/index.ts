@@ -74,6 +74,20 @@ async function assocLabel(toType: string, name: string): Promise<{ category: str
   } catch (_) { return null; }
 }
 
+// Company-to-company role labels, so a company can have as many relationships as it needs (HubSpot's Parent Company allows one parent each). Created in the account on first use.
+// Each is the label shown on the record that points at the other: a merged practice shows its successor as "Successor Practice" (the successor shows it as "Merged Practice");
+// a branch site shows its practice as "Parent Practice" (the practice shows it as "Branch Site").
+const ROLE_SUCCESSOR = { label: "Successor Practice", inverse: "Merged Practice", name: "successor_practice" }, ROLE_PARENT = { label: "Parent Practice", inverse: "Branch Site", name: "parent_practice" };
+async function ensureRoleLabel(r: { label: string; inverse: string; name: string }): Promise<{ category: string; typeId: number } | null> {
+  const hit = await assocLabel("companies", r.label);
+  if (hit) return hit;
+  try {
+    await hs(`/crm/v4/associations/companies/companies/labels`, { method: "POST", body: JSON.stringify({ label: r.label, inverseLabel: r.inverse, name: r.name }) });   // needs the crm.schemas.companies.write scope
+    memo.delete("labels:companies");
+    return await assocLabel("companies", r.label);
+  } catch (_) { return null; }
+}
+
 const idOf = (v: unknown) => { const s = String(v ?? ""); if (!/^\d{1,20}$/.test(s)) throw new Fail("Invalid HubSpot id"); return s; };
 
 async function dealsOf(companyId: string) {
@@ -300,21 +314,24 @@ Deno.serve(async (req) => {
       if (String(co.properties?.partner_organisation_code ?? "").toUpperCase() !== ods) throw new Fail("That HubSpot company does not carry this practice's ODS code");
       if (String(parent.properties?.partner_organisation_code ?? "").toUpperCase() !== parentOds) throw new Fail("The parent company does not carry the expected ODS code");
       const warnings: string[] = [], day = new Date().toISOString().slice(0, 10), parentName = String(parent.properties?.name ?? parentOds), oldName = String(co.properties?.name ?? ods);
-      const toParent = async (childId: string, label: string) => {   // HubSpot's company hierarchy: typeId 14 is "Parent Company" from the child's side
+      const toParent = async (childId: string, label: string, roles: { label: string; inverse: string; name: string }[]) => {   // the child company points at the parent with the role labels (any number of relationships); Parent Company is only the fallback when the labels cannot be created
         try {
-          await hs(`/crm/v4/objects/companies/${childId}/associations/companies/${parentId}`, { method: "PUT", body: JSON.stringify([{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 14 }]) });
-          let linked = false;   // HubSpot fills in hs_parent_company_id a moment after the association is created, so read it back a few times before warning
-          for (let i = 0; i < 5 && !linked; i++) {
-            await new Promise((r) => setTimeout(r, i === 0 ? 400 : 900));
-            const after = await hs(`/crm/v3/objects/companies/${childId}?properties=hs_parent_company_id`);
-            linked = String(Math.round(Number(after.properties?.hs_parent_company_id))) === parentId;
+          const found: { category: string; typeId: number }[] = [];
+          for (const r of roles) { const h = await ensureRoleLabel(r); if (h) found.push(h); }
+          if (found.length !== roles.length) {
+            await hs(`/crm/v4/objects/companies/${childId}/associations/companies/${parentId}`, { method: "PUT", body: JSON.stringify([{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 14 }]) });   // typeId 14 is "Parent Company" from the child's side
+            warnings.push(`${label}: the "${roles.map((r) => r.label).join(" / ")}" association label could not be created (the HubSpot token needs the crm.schemas.companies.write scope), so the Parent Company link was used instead.`);
+            return;
           }
-          if (!linked) warnings.push(`${label}: HubSpot does not show the parent link yet; check it in HubSpot.`);
-        } catch (e) { warnings.push(`${label} could not be linked to its parent: ${(e as Error).message}`); }
+          await hs(`/crm/v4/objects/companies/${childId}/associations/companies/${parentId}`, { method: "PUT", body: JSON.stringify(found.map((h) => ({ associationCategory: h.category, associationTypeId: h.typeId }))) });
+          const back = await hs(`/crm/v4/objects/companies/${parentId}/associations/companies?limit=500`), mine = (back?.results ?? []).find((x: any) => String(x.toObjectId) === childId);   // the parent's side must carry the inverse labels
+          const have = new Set((mine?.associationTypes ?? []).map((t: any) => String(t.label ?? "").trim().toLowerCase()));
+          if (!roles.every((r) => have.has(r.inverse.toLowerCase()))) warnings.push(`${label}: linked, but HubSpot does not show "${roles.map((r) => r.inverse).join(" / ")}" on ${parentName}; check the labels in HubSpot.`);
+        } catch (e) { warnings.push(`${label} could not be linked to ${parentName}: ${(e as Error).message}`); }
       };
       const coNote = (id: string, text: string) => noteOn("companies", id, text, warnings);   // same helper as everywhere else, on a company, collecting this action's warnings
       await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { org_type: mode === "merged" ? orgType : "practice", operating_status: mode === "merged" ? "merged" : "closed", ...(zero ? { patient_list_size: "0" } : {}) } }) });
-      await toParent(companyId, oldName);
+      await toParent(companyId, oldName, mode === "merged" && orgType === "branch_site" ? [ROLE_SUCCESSOR, ROLE_PARENT] : [ROLE_SUCCESSOR]);
       let branchId: string | null = null, created = false, moved = 0;
       if (br) {
         const hit = (await hs(`/crm/v3/objects/companies/search`, { method: "POST", body: JSON.stringify({ properties: ["name"], limit: 3, filterGroups: [{ filters: [{ propertyName: "partner_organisation_code", operator: "EQ", value: branchCode }] }] }) }))?.results ?? [];
@@ -326,7 +343,7 @@ Deno.serve(async (req) => {
           for (const [k, f] of [["address", "address"], ["city", "town"], ["zip", "postcode"], ["phone", "phone"]]) if (String(br[f] ?? "").trim()) cp[k] = String(br[f]).trim().slice(0, 200);
           branchId = String((await hs(`/crm/v3/objects/companies`, { method: "POST", body: JSON.stringify({ properties: cp }) })).id); created = true;
         }
-        await toParent(branchId, `Branch ${branchCode}`);
+        await toParent(branchId, `Branch ${branchCode}`, [ROLE_PARENT]);
         try { await hs(`/crm/v4/objects/companies/${companyId}/associations/default/companies/${branchId}`, { method: "PUT" }); } catch (e) { warnings.push(`The two companies could not be linked to each other: ${(e as Error).message}`); }
         if (b.moveContacts === true) {   // contacts keep their company; they are also associated with the branch so their emails show on both records
           try {
@@ -335,13 +352,13 @@ Deno.serve(async (req) => {
           } catch (e) { warnings.push(`Contacts were not linked to the branch: ${(e as Error).message}`); }
         }
       }
-      const text = mode === "merged" ? `Atlas, ${day}, by ${who}: practice ${ods} has merged into ${parentName} (${parentOds}). Operating status set to Merged${orgType === "branch_site" ? ", Org Type set to Branch (Site) because its site continues as a branch of the successor," : ""} and linked to ${parentName} as its parent company. The company and its history stay here.${zero ? ` List size set to 0 (was ${co.properties?.patient_list_size ?? "blank"}) because its patients are counted at ${parentName}; this stops HubSpot counting them twice.` : ""}`
-        : `Atlas, ${day}, by ${who}: practice code ${ods} has closed, but its site continues as ${br.name} (${branchCode}), a branch of ${parentName} (${parentOds}). This company is marked Closed and linked to ${parentName} as its parent and to the branch company${created ? " (created by Atlas)" : ""}. Its history stays here.${zero ? ` List size set to 0 (was ${co.properties?.patient_list_size ?? "blank"}) because its patients are counted at ${parentName}; this stops HubSpot counting them twice.` : ""}`;
+      const text = mode === "merged" ? `Atlas, ${day}, by ${who}: practice ${ods} has merged into ${parentName} (${parentOds}). Operating status set to Merged${orgType === "branch_site" ? ", Org Type set to Branch (Site) because its site continues as a branch of the successor," : ""} and linked to ${parentName} with the Successor Practice label${orgType === "branch_site" ? " and the Parent Practice label" : ""}. The company and its history stay here.${zero ? ` List size set to 0 (was ${co.properties?.patient_list_size ?? "blank"}) because its patients are counted at ${parentName}; this stops HubSpot counting them twice.` : ""}`
+        : `Atlas, ${day}, by ${who}: practice code ${ods} has closed, but its site continues as ${br.name} (${branchCode}), a branch of ${parentName} (${parentOds}). This company is marked Closed and linked to ${parentName} (Successor Practice) and to the branch company${created ? " (created by Atlas)" : ""}. Its history stays here.${zero ? ` List size set to 0 (was ${co.properties?.patient_list_size ?? "blank"}) because its patients are counted at ${parentName}; this stops HubSpot counting them twice.` : ""}`;
       const diff = changes(co.properties, { org_type: mode === "merged" ? orgType : "practice", operating_status: mode === "merged" ? "merged" : "closed", ...(zero ? { patient_list_size: 0 } : {}) });
       await coNote(companyId, esc(text) + (diff.length ? "<br>" + diff.map((l) => esc("• " + l)).join("<br>") : ""));
       if (branchId) await coNote(branchId, esc(`Atlas, ${day}, by ${who}: this branch site took over from the closed practice code ${ods} (${oldName}), which is linked to this company for history. Parent: ${parentName} (${parentOds}).`) + (created ? "<br>" + esc("• Company: not in HubSpot → created by Atlas") : ""));
-      const changeNote = (mode === "merged" ? `Merged into ${parentName} (${parentOds}); marked Merged${orgType === "branch_site" ? " and as a Branch (Site)" : ""} and linked to its parent in HubSpot` : `Closed; site continues as ${branchCode}, a branch of ${parentName} (${parentOds}); marked Closed in HubSpot and linked to the parent and the branch company`) + ` on ${day} by ${who}`;
-      await admin.from("gp_practices").update({ hubspot_operating_status: mode === "merged" ? "merged" : "closed", hubspot_org_type: mode === "merged" ? orgType : "practice", hubspot_parent_company_id: parentId, hubspot_change_note: changeNote, ...(zero ? { hubspot_list_size: 0 } : {}) }).eq("ods_code", ods);
+      const changeNote = (mode === "merged" ? `Merged into ${parentName} (${parentOds}); marked Merged${orgType === "branch_site" ? " and as a Branch (Site)" : ""} and linked to its successor in HubSpot` : `Closed; site continues as ${branchCode}, a branch of ${parentName} (${parentOds}); marked Closed in HubSpot and linked to the successor and the branch company`) + ` on ${day} by ${who}`;
+      await admin.from("gp_practices").update({ hubspot_operating_status: mode === "merged" ? "merged" : "closed", hubspot_org_type: mode === "merged" ? orgType : "practice", hubspot_successor_company_id: parentId, hubspot_change_note: changeNote, ...(zero ? { hubspot_list_size: 0 } : {}) }).eq("ods_code", ods);
       if (branchId) await admin.from("practice_branches").update({ hubspot_company_id: branchId }).eq("branch_code", branchCode);
       await log({ actor: who, kind: "entity_change", ods_code: ods, target: oldName, hubspot_type: "company", hubspot_id: companyId, summary: changeNote.replace(/ on \d{4}-\d{2}-\d{2} by .*$/, ""),
         detail: { mode, companyId, parentId, branchCode: branchCode || null, branchId, created, contactsLinked: moved, before: co.properties, warnings } });

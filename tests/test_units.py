@@ -839,3 +839,18 @@ def test_association_label_lookup():
     assert hsy.association_label(H(), "p1_pcns", "belongs to pcn") == ("USER_DEFINED", 77)
     assert hsy.association_label(H(), "p1_pcns", "belongs to icb") is None
     assert hsy.association_label(type("Bad", (), {"call": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("403"))})(), "p1_pcns", "x") is None      # unreadable: fall back to the default association
+
+
+def test_practice_role_links_read_the_labels():
+    from src import hubspot_sync as hsy
+
+    class H:
+        def call(self, method, path, **kw):
+            return {"results": [{"from": {"id": "1"}, "to": [{"toObjectId": 9, "associationTypes": [{"label": "Successor Practice"}]}, {"toObjectId": 8, "associationTypes": [{"label": "Federation"}]}]},
+                                {"from": {"id": "2"}, "to": [{"toObjectId": 7, "associationTypes": [{"label": "Parent Practice"}, {"label": "Successor Practice"}]}]},
+                                {"from": {"id": "3"}, "to": [{"toObjectId": 6, "associationTypes": [{"category": "HUBSPOT_DEFINED", "typeId": 14}]}]}]}
+
+    links = hsy.practice_role_links(H(), ["1", "2", "3"])
+    assert links == {"1": {"successor": "9"}, "2": {"branch_parent": "7", "successor": "7"}}      # one company can hold both roles; plain parent / child links are not these roles
+    assert hsy.role_columns(links, "1") == {"hubspot_successor_company_id": "9", "hubspot_branch_parent_company_id": None}
+    assert hsy.role_columns(links, "5") == {"hubspot_successor_company_id": None, "hubspot_branch_parent_company_id": None}

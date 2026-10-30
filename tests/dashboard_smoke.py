@@ -126,7 +126,7 @@ with sync_playwright() as p:
     assert ad == [["monthly", "sar"], ["monthly", "sar"]], ad      # an existing monthly SAR line sets the plan; once the user has chosen, it no longer does
     pg.keyboard.press("Escape"); pg.evaluate("openDrawer(byOds.get('A10008'))"); pg.wait_for_selector(".hs-entity")      # a merged practice: HubSpot keeps it as Merged under its successor
     mg = pg.inner_text("#dr-body"); assert "Merged into" in mg or "merged into" in mg, mg[-700:]
-    pg.click(".hs-entity"); pg.wait_for_selector("#aud-modal-ok"); mm = pg.inner_text("#aud-modal-body"); assert "Merged" in mm and "Test Surgery 1" in mm and "Parent company" in mm, mm
+    pg.click(".hs-entity"); pg.wait_for_selector("#aud-modal-ok"); mm = pg.inner_text("#aud-modal-body"); assert "Merged" in mm and "Test Surgery 1" in mm and "Linked to" in mm, mm
     pg.click("#aud-modal-ok"); pg.wait_for_function("document.querySelector('#aud-modal').classList.contains('hidden')")
     ec = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'entity_change').pop()[1]"); assert ec["mode"] == "merged" and ec["orgType"] == "practice" and ec["zeroSize"] is False and ec["ods"] == "A10008" and ec["parentOds"] == "A10001" and ec["parentCompanyId"] == "441" and ec["companyId"] == "448", ec
     pg.keyboard.press("Escape")
@@ -318,6 +318,9 @@ with sync_playwright() as p:
     assert "won, locked" in state[3] and "Push pricing" not in state[3], state      # a won deal cannot be pushed to   # an unsigned deal with no contracted list size is offered one
     cs = pg.evaluate("() => { const p = byOds.get('A10004'); p.hubspot_contract_terms.contracted = 9400; const h = contractSection(p); delete p.hubspot_contract_terms.contracted; return h.replace(/<[^>]+>/g, ' '); }")
     assert "Contracted list size" in cs and "9,400" in cs and "signed for" not in cs, cs      # the fixed size from the won deal is in the Contract section
+    assert pg.evaluate("""() => { const p = practices.find(x => x.merged_into && x.hubspot_company_id); if (!p) return 'no case'; const par = byOds.get(p.merged_into); const keep = [p.hubspot_successor_company_id, p.hubspot_branch_parent_company_id, p.hubspot_parent_company_id, par.hubspot_company_id];
+      par.hubspot_company_id = par.hubspot_company_id || '900'; p.hubspot_parent_company_id = null; p.hubspot_branch_parent_company_id = null; p.hubspot_successor_company_id = String(par.hubspot_company_id); const a = alignOf(p).link.ok; p.hubspot_successor_company_id = '1'; const b = alignOf(p).link.ok;
+      [p.hubspot_successor_company_id, p.hubspot_branch_parent_company_id, p.hubspot_parent_company_id] = keep; return [a, b]; }""") in ([True, False], "no case")   # the Successor Practice label counts as the link to the successor
     assert pg.evaluate("""() => { hsMembers = new Map([['federation|elm alliance', new Set(['A10003'])], ['group|hs:123', new Set(['A10001'])]]); const a = practices.find(x => x.ods_code === 'A10003'), b = practices.find(x => x.ods_code === 'A10001');
       const r = [netMatch(a, { kind: 'federation', key: 'elm alliance' }), netMatch(b, { kind: 'federation', key: 'elm alliance' }), netMatch(b, { kind: 'group', key: keyOf({ kind: 'group', source_key: 'hs:123' }) }), keyOf({ kind: 'group', source_key: 'cqc:provider:1-23' })]; hsMembers = new Map(); return r; }""") == [True, False, True, "1-23"]   # HubSpot's Member Practice / Operated Practice links make a federation or group match its practices
     assert pg.evaluate("""() => { const a = { kind: 'custom', filters: { criteria: null, pinned: ['A10004', 'A10003'] } }; return [audPractices(a).map(r => r.ods), audLeftOut(a)]; }""") == [["A10003"], 1]   # a customer is never in an audience, even hand-picked

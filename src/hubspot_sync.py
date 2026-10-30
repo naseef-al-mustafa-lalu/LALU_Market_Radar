@@ -672,6 +672,29 @@ def association_label(hub, to_type, name):
     return None
 
 
+SUCCESSOR_LABEL, PARENT_PRACTICE_LABEL = "successor practice", "parent practice"   # shown on a merged practice's record (its successor) and on a branch site's record (its practice)
+
+
+def practice_role_links(hub, company_ids):
+    """{company id: {"successor": id, "branch_parent": id}} from the Successor Practice / Parent Practice association labels (first of each)."""
+    out = {}
+    for cid, links in labelled_company_links(hub, company_ids).items():
+        got = {}
+        for to, labels in links:
+            if SUCCESSOR_LABEL in labels:
+                got.setdefault("successor", to)
+            if PARENT_PRACTICE_LABEL in labels:
+                got.setdefault("branch_parent", to)
+        if got:
+            out[cid] = got
+    return out
+
+
+def role_columns(role_links, company_id):
+    r = role_links.get(str(company_id), {}) if company_id else {}
+    return {"hubspot_successor_company_id": r.get("successor"), "hubspot_branch_parent_company_id": r.get("branch_parent")}
+
+
 FED_LABELS = {"federation", "member practice"}                  # practice -> federation / federation -> practice
 GROUP_LABELS = {"operating provider", "operated practice"}      # practice -> operating group / group -> practice
 HS_ORG_PROPS = ["name", "org_type", "operating_status", "patient_list_size", "patient_list_rollup"]
@@ -893,6 +916,11 @@ def sync(rest, hub, now=None, actor="daily sync"):
     except Exception as e:  # noqa: BLE001
         service_error = str(e)[:300]
 
+    try:   # merged-into / branch-of links, by association label; an unreadable result leaves the columns as they were
+        role_links = practice_role_links(hub, cids)
+    except Exception as e:  # noqa: BLE001
+        role_links = None
+        print("Role links skipped:", e)
     rows, flags = [], {"customers": 0, "engaged": 0}
     hs_contacts = {}   # ods -> {email: (contact id, createdate)}
     for ods, cs in by_ods.items():
@@ -902,13 +930,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
         f = classify(cs, contact_ids, contacts, deal_ids, deals)
         flags["customers"] += f["hubspot_customer"]; flags["engaged"] += f["hubspot_engaged"]
         service_ids = sorted({i for c in cset for i in to_services.get(c, [])})
-        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"], line_qty), **lifecycle_fields(cs, deal_ids, deals, service_ids, services, line_qty, list_size(cs, f.get("hubspot_company_id"))), "hubspot_list_size": list_size(cs, f.get("hubspot_company_id")), **linked_properties(cs, f.get("hubspot_company_id")), "hubspot_synced_at": now})
+        rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"], line_qty), **lifecycle_fields(cs, deal_ids, deals, service_ids, services, line_qty, list_size(cs, f.get("hubspot_company_id"))), "hubspot_list_size": list_size(cs, f.get("hubspot_company_id")), **linked_properties(cs, f.get("hubspot_company_id")), **(role_columns(role_links, f.get("hubspot_company_id")) if role_links is not None else {}), "hubspot_synced_at": now})
         hs_contacts[ods] = {(contacts[i].get("email") or "").strip().lower(): (i, contacts[i].get("createdate")) for i in contact_ids if contacts.get(i, {}).get("email")}
     for ods, p in practices.items():   # a practice that had a company before but no longer does: clear the link and flags
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
                          "hubspot_engaged": False, "hubspot_customer": False, "hubspot_commercial_model": None, "hubspot_contracted_arr": None, "hubspot_contracted_src": None,
-                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_company_status": None, "hubspot_service_name": None, "hubspot_product": None, "hubspot_product_service": None, "hubspot_first_start": None, "hubspot_churned_date": None, "hubspot_signed_size": None, "hubspot_size_history": None, "hubspot_synced_at": now})
+                         "hubspot_contract_terms": None, "hubspot_list_size": None, "hubspot_org_type": None, "hubspot_operating_status": None, "hubspot_website": None, "hubspot_parent_company_id": None, "hubspot_successor_company_id": None, "hubspot_branch_parent_company_id": None, "hubspot_contract_start": None, "hubspot_contract_end": None, "hubspot_pipeline": None, "hubspot_conversion_pipeline": None, "hubspot_renewal_pipeline": None, "hubspot_company_status": None, "hubspot_service_name": None, "hubspot_product": None, "hubspot_product_service": None, "hubspot_first_start": None, "hubspot_churned_date": None, "hubspot_signed_size": None, "hubspot_size_history": None, "hubspot_synced_at": now})
     rest.upsert("gp_practices", rows, "ods_code")
     flag, month = list_size_flag(rest), max((p.get("data_month") or "" for p in practices.values()), default="")
     auto, held = plan_list_sizes(practices, rows, flag.get("include_customers") is True)
