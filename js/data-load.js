@@ -50,7 +50,16 @@ function indexSignals() {
   $("sig-badge").textContent = recent; $("sig-badge").classList.toggle("hidden", !recent);
 }
 let netPrefetch = null;
+// Federations and operating groups defined in HubSpot (association labels), and the HubSpot company behind each network
+async function loadHsOrgs() {
+  try {
+    const [m, c] = await Promise.all([fetchAll("hubspot_network_members", "kind,org_key,ods_code", "ods_code"), fetchAll("hubspot_org_companies", "org_id,company_id,hs_org_type,patient_list_size,patient_list_rollup", "org_id")]);
+    hsMembers = new Map(); for (const r of m) { const k = r.kind + "|" + keyOf({ kind: r.kind, source_key: r.org_key }); (hsMembers.get(k) || hsMembers.set(k, new Set()).get(k)).add(r.ods_code); }
+    hsOrgCo = new Map(c.map(r => [r.org_id, r]));
+  } catch (e) { hsMembers = new Map(); hsOrgCo = new Map(); }   // the networks still work from the practice columns
+}
 async function loadNetworks(prefetched) {
+  await loadHsOrgs();
   try { networks = prefetched || await fetchAll("network_summary", NET_COLS, "id"); renderNetworks(); renderRevenue(); fillNetList(); renderSignals(); } catch (e) { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }
 }
 /* ---------- loading pop-up (so a slow first load never looks like a crash) ---------- */

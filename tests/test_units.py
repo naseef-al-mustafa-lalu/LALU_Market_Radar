@@ -790,3 +790,52 @@ def test_graph_step_applies_pcn_federations_around_the_graph_and_survives_their_
     calls.clear(); stats = {}
     ingest.graph_step(R(True), stats)
     assert "refresh_org_graph" in calls and "federations_error" in stats and "graph_error" not in stats      # a missing function never stops the graph
+
+
+def test_plan_hubspot_orgs_uses_association_labels():
+    from src import hubspot_sync as hsy
+    orgs = [{"id": "1", "name": "CBC Health Federation", "org_type": "federation"}, {"id": "2", "name": "Hurley Group", "org_type": "Group", "patient_list_size": "123000"},
+            {"id": "3", "name": "Suffolk GP Federation", "org_type": "Group"}, {"id": "4", "name": "Plain Alliance", "org_type": "federation"}, {"id": "5", "name": " ", "org_type": "Group"}]
+    links = {"1": [("c1", {"member practice"}), ("c2", {"member practice"}), ("c9", {"member practice"})],       # c9 is not a practice we hold
+             "2": [("c1", {"operated practice"}), ("c3", {"operated practice"}), ("c2", {"child company"})],         # a Parent / Child link is not an operating link
+             "3": [("c1", {"federation"}), ("c2", {"federation"}), ("c3", {"operated practice"})],                   # Org Type says Group, the labels say federation
+             "4": [("c1", set()), ("c2", {"belongs to pcn"})]}                                                       # a plain association counts; another relationship's label does not
+    plan = {p["company_id"]: p for p in hsy.plan_hubspot_orgs(orgs, links, {"c1": "A1", "c2": "A2", "c3": "A3"})}
+    assert plan["1"]["kind"] == "federation" and plan["1"]["practices"] == ["A1", "A2"]
+    assert plan["2"]["kind"] == "group" and plan["2"]["practices"] == ["A1", "A3"] and plan["2"]["size"] == "123000"
+    assert plan["3"]["kind"] == "federation" and plan["3"]["practices"] == ["A1", "A2"]
+    assert plan["4"]["kind"] == "federation" and plan["4"]["practices"] == ["A1"]
+    assert "5" not in plan      # no name, nothing to create
+
+
+def test_sync_hubspot_orgs_sends_the_plan():
+    from src import hubspot_sync as hsy
+    calls = []
+
+    class H:
+        def call(self, method, path, **kw):
+            calls.append(path)
+            if "companies/search" in path:
+                return {"results": [{"id": 7, "properties": {"name": "ELM Alliance", "org_type": "federation"}}]}
+            return {"results": [{"from": {"id": "7"}, "to": [{"toObjectId": 11, "associationTypes": [{"category": "USER_DEFINED", "typeId": 1, "label": "Member Practice"}]}]}]}
+
+    class R:
+        def rpc(self, name, args=None):
+            calls.append((name, args)); return {"created": 1}
+
+    out = hsy.sync_hubspot_orgs(R(), H(), {"A1": [{"id": 11}]})
+    assert out == {"hubspot_orgs": 1, "hubspot_org_links": 1, "hubspot_orgs_created": 1}
+    assert calls[-1][0] == "apply_hubspot_orgs" and calls[-1][1]["items"][0]["practices"] == ["A1"]
+
+
+def test_association_label_lookup():
+    from src import hubspot_sync as hsy
+
+    class H:
+        def call(self, method, path, **kw):
+            assert method == "GET" and path == "/crm/v4/associations/companies/p1_pcns/labels"
+            return {"results": [{"category": "HUBSPOT_DEFINED", "typeId": 1, "label": None}, {"category": "USER_DEFINED", "typeId": 77, "label": "Belongs to PCN"}]}
+
+    assert hsy.association_label(H(), "p1_pcns", "belongs to pcn") == ("USER_DEFINED", 77)
+    assert hsy.association_label(H(), "p1_pcns", "belongs to icb") is None
+    assert hsy.association_label(type("Bad", (), {"call": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("403"))})(), "p1_pcns", "x") is None      # unreadable: fall back to the default association

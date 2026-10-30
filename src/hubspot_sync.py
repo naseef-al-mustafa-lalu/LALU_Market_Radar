@@ -617,8 +617,12 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None,
                 conflicts.append((cid, practices.get(ods_of.get(cid), {}).get("practice_name"), ods_of.get(cid), extra))
     todo = [{"from": {"id": cid}, "to": {"id": pid}} for cid, pid in want.items() if pid not in have.get(cid, set())][:MAX_ASSOCIATIONS]
     pcn_name = {str(pr["id"]): f"{pr.get('name') or pr.get('ods_code')} ({pr.get('ods_code')})" for pr in by_code.values()}
+    label = association_label(hub, PCN_OBJECT, "belongs to pcn")   # the practice-to-PCN label the account defines; the default (unlabelled) association is the fallback
     for ch in chunks(todo, 100):
-        hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/associate/default", json={"inputs": ch})
+        if label:
+            hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/create", json={"inputs": [{**t, "types": [{"associationCategory": label[0], "associationTypeId": label[1]}]} for t in ch]})
+        else:
+            hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/associate/default", json={"inputs": ch})
         add_notes(hub, "companies", [(t["from"]["id"], note_text("linked to its PCN record by the daily sync", [change_line("PCN", None, pcn_name.get(t["to"]["id"], t["to"]["id"]))])) for t in ch])
     stats["pcn_associations_added"] = len(todo)
     if todo:
@@ -655,6 +659,76 @@ def sync_networks(rest, hub, now):
     rest.upsert("hubspot_network_links", rows, "org_id")
     return {"networks_linked": len(rows), "pcns_linked": sum(r["object_type"] == PCN_OBJECT for r in rows), "icbs_linked": sum(r["object_type"] == ICB_OBJECT for r in rows),
             "networks_unmatched": len(orgs) - len(rows)}
+
+
+def association_label(hub, to_type, name):
+    """(category, type id) of the association label called `name` between companies and `to_type`, or None when the account has no such label (or it cannot be read)."""
+    try:
+        for x in hub.call("GET", f"/crm/v4/associations/companies/{to_type}/labels").get("results", []):
+            if str(x.get("label") or "").strip().lower() == name:
+                return x.get("category") or "USER_DEFINED", int(x["typeId"])
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+FED_LABELS = {"federation", "member practice"}                  # practice -> federation / federation -> practice
+GROUP_LABELS = {"operating provider", "operated practice"}      # practice -> operating group / group -> practice
+HS_ORG_PROPS = ["name", "org_type", "operating_status", "patient_list_size", "patient_list_rollup"]
+
+
+def fetch_hubspot_orgs(hub):
+    """Companies HubSpot holds as a Federation or a Group (these have no ODS code, so the practice sync never sees them)."""
+    out, after = [], None
+    while True:
+        body = {"filterGroups": [{"filters": [{"propertyName": "org_type", "operator": "IN", "values": ["federation", "Group"]}]}], "limit": 100, "properties": HS_ORG_PROPS}
+        if after:
+            body["after"] = after
+        d = hub.call("POST", "/crm/v3/objects/companies/search", json=body)
+        out += [{"id": str(c["id"]), **c.get("properties", {})} for c in d.get("results", [])]
+        after = (d.get("paging") or {}).get("next", {}).get("after")
+        if not after:
+            return out
+
+
+def labelled_company_links(hub, company_ids):
+    """{company id: [(associated company id, {lower-case association labels})]}: the batch associations endpoint with the labels kept."""
+    out = {}
+    for ch in chunks(list(company_ids), 1000):
+        d = hub.call("POST", "/crm/v4/associations/companies/companies/batch/read", json={"inputs": [{"id": i} for i in ch]})
+        for r in d.get("results", []):
+            out[str(r["from"]["id"])] = [(str(t["toObjectId"]), {str(x.get("label") or "").strip().lower() for x in t.get("associationTypes", [])} - {""}) for t in r.get("to", [])]
+    return out
+
+
+def plan_hubspot_orgs(orgs, links, company_ods):
+    """Payload for apply_hubspot_orgs(). The association labels decide what a HubSpot organisation is: Member Practice / Federation links make a federation, Operating Provider /
+    Operated Practice links make an operating group; Org Type only decides when there are no labelled links. Unlabelled company-to-practice links count for the kind chosen
+    (a plain association is how the first federations were linked); Parent / Child Company, PCN and ICB labels are other relationships and are ignored here."""
+    out = []
+    for o in orgs:
+        mine = [(company_ods[t], lab) for t, lab in links.get(o["id"], []) if t in company_ods]
+        fed = sorted({ods for ods, lab in mine if lab & FED_LABELS}); grp = sorted({ods for ods, lab in mine if lab & GROUP_LABELS})
+        if fed or grp:
+            kind = "federation" if len(fed) >= len(grp) else "group"
+            practices = fed if kind == "federation" else grp
+        else:
+            kind = "federation" if str(o.get("org_type")) == "federation" else "group"
+            practices = sorted({ods for ods, lab in mine if not lab})
+        name = str(o.get("name") or "").strip()
+        if name:
+            out.append({"company_id": o["id"], "name": name, "kind": kind, "org_type": o.get("org_type"), "operating_status": o.get("operating_status"),
+                        "size": o.get("patient_list_size") or "", "rollup": o.get("patient_list_rollup") or "", "practices": practices})
+    return out
+
+
+def sync_hubspot_orgs(rest, hub, by_ods):
+    """Bring HubSpot's federations and operating groups, and their practices, into the organisation graph."""
+    company_ods = {str(c["id"]): ods for ods, cs in by_ods.items() for c in cs}
+    orgs = fetch_hubspot_orgs(hub)
+    items = plan_hubspot_orgs(orgs, labelled_company_links(hub, [o["id"] for o in orgs]), company_ods)
+    res = rest.rpc("apply_hubspot_orgs", {"items": items})
+    return {"hubspot_orgs": len(items), "hubspot_org_links": sum(len(i["practices"]) for i in items), "hubspot_orgs_created": (res or {}).get("created", 0)}
 
 
 AUDIT_NOISE = {"the", "and", "surgery", "practice", "medical", "centre", "center", "health", "group", "gp", "partners", "partnership", "dr", "drs", "clinic", "ltd", "limited", "nhs", "ctr", "ctre", "med", "hc", "mc", "family"}
@@ -898,9 +972,14 @@ def sync(rest, hub, now=None, actor="daily sync"):
                 print("Slack post skipped:", e)
     except Exception as e:  # noqa: BLE001
         pcn_stats = {"pcn_sync_error": str(e)[:300]}
+    org_stats = {}
+    try:   # federations and groups defined in HubSpot; a failure here must not undo the practice sync above
+        org_stats = sync_hubspot_orgs(rest, hub, by_ods)
+    except Exception as e:  # noqa: BLE001
+        org_stats = {"hubspot_orgs_error": str(e)[:300]}
     audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
-    return {**nets, **pcn_stats, "primary_contacts_set": managers_set, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
+    return {**nets, **pcn_stats, **org_stats, "primary_contacts_set": managers_set, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
             "contacts_updated": len(crow), **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
 
 

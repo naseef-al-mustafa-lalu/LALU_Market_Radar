@@ -4,6 +4,7 @@ async function hsNetDealOpen(n, parts) {
   const key = keyOf(n), members = practices.filter(p => p.status === "Active" && netMatch(p, { kind: n.kind, key }));
   hs = { p: { practice_name: n.name, ods_code: "", total_patients: Number(n.patients) || 0 }, net: n, parts, members };
   $("hs-modal").classList.remove("hidden"); hsTitle("Create deal");
+  const known = hsOrgCo.get(n.id); if (known) return hsNetDealForm({ id: known.company_id, name: n.name });   // the daily sync already matched this network to its HubSpot company
   hsRender(`<p class="text-slate-600">Find the HubSpot company for <b>${esc(n.name)}</b>, or create it, then make its deal.</p>
     <div class="mt-3 flex gap-2"><input id="hs-q" class="flex-1 rounded-lg border border-slate-300 px-3 py-2" value="${esc(n.name)}" aria-label="Search HubSpot companies"><button id="hs-search" class="rounded-lg bg-lalu-navy px-3 py-2 font-semibold text-white">Search</button></div><div id="hs-results" class="mt-3"></div>`);
   const run = async () => {
@@ -16,7 +17,13 @@ async function hsNetDealOpen(n, parts) {
       box.querySelectorAll("[data-co]").forEach(b => b.onclick = () => hsNetDealForm({ id: b.dataset.co, name: b.dataset.name }));
       $("hs-newco").onclick = async e => {
         e.target.disabled = true; e.target.textContent = "Creating…";
-        try { const r = await hsCall({ action: "create_company_for_network", name: n.name, kind: n.kind }); hsNetDealForm({ id: r.companyId, name: n.name }); }
+        try {
+          const r = await hsCall({ action: "create_company_for_network", name: n.name, kind: n.kind }), memberCompanyIds = members.map(p => p.hubspot_company_id).filter(Boolean);
+          if (memberCompanyIds.length && (n.kind === "federation" || n.kind === "group")) {   // its practices join it with the account's association labels (Federation / Member Practice, Operating Provider / Operated Practice)
+            try { await hsCall({ action: "link_network_members", companyId: r.companyId, kind: n.kind, memberCompanyIds }); } catch (le) { $("hs-newmsg").innerHTML = `<span class="text-amber-700">Company created, but its practices were not linked: ${esc(le.message)}</span>`; }
+          }
+          hsNetDealForm({ id: r.companyId, name: n.name });
+        }
         catch (err) { $("hs-newmsg").innerHTML = `<span class="text-rose-700">${esc(err.message)}</span>`; e.target.disabled = false; e.target.textContent = "Create " + n.name + " in HubSpot"; }
       };
     } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }
@@ -81,7 +88,7 @@ function hsNetBar(n, parts, st) {
   let dot, text, right;
   if (st.deals.length) { const d = st.deals[0]; dot = "bg-emerald-500"; text = `${esc(d.deal_name || "Deal")}${st.deals.length > 1 ? ` and ${st.deals.length - 1} more` : ""}: linked`;
     right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", d.deal_id, "Open deal")}${act("New deal")}</div>`; }
-  else if (st.own ? st.record : st.found) { dot = "bg-amber-400"; text = st.own ? `${KIND} record in HubSpot, no deal linked yet` : `Company in HubSpot, no deal linked yet`; right = act("Create deal"); }
+  else if (st.own ? st.record : (st.found || st.company)) { dot = "bg-amber-400"; text = st.own ? `${KIND} record in HubSpot, no deal linked yet` : `Company in HubSpot, no deal linked yet`; right = act("Create deal"); }
   else { dot = "bg-amber-400"; text = `Not in HubSpot yet`; right = act("Create deal"); }
   box.innerHTML = hsBarShell(dot, text, right); box.classList.remove("hidden");
 }

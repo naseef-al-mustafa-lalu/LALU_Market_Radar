@@ -1,6 +1,6 @@
 // Networks tab, the network profile panel and the Revenue tab.
 /* ---------- networks ---------- */
-const keyOf = n => n.kind === "group" ? n.source_key.slice("cqc:provider:".length) : n.source_key.slice(4);
+const keyOf = n => n.kind === "group" ? (n.source_key.startsWith("cqc:provider:") ? n.source_key.slice("cqc:provider:".length) : n.source_key) : n.source_key.slice(4);   // a group HubSpot defines keeps its own key (hs:<company id>)
 function openNetwork(kind, key, label) {
   const fromTab = currentTab === "networks";
   clearFilters(); closeDrawer();

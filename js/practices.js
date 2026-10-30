@@ -1,7 +1,8 @@
 // Practices tab: filters, rows, pricing breakdown and the practice profile panel.
 /* ---------- practices: filters, chips, sorting ---------- */
-const netMatch = (p, nf) => !nf || (nf.kind === "pcn" ? p.pcn_code === nf.key : nf.kind === "group" ? p.cqc_provider_id === nf.key
-  : nf.kind === "federation" ? (p.gp_federation || "").toLowerCase() === nf.key : (p.icb_name || "").toLowerCase() === nf.key);
+const netMatch = (p, nf) => !nf || (nf.kind === "pcn" ? p.pcn_code === nf.key : nf.kind === "group" ? p.cqc_provider_id === nf.key || inHsOrg(p, nf)
+  : nf.kind === "federation" ? (p.gp_federation || "").toLowerCase() === nf.key || inHsOrg(p, nf) : (p.icb_name || "").toLowerCase() === nf.key);
+const inHsOrg = (p, nf) => { const s = hsMembers.get(nf.kind + "|" + nf.key); return !!s && s.has(p.ods_code); };   // HubSpot's Member Practice / Operated Practice links
 const SORTERS = {
   name: p => (p.practice_name || "").toLowerCase(), patients: p => p.total_patients || 0, arr: p => p.est_arr || 0, arr_sar: p => p.est_arr_sar || 0, contracted: p => p.hubspot_contracted_arr || 0,
   cqc: p => CQC_RANK[p.cqc_rating] || 9, hubspot: p => HS_RANK[hsState(p)] };

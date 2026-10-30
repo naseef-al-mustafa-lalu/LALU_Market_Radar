@@ -64,6 +64,16 @@ async function hs(path: string, init: RequestInit = {}) {
   return body;
 }
 
+// Association labels the account defines between companies (and from a company to the PCN / ICB objects), looked up by name so no id is hard-coded.
+// Practice side: "Federation" (member of a federation), "Operating Provider" (run by a group), "Belongs to PCN", "Belongs to ICB". HubSpot adds the inverse label on the other record.
+async function assocLabel(toType: string, name: string): Promise<{ category: string; typeId: number } | null> {
+  try {
+    const r = await cached(`labels:${toType}`, () => hs(`/crm/v4/associations/companies/${toType}/labels`));
+    const hit = (r?.results ?? []).find((x: any) => String(x.label ?? "").trim().toLowerCase() === name.toLowerCase());
+    return hit ? { category: String(hit.category ?? "USER_DEFINED"), typeId: Number(hit.typeId) } : null;
+  } catch (_) { return null; }
+}
+
 const idOf = (v: unknown) => { const s = String(v ?? ""); if (!/^\d{1,20}$/.test(s)) throw new Fail("Invalid HubSpot id"); return s; };
 
 async function dealsOf(companyId: string) {
@@ -433,7 +443,10 @@ Deno.serve(async (req) => {
       for (const n of (Array.isArray(b.networks) ? b.networks : []).slice(0, 4)) {
         if (!NETWORK_TYPES.has(String(n.type))) continue;
         try {
-          await hs(`/crm/v4/objects/companies/${companyId}/associations/default/${n.type}/${idOf(n.id)}`, { method: "PUT" }); done.networks.push(`${n.type}:${n.id}`);
+          const lab = await assocLabel(String(n.type), n.type === "p145802630_pcns" ? "Belongs to PCN" : "Belongs to ICB");   // the practice's own label; without it the default association is used
+          if (lab) await hs(`/crm/v4/objects/companies/${companyId}/associations/${n.type}/${idOf(n.id)}`, { method: "PUT", body: JSON.stringify([{ associationCategory: lab.category, associationTypeId: lab.typeId }]) });
+          else { await hs(`/crm/v4/objects/companies/${companyId}/associations/default/${n.type}/${idOf(n.id)}`, { method: "PUT" }); warnings.push(`No "Belongs to ${n.type === "p145802630_pcns" ? "PCN" : "ICB"}" label found: used the default association.`); }
+          done.networks.push(`${n.type}:${n.id}`);
           await noteOn("companies", companyId, noteBody(who, `associated with a ${n.type === "p145802630_pcns" ? "PCN" : "ICB"} record`, [`${n.type === "p145802630_pcns" ? "PCN" : "ICB"}: blank → ${String(n.name ?? n.id)}`]), warnings);
         }
         catch (e) { warnings.push(`Association to ${n.type === "p145802630_pcns" ? "PCN" : "ICB"} record: ${(e as Error).message}`); }
@@ -562,6 +575,34 @@ Deno.serve(async (req) => {
       await noteOn("companies", id, noteBody(who, `company created for the ${kind} ${name} from its Atlas network profile`, changes({}, props)), warnings);
       await log({ actor: who, kind: "create_company", target: name, hubspot_type: "company", hubspot_id: id, summary: `Created company ${name} for the ${kind}`, detail: { properties: props, warnings } });
       return reply({ ok: true, companyId: id, warnings });
+    }
+    if (b.action === "link_network_members") {   // practices to a federation / operating group company, with the account's labels: Federation / Member Practice, Operating Provider / Operated Practice
+      const companyId = idOf(b.companyId), kind = String(b.kind ?? ""), warnings: string[] = [];
+      if (!["federation", "group"].includes(kind)) throw new Fail("Only a federation or a group has member practices");
+      const ids = [...new Set((Array.isArray(b.memberCompanyIds) ? b.memberCompanyIds : []).map(idOf))].filter((i) => i !== companyId).slice(0, 300);
+      if (!ids.length) return reply({ ok: true, linked: 0, labelled: true, warnings });
+      const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name,org_type`);
+      const labelName = kind === "federation" ? "Federation" : "Operating Provider", lab = await assocLabel("companies", labelName);
+      if (!lab) warnings.push(`No "${labelName}" association label found: the practices were linked without a label.`);
+      let linked = 0;
+      for (let i = 0; i < ids.length; i += 100) {
+        try {
+          await hs(`/crm/v4/associations/companies/companies/batch/${lab ? "create" : "associate/default"}`, { method: "POST", body: JSON.stringify({ inputs: ids.slice(i, i + 100).map((id) => ({ from: { id }, to: { id: companyId },
+            ...(lab ? { types: [{ associationCategory: lab.category, associationTypeId: lab.typeId }] } : {}) })) }) });
+          linked += Math.min(100, ids.length - i);
+        } catch (e) { warnings.push(`Some practices were not linked: ${(e as Error).message}`); }
+      }
+      if (lab && linked) {   // read one link back from the network's side: it must carry the inverse label, otherwise say so rather than leave a reversed relationship unnoticed
+        try {
+          const back = await hs(`/crm/v4/objects/companies/${companyId}/associations/companies?limit=500`), want = kind === "federation" ? "member practice" : "operated practice";
+          const mine = (back?.results ?? []).filter((x: any) => ids.includes(String(x.toObjectId)));
+          const ok = mine.some((x: any) => (x.associationTypes ?? []).some((t: any) => String(t.label ?? "").trim().toLowerCase() === want));
+          if (mine.length && !ok) warnings.push(`The practices were linked, but HubSpot does not show them as "${kind === "federation" ? "Member Practice" : "Operated Practice"}" on ${co.properties?.name ?? "the company"}: check the labels in HubSpot.`);
+        } catch (_) { /* the check is a courtesy */ }
+      }
+      await noteOn("companies", companyId, noteBody(who, `${linked} practice${linked === 1 ? "" : "s"} linked from its Atlas network profile${lab ? ` (label ${labelName} / ${kind === "federation" ? "Member Practice" : "Operated Practice"})` : " (no label)"}`, []), warnings);
+      await log({ actor: who, kind: "link_network_members", target: String(co.properties?.name ?? companyId), hubspot_type: "company", hubspot_id: companyId, summary: `Linked ${linked} practice(s) to ${co.properties?.name ?? companyId} as ${lab ? labelName : "plain associations"}`, detail: { companyId, kind, label: lab, count: ids.length, warnings } });
+      return reply({ ok: true, linked, labelled: !!lab, warnings });
     }
     if (b.action === "create_deal") {
       const net = b.network && typeof b.network === "object" ? b.network : null;   // a deal for a whole network (federation, group, PCN, ICB) instead of one practice
