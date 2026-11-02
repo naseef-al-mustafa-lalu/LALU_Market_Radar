@@ -739,8 +739,12 @@ def plan_hubspot_orgs(orgs, links, company_ods):
             kind = "federation" if str(o.get("org_type")) == "federation" else "group"
             practices = sorted({ods for ods, lab in mine if not lab})
         name = str(o.get("name") or "").strip()
+        seen = {}   # the labels on this organisation's links to practices we hold, so an empty result can be explained
+        for _, lab in mine:
+            for x in (lab or {"(no label)"}):
+                seen[x] = seen.get(x, 0) + 1
         if name:
-            out.append({"company_id": o["id"], "name": name, "kind": kind, "org_type": o.get("org_type"), "operating_status": o.get("operating_status"),
+            out.append({"seen": seen, "company_id": o["id"], "name": name, "kind": kind, "org_type": o.get("org_type"), "operating_status": o.get("operating_status"),
                         "size": o.get("patient_list_size") or "", "rollup": o.get("patient_list_rollup") or "", "practices": practices})
     return out
 
@@ -750,8 +754,11 @@ def sync_hubspot_orgs(rest, hub, by_ods):
     company_ods = {str(c["id"]): ods for ods, cs in by_ods.items() for c in cs}
     orgs = fetch_hubspot_orgs(hub)
     items = plan_hubspot_orgs(orgs, labelled_company_links(hub, [o["id"] for o in orgs]), company_ods)
-    res = rest.rpc("apply_hubspot_orgs", {"items": items})
-    return {"hubspot_orgs": len(items), "hubspot_org_links": sum(len(i["practices"]) for i in items), "hubspot_orgs_created": (res or {}).get("created", 0)}
+    empty = {i["name"]: i["seen"] for i in items if not i["practices"] and i["seen"]}   # linked to practices in HubSpot, but none by a label that counts
+    payload = [{k: v for k, v in i.items() if k != "seen"} for i in items]
+    res = rest.rpc("apply_hubspot_orgs", {"items": payload})
+    return {"hubspot_orgs": len(items), "hubspot_org_links": sum(len(i["practices"]) for i in items), "hubspot_orgs_created": (res or {}).get("created", 0),
+            **({"hubspot_orgs_no_counting_label": empty} if empty else {})}
 
 
 AUDIT_NOISE = {"the", "and", "surgery", "practice", "medical", "centre", "center", "health", "group", "gp", "partners", "partnership", "dr", "drs", "clinic", "ltd", "limited", "nhs", "ctr", "ctre", "med", "hc", "mc", "family"}
