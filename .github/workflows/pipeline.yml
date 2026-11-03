@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '30 7 * * *'   # 07:30 UTC daily
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Run even though a run succeeded in the last 20 hours (calls the NHS, CQC and Jobs feeds again)"
+        type: boolean
+        default: false
 
 concurrency: radar-pipeline
 
@@ -24,6 +29,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
           CQC_API_KEY: ${{ secrets.CQC_API_KEY }}
+          FORCE_INGEST: ${{ inputs.force && '1' || '' }}
         run: python -m src.ingest
       - name: Post new signals to Slack
         env:

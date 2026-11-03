@@ -259,6 +259,27 @@ def _flags(rest):
         return []
 
 
+EPCN_REFETCH_HOURS = 20
+
+
+def ods_fetched_recently(rest, now, hours=EPCN_REFETCH_HOURS):
+    """True when the NHS ODS PCN export was downloaded less than `hours` ago (app_flags.ods_pcn_fetch.at). The PCN records only change when NHS ODS does, so a repeat sync the same day skips it
+    instead of calling NHS Digital again."""
+    flag = next((r.get("value") or {} for r in _flags(rest) if r.get("key") == "ods_pcn_fetch"), {})
+    try:
+        return (datetime.fromisoformat(now) - datetime.fromisoformat(str(flag.get("at")).replace("Z", "+00:00"))).total_seconds() < hours * 3600
+    except (TypeError, ValueError):
+        return False
+
+
+def network_audit_kept(rest):
+    """The PCN / ICB audit rows from the last full run, carried over when the PCN step is skipped so write_audit does not clear them."""
+    try:
+        return [r for r in rest.select_all("hubspot_audit", "*", order="id") if r.get("issue") == "pcn_association" or r.get("object_type") in ("pcn", "icb")]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def list_size_due(flag, month):
     """Sizes follow the NHS figure once per monthly load, not every day: due when the switch is on and this data month has not been applied yet."""
     return flag.get("enabled") is True and bool(month) and flag.get("last_month") != month
@@ -999,22 +1020,27 @@ def sync(rest, hub, now=None, actor="daily sync"):
     rest.upsert("contacts", crow, "contact_urn")
     managers_set = fill_hubspot_managers(rest)
     pcn_stats = {}
-    try:   # mirror NHS ODS into HubSpot's PCN object; a failure here must not undo the practice sync above
-        icb_objs = fetch_custom(hub, ICB_OBJECT)
-        icb_codes = {norm_icb(o.get("properties", {}).get("name")): o["properties"]["ods_code"] for o in icb_objs if o.get("properties", {}).get("ods_code")}
-        epcn = parse_epcn(sources.fetch(sources.ODS_EXPORT + "epcn"), icb_codes)
-        hs_pcns = [{"id": o["id"], **o.get("properties", {})} for o in fetch_custom(hub, PCN_OBJECT)]
-        company_of = {ods: str(sorted(cs, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]["id"]) for ods, cs in by_ods.items()}
-        pcn_stats, lines, events = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, conflicts=conflicts)
-        audit_all += network_audit_rows(hs_pcns, [{"id": o["id"], **o.get("properties", {})} for o in icb_objs], epcn, now, conflicts)
-        record(rest, events, actor)
-        if lines:
-            try:
-                slack.post("HubSpot sync updated the PCN records:\n• " + "\n• ".join(slack.mrkdwn(x) for x in lines[:20]) + (f"\n…and {len(lines) - 20} more" if len(lines) > 20 else ""))
-            except Exception as e:  # noqa: BLE001
-                print("Slack post skipped:", e)
-    except Exception as e:  # noqa: BLE001
-        pcn_stats = {"pcn_sync_error": str(e)[:300]}
+    if ods_fetched_recently(rest, now):   # a repeat sync the same day does not call NHS ODS again; the PCN / ICB audit rows from the last full run are kept
+        pcn_stats = {"pcn_sync_skipped": "NHS ODS was fetched in the last 20 hours"}
+        audit_all += network_audit_kept(rest)
+    else:
+        try:   # mirror NHS ODS into HubSpot's PCN object; a failure here must not undo the practice sync above
+            icb_objs = fetch_custom(hub, ICB_OBJECT)
+            icb_codes = {norm_icb(o.get("properties", {}).get("name")): o["properties"]["ods_code"] for o in icb_objs if o.get("properties", {}).get("ods_code")}
+            epcn = parse_epcn(sources.fetch(sources.ODS_EXPORT + "epcn"), icb_codes)
+            rest.upsert("app_flags", [{"key": "ods_pcn_fetch", "value": {"at": now}, "updated_at": now}], "key")
+            hs_pcns = [{"id": o["id"], **o.get("properties", {})} for o in fetch_custom(hub, PCN_OBJECT)]
+            company_of = {ods: str(sorted(cs, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]["id"]) for ods, cs in by_ods.items()}
+            pcn_stats, lines, events = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, conflicts=conflicts)
+            audit_all += network_audit_rows(hs_pcns, [{"id": o["id"], **o.get("properties", {})} for o in icb_objs], epcn, now, conflicts)
+            record(rest, events, actor)
+            if lines:
+                try:
+                    slack.post("HubSpot sync updated the PCN records:\n• " + "\n• ".join(slack.mrkdwn(x) for x in lines[:20]) + (f"\n…and {len(lines) - 20} more" if len(lines) > 20 else ""))
+                except Exception as e:  # noqa: BLE001
+                    print("Slack post skipped:", e)
+        except Exception as e:  # noqa: BLE001
+            pcn_stats = {"pcn_sync_error": str(e)[:300]}
     org_stats = {}
     try:   # federations and groups defined in HubSpot; a failure here must not undo the practice sync above
         org_stats = sync_hubspot_orgs(rest, hub, by_ods)

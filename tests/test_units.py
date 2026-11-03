@@ -865,3 +865,56 @@ def test_past_customer_lifecycle_is_not_a_customer():
     f = hsy.classify(past, [], {}, ["d1"], deals)      # eMR inactive: set to Past Customer, so its old closed-won deal no longer makes it a customer
     assert f["hubspot_customer"] is False and f["hubspot_stage"] == "Past Customer" and f["hubspot_engaged"] is False
     assert hsy.classify([{**past[0], "current_subscription": "Subscription"}], [], {}, ["d1"], deals)["hubspot_customer"] is False      # nor does a Commercial Model that was not cleared
+
+
+def test_upsert_posts_rows_with_different_keys_separately():
+    from src.common import Rest
+    posts = []
+
+    class Resp:
+        ok = True
+        status_code = 201
+        text = ""
+
+        def json(self):
+            return []
+
+    class Sess:
+        def post(self, url, params=None, json=None, timeout=None, headers=None):
+            posts.append(json); return Resp()
+
+    r = Rest.__new__(Rest); r.s = Sess(); r.base = "https://x/rest/v1"
+    r.upsert("contacts", [{"contact_urn": "1", "a": 1}, {"contact_urn": "2", "a": 2, "hubspot_status": "Imported"}, {"contact_urn": "3", "a": 3}], "contact_urn", batch=2)
+    assert sorted(len(p) for p in posts) == [1, 2] and all(len({tuple(sorted(x)) for x in p}) == 1 for p in posts)      # no post mixes key sets
+
+
+def test_ran_recently_guard():
+    from datetime import datetime, timedelta, timezone
+    from src import ingest
+    now = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+
+    class R:
+        def __init__(self, rows): self.rows = rows
+        def select_all(self, *a, **k): return self.rows
+
+    ago = lambda h: [{"finished_at": (now - timedelta(hours=h)).isoformat()}]
+    assert ingest.ran_recently(R(ago(3)), now) is True       # a manual re-run the same morning: do not call the public feeds again
+    assert ingest.ran_recently(R(ago(23.9)), now) is False   # the next scheduled run
+    assert ingest.ran_recently(R([]), now) is False          # nothing has succeeded yet
+
+
+def test_hubspot_sync_does_not_refetch_nhs_ods_the_same_day():
+    from src import hubspot_sync as hsy
+    now = "2026-11-03T12:00:00+00:00"
+
+    class R:
+        def __init__(self, at): self.at = at
+        def select_all(self, table, *a, **k):
+            if table == "app_flags":
+                return [{"key": "ods_pcn_fetch", "value": {"at": self.at}}] if self.at else []
+            return [{"id": "pcn_association-1", "issue": "pcn_association", "object_type": "company"}, {"id": "x", "issue": "name_mismatch", "object_type": "company"}, {"id": "p", "issue": "pcn_name_mismatch", "object_type": "pcn"}]
+
+    assert hsy.ods_fetched_recently(R("2026-11-03T08:30:00+00:00"), now) is True       # a manual re-run: skip the NHS download
+    assert hsy.ods_fetched_recently(R("2026-11-02T08:30:00+00:00"), now) is False      # yesterday's: fetch again
+    assert hsy.ods_fetched_recently(R(None), now) is False
+    assert [r["id"] for r in hsy.network_audit_kept(R(None))] == ["pcn_association-1", "p"]      # the PCN / ICB audit rows survive a skipped step

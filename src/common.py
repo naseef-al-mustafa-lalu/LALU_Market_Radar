@@ -79,10 +79,15 @@ class Rest:
             offset += page
 
     def upsert(self, table, rows, on_conflict, batch=500):
-        for i in range(0, len(rows), batch):
-            self._ok(self.s.post(
-                f"{self.base}/{table}", params={"on_conflict": on_conflict}, json=rows[i:i + batch], timeout=120,
-                headers={"Prefer": "resolution=merge-duplicates,missing=default,return=minimal"}))
+        # PostgREST refuses a batch whose rows do not all carry the same keys ("All object keys must match"), so rows with different keys go in separate posts
+        groups = {}
+        for r in rows:
+            groups.setdefault(tuple(sorted(r)), []).append(r)
+        for same in groups.values():
+            for i in range(0, len(same), batch):
+                self._ok(self.s.post(
+                    f"{self.base}/{table}", params={"on_conflict": on_conflict}, json=same[i:i + batch], timeout=120,
+                    headers={"Prefer": "resolution=merge-duplicates,missing=default,return=minimal"}))
 
     def insert(self, table, rows, batch=500, returning=False):
         out = []

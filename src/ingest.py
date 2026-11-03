@@ -405,9 +405,24 @@ def sync(rest, run_id):
     return stats
 
 
+REPEAT_GUARD_HOURS = 20   # the daily run is ~24 hours apart; a second full run inside this window is a manual re-run
+
+
+def ran_recently(rest, now=None, hours=REPEAT_GUARD_HOURS):
+    """True when a run succeeded less than `hours` ago. A full run calls the NHS ODS and Jobs feeds and CQC's API; repeating it all day is how a public source ends up blocking us."""
+    last = rest.select_all("ingest_runs", "finished_at", order="id.desc", params={"status": "eq.success"})
+    when = (last[0] or {}).get("finished_at") if last else None
+    if not when:
+        return False
+    return ((now or datetime.now(timezone.utc)) - datetime.fromisoformat(when.replace("Z", "+00:00"))).total_seconds() < hours * 3600
+
+
 def main():
     need_env("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
     rest = Rest(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+    if not os.environ.get("FORCE_INGEST") and ran_recently(rest):
+        print(f"A run succeeded in the last {REPEAT_GUARD_HOURS} hours, so the NHS, CQC and Jobs feeds are not called again. Run the workflow with 'force' ticked to override.")
+        return
     first = not rest.select_all("ingest_runs", "id", order="id", params={"status": "eq.success"})
     run_id = rest.insert("ingest_runs", [{}], returning=True)[0]["id"]
     try:
