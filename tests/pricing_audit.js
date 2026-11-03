@@ -57,9 +57,18 @@ console.log("sheet multi-year matrix mismatches:", mb);
 
 // list price (the default): no discount of any kind whatever the tier, term or speed choice, so the quote is patients x list rate x 12
 let lb = 0, ln = 0;
-for (const [route, pts] of sample) for (const product of ["all", "sar"]) for (const billing of ["annual", "monthly"]) for (const termYrs of [1, 2, 3]) for (const speedOn of [false, true]) {
+for (const [route, pts] of sample) for (const product of ["all", "sar"]) for (const billing of ["annual", "monthly"]) for (const termYrs of [1, 2, 3]) for (const speedOn of [false]) {
   api.set({ discountsOn: false, speedOn, termYrs, billing, product }); const row = tierFor(route, pts), list = api.baseRate(), html = txt(api.priceCardBody({ patients: pts, tierRow: row, route, who: "x" }, "t"));
   const hv = Number((html.match(/Estimated annual revenue[^£]*£([\d,]+)/i) || [])[1]?.replace(/,/g, "")); ln++;
   if (!(Math.abs(hv - Math.round(pts * list * 12)) <= 1) || /Size discount|Term discount|Speed discount|Referral/.test(html)) { lb++; if (lb < 10) console.log("LIST MISMATCH", route, pts, product, billing, termYrs, speedOn, hv, Math.round(pts * list * 12)); }
 }
 console.log("list price combinations:", ln, "list price mismatches:", lb);
+// speed discount on its own (size and term discounts off): list rate less the speed discount only, annual plans; monthly plans stay at list
+let sb2 = 0, sn = 0;
+for (const [route, pts] of sample) for (const product of ["all", "sar"]) for (const billing of ["annual", "monthly"]) for (const termYrs of [1, 2, 3]) {
+  api.set({ discountsOn: false, speedOn: true, termYrs, billing, product }); const row = tierFor(route, pts), list = api.baseRate(), html = txt(api.priceCardBody({ patients: pts, tierRow: row, route, who: "x" }, "t"));
+  const hv = Number((html.match(/Estimated annual revenue[^£]*£([\d,]+)/i) || [])[1]?.replace(/,/g, "")); sn++;
+  const rate = billing === "monthly" ? list : product === "sar" ? list * (1 - row.speed_discount) : Math.max(cfgSettings.price_floor_per_patient ? Number(cfgSettings.price_floor_per_patient.value) : 0, list * (1 - row.speed_discount));
+  if (!(Math.abs(hv - Math.round(pts * rate * 12)) <= 1) || /Size discount|Term discount|Referral/.test(html) || (billing === "annual" && row.speed_discount > 0 && !/Speed discount/.test(html))) { sb2++; if (sb2 < 10) console.log("SPEED-ONLY MISMATCH", route, pts, product, billing, termYrs, hv, Math.round(pts * rate * 12)); }
+}
+console.log("speed-only combinations:", sn, "speed-only mismatches:", sb2);

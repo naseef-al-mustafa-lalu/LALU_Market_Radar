@@ -214,7 +214,7 @@ def test_pricing_calculator_all_combinations():
     if not node:
         pytest.skip("node not installed")
     out = subprocess.run([node, str(pathlib.Path(__file__).parent / "pricing_audit.js")], capture_output=True, text=True, timeout=60)
-    assert re.search(r"combinations checked: \d+ mismatches: 0\b", out.stdout) and "sheet 1-year base mismatches: 0" in out.stdout and "matrix mismatches: 0" in out.stdout and "list price mismatches: 0" in out.stdout, out.stdout + out.stderr
+    assert re.search(r"combinations checked: \d+ mismatches: 0\b", out.stdout) and "sheet 1-year base mismatches: 0" in out.stdout and "matrix mismatches: 0" in out.stdout and "list price mismatches: 0" in out.stdout and "speed-only mismatches: 0" in out.stdout, out.stdout + out.stderr
 
 
 def test_hubspot_sync_flags_and_contact_matching():
