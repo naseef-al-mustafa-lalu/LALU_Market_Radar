@@ -46,8 +46,9 @@ function hsLineStatus(want, pair) {
 // What the profile currently has selected, as the values HubSpot should hold.
 function hsDesired(p, ov) {   // ov: { referral, member } prices another practice of a saved group without touching the profile's own referral state
   const row = cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), monthly = billing === "monthly";
-  const size = monthly ? 0 : Number(row.size_discount), term = monthly ? 0 : termDiscount(termYrs), speed = monthly || !speedOn ? 0 : Number(row.speed_discount);
-  const referral = ov ? ov.referral : HS_REFERRAL_WRITES ? referralExtraFor(p) : 0;   // the conditional referral-group discount
+  const disc = discountsOn && !monthly;   // list price (no discount) until the salesperson switches to Discounted
+  const size = disc ? Number(row.size_discount) : 0, term = disc ? termDiscount(termYrs) : 0, speed = disc && speedOn ? Number(row.speed_discount) : 0;
+  const referral = ov ? ov.referral : HS_REFERRAL_WRITES && disc ? referralExtraFor(p) : 0;   // the conditional referral-group discount
   return { size, term, speed, referral, group: !ov && referral > 0 ? referralPayload(p) : null, member: ov ? ov.member : refMembership(p), termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral, term, speed), list: baseRate(),
     total: size + referral + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size + referral, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }

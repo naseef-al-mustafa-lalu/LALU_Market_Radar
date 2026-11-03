@@ -210,7 +210,7 @@ $("more").addEventListener("click", renderMore);
 /* ---------- price breakdown: headline figure, then the working in plain steps ---------- */
 // Price = list price less the SUM of the selected discounts (size + term + speed), never below the price floor.
 // Term and speed are choices, not guarantees, so they are switches shared by every price card on the page.
-let speedOn = false, termYrs = 1, billing = "annual", product = "all", pricingTouched = false;      // pricingTouched: the user has picked a plan in this profile, so HubSpot's existing line item no longer sets it   // billing: "annual" or "monthly" (rolling, no discounts); product: "all" reports or "sar" only
+let discountsDefault = false, discountsOn = false, speedOn = false, termYrs = 1, billing = "annual", product = "all", pricingTouched = false;      // pricingTouched: the user has picked a plan in this profile, so HubSpot's existing line item no longer sets it   // billing: "annual" or "monthly" (rolling, no discounts); product: "all" reports or "sar" only
 const priceCards = new Map();
 const setting = k => Number(cfgSettings[k]?.value || 0);
 const termDiscount = yrs => yrs >= 3 ? setting("term_discount_3yr") : yrs === 2 ? setting("term_discount_2yr") : 0;
@@ -226,8 +226,9 @@ function priceCard(args) {
 }
 function repaintPriceCards() { const live = new Set([...document.querySelectorAll(".price-card")].map(el => el.dataset.pc)); for (const k of priceCards.keys()) if (!live.has(k)) priceCards.delete(k); document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc), el.dataset.pc); }); document.querySelectorAll(".route-cmp").forEach(el => { el.innerHTML = routeCmpPractice ? routeComparisonBody(routeCmpPractice) : ""; }); if (typeof hsRefreshBars === "function") hsRefreshBars(); }
 document.addEventListener("click", e => {
-  const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt"), pr = e.target.closest(".prod-opt");
-  if (sw) { speedOn = !speedOn; repaintPriceCards(); document.querySelector(".speed-toggle")?.focus({ preventScroll: true }); }
+  const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt"), pr = e.target.closest(".prod-opt"), dc = e.target.closest(".disc-opt");
+  if (dc) { discountsOn = dc.dataset.d === "disc"; document.querySelectorAll(".net-disc").forEach(el => el.classList.toggle("hidden", !discountsOn)); repaintPriceCards(); document.querySelector(`.disc-opt[data-d="${dc.dataset.d}"]`)?.focus({ preventScroll: true }); }
+  else if (sw) { speedOn = !speedOn; repaintPriceCards(); document.querySelector(".speed-toggle")?.focus({ preventScroll: true }); }
   else if (bl) { pricingTouched = true; billing = bl.dataset.b; repaintPriceCards(); document.querySelector(`.bill-opt[data-b="${billing}"]`)?.focus({ preventScroll: true }); }
   else if (pr) { pricingTouched = true; product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
 });
@@ -235,9 +236,10 @@ document.addEventListener("click", e => { const b = e.target.closest(".term-opt"
 function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const monthly = billing === "monthly", sar = product === "sar", list = baseRate(), prodName = sar ? "SAR only" : "All reports";
   if (!tierRow || !patients) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
-  const size = monthly ? 0 : Number(tierRow.size_discount), speed = monthly ? 0 : Number(tierRow.speed_discount), term = monthly ? 0 : termDiscount(termYrs), floor = setting("price_floor_per_patient");
-  const useSpeed = speedOn && speed > 0;
-  const refGrp = route === "practice" && lead && !monthly ? referralFor(lead) : null, ref = refGrp ? refGrp.extra : 0, sizeAll = size + ref;   // a referral group adds its extra size discount (conditional on the others signing)
+  const disc = discountsOn && !monthly;   // list price (8p, no discount of any kind) until the salesperson switches to Discounted
+  const size = disc ? Number(tierRow.size_discount) : 0, speed = disc ? Number(tierRow.speed_discount) : 0, term = disc ? termDiscount(termYrs) : 0, floor = setting("price_floor_per_patient");
+  const useSpeed = disc && speedOn && speed > 0;
+  const refGrp = route === "practice" && lead && disc ? referralFor(lead) : null, ref = refGrp ? refGrp.extra : 0, sizeAll = size + ref;   // a referral group adds its extra size discount (conditional on the others signing)
   // The speed discount applies to every year of the term and ends at renewal.
   const termRate = dealRate(sizeAll, term, useSpeed ? speed : 0), renewal = dealRate(sizeAll, term, 0);
   const sum = sizeAll + term + (useSpeed ? speed : 0), floored = !sar && !monthly && list * (1 - sum) < floor - 1e-9;
@@ -245,18 +247,18 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const line = (label, detail, pctText, value, cls = "") => `<tr class="border-t border-emerald-100 ${cls}"><td class="py-1.5 pr-3 align-top"><div class="font-medium leading-snug">${label}</div>${detail ? sub(detail) : ""}</td><td class="py-1.5 px-2 text-right align-top whitespace-nowrap text-slate-600">${pctText}</td><td class="py-1.5 pl-2 text-right align-top whitespace-nowrap font-mono">${value}</td></tr>`;
   const adj = termRate - list * (1 - sum);
   const rowsHtml = [
-    line("List price", `${prodName} · ` + (monthly ? "monthly plan, rolling, no discounts" : `annual plan, ${termYrs}-year commitment`), "", `£${rate3(list)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
-    monthly ? "" : line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
+    line("List price", `${prodName} · ` + (monthly ? "monthly plan, rolling, no discounts" : disc ? `annual plan, ${termYrs}-year commitment` : `annual plan, ${termYrs}-year commitment, list price, no discount`), "", `£${rate3(list)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
+    !disc ? "" : line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
     ref > 0 ? line("Referral group discount", `${refGrp.n} other practice${refGrp.n > 1 ? "s" : ""}, ${refGrp.combined.toLocaleString()} patients combined (${pct(refGrp.groupSize)} size discount, own ${pct(refGrp.ownSize)}) ${chip("Conditional", "bg-amber-100 text-amber-800")}`, "−" + pct(ref), amt(list * ref)) : "",
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
     useSpeed ? line("Speed discount", termYrs > 1 ? "Every year of the term, not guaranteed" : "Term year, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
     adj > 1e-9 ? line("Price floor", `Never below £${rate3(floor)} per month`, "", "+£" + rate3(adj)) : "",
-    line("Price p/month", "", monthly ? "" : `${pct(1 - termRate / list)} off`, `£${rate3(termRate)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "font-semibold border-t-2 border-emerald-200"),
+    line("Price p/month", "", !disc ? "" : `${pct(1 - termRate / list)} off`, `£${rate3(termRate)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "font-semibold border-t-2 border-emerald-200"),
     line(`× ${patients.toLocaleString()} patients × 12 months`, "Per year", "", gbpFull(yearly(patients, termRate)), "font-semibold")
   ].join("");
   // Price by year: every term year pays the same rate; the speed discount ends at renewal.
   const yrRows = [], N = monthly ? 1 : termYrs, tT = yearly(patients, termRate), rT = yearly(patients, renewal);
-  const yr = (label, rate, mrr, arr, bold) => `<tr class="border-t border-emerald-100 ${bold ? "font-semibold" : ""}"><td class="py-1 pr-3">${label}</td><td class="py-1 px-2 text-right whitespace-nowrap">${rate == null ? "" : "−" + pct(1 - rate / list)}</td><td class="py-1 px-2 text-right whitespace-nowrap font-mono">${rate == null ? "" : `£${rate3(rate)} /mo`}</td><td class="py-1 px-2 text-right whitespace-nowrap font-mono">${mrr}</td><td class="py-1 pl-2 text-right whitespace-nowrap font-mono">${arr}</td></tr>`;
+  const yr = (label, rate, mrr, arr, bold) => `<tr class="border-t border-emerald-100 ${bold ? "font-semibold" : ""}"><td class="py-1 pr-3">${label}</td><td class="py-1 px-2 text-right whitespace-nowrap">${rate == null ? "" : Math.abs(rate - list) < 1e-9 ? "list price" : "−" + pct(1 - rate / list)}</td><td class="py-1 px-2 text-right whitespace-nowrap font-mono">${rate == null ? "" : `£${rate3(rate)} /mo`}</td><td class="py-1 px-2 text-right whitespace-nowrap font-mono">${mrr}</td><td class="py-1 pl-2 text-right whitespace-nowrap font-mono">${arr}</td></tr>`;
   if (N > 1) for (let y = 1; y <= N; y++) yrRows.push(yr("Year " + y, termRate, gbpFull(tT / 12), gbpFull(tT)));
   if (N > 1) yrRows.push(yr(`Total over ${N} years`, null, "", gbpFull(tT * N), true));
   if (useSpeed) yrRows.push(yr(N > 1 ? `Renewal (year ${N + 1} onwards)` : "Renewal (year 2 onwards)", renewal, gbpFull(rT / 12), gbpFull(rT)));
@@ -264,18 +266,18 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const yearTable = yrRows.length ? `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-0.5">Price by year</div><table class="w-full text-sm tabular-nums"><caption class="sr-only">Discount, price per patient, monthly recurring revenue and annual recurring revenue for each year of the contract</caption><thead class="text-[11px] uppercase tracking-wider text-slate-500"><tr>${th("Period", "text-left pr-3")}${th("Discount", "text-right px-2")}${th("Per patient", "text-right px-2")}${th("MRR", "text-right px-2")}${th("ARR", "text-right pl-2")}</tr></thead><tbody>${yrRows.join("")}</tbody></table>${useSpeed ? '<p class="mt-0.5 text-xs text-slate-500">The speed discount applies for the whole term and ends at renewal.</p>' : ""}</div>` : "";
   const steps = `<table class="mt-3 w-full text-sm tabular-nums"><caption class="sr-only">How the price is built</caption><thead class="sr-only"><tr><th>Step</th><th>Discount</th><th>Per patient</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
   const opts = [1, 2, 3].map(y => `<button type="button" class="term-opt flex-1 rounded-md border px-2 py-1.5 text-left ${y === termYrs ? "border-emerald-600 bg-white ring-1 ring-emerald-600" : "border-slate-300 bg-white/60 hover:bg-white"}" data-yrs="${y}" aria-pressed="${y === termYrs}">
-      <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm font-semibold">${gbpFull(yearly(patients, dealRate(sizeAll, termDiscount(y), useSpeed ? speed : 0)) / 12)}<span class="text-xs font-normal text-slate-500"> MRR</span></div><div class="mt-0.5 font-mono text-xs text-slate-500">${gbpFull(yearly(patients, dealRate(sizeAll, termDiscount(y), useSpeed ? speed : 0)))} ARR</div></button>`).join("");
+      <div class="text-xs font-semibold">${y} year${y > 1 ? "s" : ""}${y > 1 && disc ? ` <span class="font-normal text-slate-500">−${pct(termDiscount(y))}</span>` : ""}</div><div class="font-mono text-sm font-semibold">${gbpFull(yearly(patients, dealRate(sizeAll, disc ? termDiscount(y) : 0, useSpeed ? speed : 0)) / 12)}<span class="text-xs font-normal text-slate-500"> MRR</span></div><div class="mt-0.5 font-mono text-xs text-slate-500">${gbpFull(yearly(patients, dealRate(sizeAll, termDiscount(y), useSpeed ? speed : 0)))} ARR</div></button>`).join("");
   const seg = (label, cls, key, cur, items) => `<div class="inline-flex rounded-lg bg-white/70 border border-slate-300 p-0.5 text-xs font-semibold" role="group" aria-label="${label}">${items.map(([k, l]) => `<button type="button" class="${cls} rounded-md px-3 py-1 ${cur === k ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"}" data-${key}="${k}" aria-pressed="${cur === k}">${l}</button>`).join("")}</div>`;
   return `<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
     <div class="flex items-end justify-between gap-3">
       <div><div class="text-xs uppercase tracking-wider text-slate-500">Estimated annual revenue · ${prodName}${monthly ? " · monthly plan" : termYrs > 1 ? ` · ${termYrs}-year term` : ""}${ref > 0 ? ' · <span class="text-amber-700 normal-case">with referral group</span>' : ""}</div><div class="text-2xl font-bold text-emerald-700 leading-tight">${gbpFull(tT)}<span class="text-sm font-normal text-slate-500"> / year</span></div></div>
       ${useSpeed ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">On renewal</div><div class="text-lg font-semibold leading-tight">${gbpFull(rT)}</div><div class="text-xs text-slate-500">speed discount ends</div></div>` : ""}</div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <div class="flex flex-wrap items-center gap-2">${seg("Product", "prod-opt", "p", product, [["all", "All reports"], ["sar", "SAR only"]])}${seg("Billing", "bill-opt", "b", billing, [["annual", "Annual"], ["monthly", "Monthly"]])}</div>
-      ${!monthly && Number(tierRow.speed_discount) > 0 ? `<div class="flex items-center gap-2 text-xs text-slate-600"><span id="spd-l-${id}">${pct(Number(tierRow.speed_discount))} speed discount <span class="text-slate-400">(not guaranteed)</span></span><button type="button" role="switch" aria-checked="${speedOn}" aria-labelledby="spd-l-${id}" class="speed-toggle relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${speedOn ? "bg-emerald-600" : "bg-slate-300"}"><span class="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${speedOn ? "translate-x-4" : "translate-x-0.5"}"></span></button></div>` : ""}</div>
-    ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
-      `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
-    ${route === "practice" && lead && !monthly && lead.total_patients > 0 ? referralPanel(lead, id) : ""}
+      <div class="flex flex-wrap items-center gap-2">${seg("Pricing", "disc-opt", "d", discountsOn ? "disc" : "list", [["list", "List price"], ["disc", "Discounted"]])}${seg("Product", "prod-opt", "p", product, [["all", "All reports"], ["sar", "SAR only"]])}${seg("Billing", "bill-opt", "b", billing, [["annual", "Annual"], ["monthly", "Monthly"]])}</div>
+      ${disc && Number(tierRow.speed_discount) > 0 ? `<div class="flex items-center gap-2 text-xs text-slate-600"><span id="spd-l-${id}">${pct(Number(tierRow.speed_discount))} speed discount <span class="text-slate-400">(not guaranteed)</span></span><button type="button" role="switch" aria-checked="${speedOn}" aria-labelledby="spd-l-${id}" class="speed-toggle relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${speedOn ? "bg-emerald-600" : "bg-slate-300"}"><span class="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${speedOn ? "translate-x-4" : "translate-x-0.5"}"></span></button></div>` : ""}</div>
+    ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. ${discountsOn ? "Switch to Annual for size, term and speed discounts." : "Annual plans are at list price too until you switch to Discounted."}</p>` :
+      `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">${disc ? "(longer commitments earn a discount)" : "(no discount at list price)"}</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
+    ${route === "practice" && lead && disc && lead.total_patients > 0 ? referralPanel(lead, id) : ""}
     ${steps}${yearTable}
     </div>`;
 }
@@ -301,6 +303,7 @@ function routeComparisonBody(p) {
   if (p.gp_federation) add("federation", p.gp_federation.toLowerCase(), "Federation");
   const ownRate = rateFor(cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier));
   if (!rows.length || ownRate == null) return "";
+  if (!discountsOn && !monthly) return `<p class="mt-3 text-xs text-slate-500">At list price every way of signing costs the same. Switch the price card to Discounted to compare the PCN, group and federation routes.</p>`;
   const alone = { name: "On its own", sub: `Single practice · Tier ${p.price_tier}`, sub2: `${p.total_patients.toLocaleString()} patients`, price: ownRate };
   const all = [alone, ...rows].map(r => ({ ...r, arr: yearly(p.total_patients, r.price) }));
   const best = Math.min(...all.map(r => r.price)), worst = Math.max(...all.map(r => r.price));
@@ -348,7 +351,7 @@ function closeDrawer() { const was = !$("drawer").classList.contains("translate-
 $("dr-close").onclick = closeDrawer;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 async function openDrawer(p) {
-  if (drawerCode !== p.ods_code) pricingTouched = false;
+  if (drawerCode !== p.ods_code) { pricingTouched = false; discountsOn = discountsDefault; }   // every profile opens at list price (discountsDefault is only changed by the dashboard tests)
   drawerCode = p.ods_code;
   document.querySelectorAll("#rows tr").forEach(r => r.classList.toggle("bg-lalu-teal-50", r.dataset.ods === p.ods_code));
   drawerOpened(); $("drawer").classList.remove("translate-x-full");

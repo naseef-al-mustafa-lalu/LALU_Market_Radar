@@ -28,6 +28,7 @@ function netLinkedHtml(parts) {
   return block("Linked PCNs", parts.pcns, parts.pcns.length <= 8) + block("ICB", parts.icbs, true);
 }
 function openNetworkProfile(n) {
+  discountsOn = discountsDefault;   // every profile opens at list price
   hsShowBar(null);
   drawerCode = null; document.querySelectorAll("#rows tr.bg-lalu-teal-50").forEach(r => r.classList.remove("bg-lalu-teal-50"));
   const KIND = { pcn: "PCN / cluster", icb: "ICB / health board", group: "Provider group", federation: "Federation" }[n.kind] || n.kind, key = keyOf(n);
@@ -41,11 +42,11 @@ function openNetworkProfile(n) {
   const saving = n.arr_single != null && n.arr_network != null ? n.arr_single - n.arr_network : null;
   const price = !row || base == null ? '<div class="text-sm italic text-slate-500">No price route is configured for this kind of network (edit <code>pricing_tiers</code>).</div>' :
     priceCard({ patients: Number(n.patients), tierRow: row, route: n.kind, arr: n.arr_network, who: "the network" }) +
-    `<div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><div class="flex justify-between"><span class="text-slate-600">The same ${n.practices} practices signed separately</span><span class="font-mono">${gbpFull(n.arr_single)}</span></div>
+    `<div class="net-disc ${discountsOn ? "" : "hidden"}"><div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><div class="flex justify-between"><span class="text-slate-600">The same ${n.practices} practices signed separately</span><span class="font-mono">${gbpFull(n.arr_single)}</span></div>
       <div class="flex justify-between mt-0.5"><span class="text-slate-600">Network price</span><span class="font-mono font-semibold">${gbpFull(n.arr_network)}</span></div>
       <div class="flex justify-between mt-0.5 border-t border-slate-200 pt-1"><span class="font-medium">${saving > 0 ? "Network discount" : "Difference"}</span><span class="font-mono font-semibold ${saving > 0 ? "text-emerald-700" : ""}">${saving == null ? "–" : (saving > 0 ? "−" : "+") + gbpFull(Math.abs(saving))} <span class="text-xs font-normal text-slate-500">${n.arr_single && saving != null ? "(" + pct(Math.abs(saving) / n.arr_single) + ")" : ""}</span></span></div></div>
     ${n.arr_network_sar != null ? `<div class="mt-2 flex justify-between text-sm text-slate-600"><span>SAR only: network price (signed separately ${gbpFull(n.arr_single_sar)})</span><span class="font-mono">${gbpFull(n.arr_network_sar)}</span></div>` : ""}
-    <p class="text-xs text-slate-500 mt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</p>`;
+    <p class="text-xs text-slate-500 mt-1">Routes are alternatives, not additive: the network price applies only if the whole network signs together.</p></div>`;
   const sitesOf = p => branchesByParent.get(p.ods_code) || [], siteCount = members.reduce((t, p) => t + sitesOf(p).length, 0);
   const rows = members.map(p => {
     const net = base != null ? p.total_patients * base * 12 : null;

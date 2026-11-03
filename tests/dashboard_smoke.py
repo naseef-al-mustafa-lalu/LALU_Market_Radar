@@ -85,6 +85,7 @@ with sync_playwright() as p:
     assert "Loading" in pg.inner_text("#loading") and pg.is_visible("#load-spin")
     pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     pg.evaluate("window.__slow = 0")
+    pg.evaluate("discountsDefault = true")      # profiles open at list price; the discount paths below are tested with Discounted on (the list-price default has its own test)
     assert pg.locator("#rows tr").count() == 11, pg.locator("#rows tr").count()   # 12 fixtures, one merged and hidden by default
     assert "11 practices" in pg.inner_text("#count")
     def noflow(sel, name):
@@ -318,6 +319,13 @@ with sync_playwright() as p:
     assert "won, locked" in state[3] and "Push pricing" not in state[3], state      # a won deal cannot be pushed to   # an unsigned deal with no contracted list size is offered one
     cs = pg.evaluate("() => { const p = byOds.get('A10004'); p.hubspot_contract_terms.contracted = 9400; const h = contractSection(p); delete p.hubspot_contract_terms.contracted; return h.replace(/<[^>]+>/g, ' '); }")
     assert "Contracted list size" in cs and "9,400" in cs and "signed for" not in cs, cs      # the fixed size from the won deal is in the Contract section
+    lp = pg.evaluate("""() => { const p = practices.find(x => x.ods_code === 'A10001'), row = cfgTiers.find(t => t.route === 'practice' && t.tier === p.price_tier), was = discountsOn;
+      const card = () => priceCardBody({ patients: 10000, tierRow: row, route: 'practice' }, 'x').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');
+      discountsOn = false; const a = hsDesired(p), ca = card(); discountsOn = true; const b = hsDesired(p), cb = card(); discountsOn = was;
+      return { listTotal: a.total, listRate: a.rate, list: a.list, discTotal: b.total, discRate: b.rate, listCard: ca, discCard: cb }; }""")
+    assert lp["listTotal"] == 0 and abs(lp["listRate"] - lp["list"]) < 1e-9 and lp["discTotal"] > 0 and lp["discRate"] < lp["list"], lp      # list price: the full rate, no discount of any kind, and nothing discounted is pushed to HubSpot
+    assert "List price" in lp["listCard"] and "Discounted" in lp["listCard"] and "Size discount" not in lp["listCard"] and "Speed discount" not in lp["listCard"] and "no discount" in lp["listCard"] and "£9,600" in lp["listCard"], lp["listCard"]      # the card opens at 8p x 12 months
+    assert "Size discount" in lp["discCard"] and "£9,600" not in lp["discCard"].split("Estimated annual revenue")[1][:80], lp["discCard"][:300]
     assert pg.evaluate("""() => { const p = practices.find(x => x.merged_into && x.hubspot_company_id); if (!p) return 'no case'; const par = byOds.get(p.merged_into); const keep = [p.hubspot_successor_company_id, p.hubspot_branch_parent_company_id, p.hubspot_parent_company_id, par.hubspot_company_id];
       par.hubspot_company_id = par.hubspot_company_id || '900'; p.hubspot_parent_company_id = null; p.hubspot_branch_parent_company_id = null; p.hubspot_successor_company_id = String(par.hubspot_company_id); const a = alignOf(p).link.ok; p.hubspot_successor_company_id = '1'; const b = alignOf(p).link.ok;
       [p.hubspot_successor_company_id, p.hubspot_branch_parent_company_id, p.hubspot_parent_company_id] = keep; return [a, b]; }""") in ([True, False], "no case")   # the Successor Practice label counts as the link to the successor
