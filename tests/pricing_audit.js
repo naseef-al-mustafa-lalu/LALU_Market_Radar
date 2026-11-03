@@ -1,6 +1,6 @@
 const fs = require("fs"), vm = require("vm");
 const src = fs.readFileSync(require("path").join(__dirname, "..", "js", "practices.js"), "utf8");
-const a = src.indexOf("let speedOn"), b = src.indexOf("let routeCmpPractice");
+const a = src.indexOf("let discountsDefault"), b = src.indexOf("let routeCmpPractice");
 const seg = src.slice(a, b);
 const doc = { addEventListener() {}, querySelectorAll: () => [], querySelector: () => null };
 const settings = { list_price_per_patient: .08, monthly_list_price_per_patient: .10, list_price_sar_per_patient: .05, monthly_list_price_sar_per_patient: .06, term_discount_2yr: .025, term_discount_3yr: .05, price_floor_per_patient: .052 };
@@ -11,7 +11,7 @@ const cfgTiers = [...T("practice", [[1,20000,.1,.05],[2,15000,.075,.05],[3,10000
   ...T("icb", [[1,3500000,.35,0],[2,2500000,.325,0],[3,1750000,.3,0],[4,1000000,.275,0],[5,0,.25,0]])];
 const ctx = { document: doc, cfgSettings, cfgTiers, chip: (t) => t, rate3: x => { x = Number(x); const f4 = x.toFixed(4); return f4.endsWith("0") ? x.toFixed(3) : f4; }, TIER_CLS: {}, esc: x => String(x ?? ""), pct: x => (Math.round(x * 1000) / 10) + "%", gbpFull: x => "£" + Math.round(x).toLocaleString("en-GB"), console };
 vm.createContext(ctx);
-vm.runInContext(seg + "\n;this.api = { get: () => ({speedOn, termYrs, billing, product}), set: (s) => { speedOn = s.speedOn; termYrs = s.termYrs; billing = s.billing; product = s.product; }, priceCardBody, dealRate, baseRate, yearly };", ctx);
+vm.runInContext(seg + "\n;this.api = { get: () => ({speedOn, termYrs, billing, product}), set: (s) => { discountsOn = s.discountsOn !== false; speedOn = s.speedOn; termYrs = s.termYrs; billing = s.billing; product = s.product; }, priceCardBody, dealRate, baseRate, yearly };", ctx);
 const api = ctx.api;
 // independent reference (first principles, from the stated rules)
 function ref(p, c, row) {
@@ -34,7 +34,7 @@ for (const [route, pts] of sample) for (const product of ["all", "sar"]) for (co
   n++;
   const headline = html.match(/Estimated annual revenue[^£]*£([\d,]+)/i);
   const hv = headline ? Number(headline[1].replace(/,/g, "")) : NaN;
-  const perPt = html.match(/Price per patient per month[^£]*£([\d.]+)/i);
+  const perPt = html.match(/Price p\/month[^£]*£([\d.]+)/i);
   const tot = html.match(/Total over (\d) years[^£]*£([\d,]+)/);
   const totOk = billing === "monthly" || termYrs === 1 ? !tot : tot && Number(tot[1]) === termYrs && Math.abs(Number(tot[2].replace(/,/g, "")) - Math.round(wantYr) * termYrs) <= termYrs;
   const btn = [...html.matchAll(/(\d) years?[^£]*£([\d,]+) \/yr/g)];
@@ -54,3 +54,12 @@ let mb = 0; for (const [route, byTerm] of Object.entries(matrix)) for (const [yr
   const g = api.dealRate(r.size_discount, Number(yrs) === 3 ? .05 : .025, r.speed_discount);
   if (Math.abs(g - v) > 5e-4) { mb++; console.log("MATRIX MISMATCH", route, yrs, i + 1, g, v); } });
 console.log("sheet multi-year matrix mismatches:", mb);
+
+// list price (the default): no discount of any kind whatever the tier, term or speed choice, so the quote is patients x list rate x 12
+let lb = 0, ln = 0;
+for (const [route, pts] of sample) for (const product of ["all", "sar"]) for (const billing of ["annual", "monthly"]) for (const termYrs of [1, 2, 3]) for (const speedOn of [false, true]) {
+  api.set({ discountsOn: false, speedOn, termYrs, billing, product }); const row = tierFor(route, pts), list = api.baseRate(), html = txt(api.priceCardBody({ patients: pts, tierRow: row, route, who: "x" }, "t"));
+  const hv = Number((html.match(/Estimated annual revenue[^£]*£([\d,]+)/i) || [])[1]?.replace(/,/g, "")); ln++;
+  if (!(Math.abs(hv - Math.round(pts * list * 12)) <= 1) || /Size discount|Term discount|Speed discount|Referral/.test(html)) { lb++; if (lb < 10) console.log("LIST MISMATCH", route, pts, product, billing, termYrs, speedOn, hv, Math.round(pts * list * 12)); }
+}
+console.log("list price combinations:", ln, "list price mismatches:", lb);
