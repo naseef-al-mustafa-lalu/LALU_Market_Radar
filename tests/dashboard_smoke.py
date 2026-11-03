@@ -579,6 +579,21 @@ with sync_playwright() as p:
       + '5,Al,Kay,al.kay@nhs.net,,100,,,,\\n6,Bo,Dee,bo.dee@nhs.net,,,Practice Manager,,,\\n7,No,Mail,,,100,Practice Manager,,,';
       const r = readHubspotContacts(csv); return [r.rows.map(x => x.status), r.noEmail]; })()""")
     assert ci == [["approved", "generic", "rejected", "suppressed", "review", "rejected"], 1], ci      # direct decision-maker, shared mailbox, nurse, opted out, unclear role, no company; a row without email is skipped
-    pg.evaluate("renderContactImport()"); pg.wait_for_function("document.querySelector('#contact-import').innerText.includes('Contacts from HubSpot')")      # the upload box on the Data tab
+    # Contacts tab: rules decide who is eligible; settings switch roles and suppression rules and save to app_flags
+    ev = pg.evaluate("""(() => { ctSetRules(null); const c = { email: 'jane.smith@nhs.net', first_name: 'Jane', last_name: 'Smith', job_title: 'Deputy Practice Manager', hs_lifecycle: 'lead' };
+      const a = ctEvaluate(c, null), b = ctEvaluate({ ...c, hs_lifecycle: 'customer' }, null), r = (ctMode = 'reengage', ctEvaluate({ ...c, hs_lifecycle: 'customer' }, null)); ctMode = 'standard';
+      const d = ctEvaluate({ ...c, hs_in_sequence: true }, null), e = ctEvaluate({ ...c, email: 'info@nhs.net' }, null), f = ctEvaluate({ ...c, job_title: 'Practice Nurse' }, null);
+      ctRules.roles.clinical = 'off'; const g = ctEvaluate({ ...c, job_title: 'Practice Nurse' }, null); ctSetRules(null);
+      return [a.section + a.status, b.reasons.join(), r.status, d.reasons.join(), e.status, f.section + f.status, g.status]; })()""")
+    assert ev == ["maineligible", "lifecycle", "eligible", "sequence", "excluded", "othereligible", "excluded"], ev
+    pg.goto("about:blank"); pg.add_init_script("window.__fail = false"); pg.goto(INDEX); pg.wait_for_selector("#app:not(.hidden)"); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
+    pg.click("#tab-contacts"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Eligible') && document.querySelector('#ct-body').innerText.includes('Lena Contact')")
+    pg.click("#ct-sub button[data-c=settings]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Suppression rules') && document.querySelector('#ct-body').innerText.includes('Job roles')")
+    assert "not evaluated yet" in pg.inner_text("#ct-body") and pg.is_disabled("#ct-save")
+    pg.click(".ct-role-set[data-id=clinical][data-m=off]"); assert pg.is_enabled("#ct-save"); pg.click("#ct-save")
+    pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'contact_rules')")
+    sv = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'contact_rules').pop()[1][0]"); assert sv["value"]["roles"]["clinical"] == "off", sv
+    pg.click("#ct-sub button[data-c=import]"); pg.wait_for_function("document.querySelector('#contact-import') && document.querySelector('#contact-import').innerText.includes('Contacts from HubSpot')")      # the HubSpot export upload now lives on the Contacts tab
+    pg.click("#ct-sub button[data-c=review]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Titles the role groups do not recognise')")
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

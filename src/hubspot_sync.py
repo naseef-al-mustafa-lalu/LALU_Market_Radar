@@ -724,6 +724,36 @@ def role_columns(role_links, company_id):
     return {"hubspot_successor_company_id": r.get("successor"), "hubspot_branch_parent_company_id": r.get("branch_parent")}
 
 
+CONTACT_STATE_PROPS = ["lifecyclestage", "hs_sequences_is_enrolled", "hs_email_bounce", "hs_email_hard_bounce_reason_enum", "hs_email_last_send_date", "hs_email_optout", "hs_email_optout_621322507",
+                       "hubspot_owner_id", "neverbounce_status"]   # 621322507 is the Marketing Information subscription
+
+
+def contact_state(props, urn, now):
+    """One contact's HubSpot state in the columns of public.contacts (see migration 63). Blank means HubSpot has no value."""
+    def flag(k):
+        v = str(props.get(k) or "").strip().lower()
+        return True if v == "true" else False if v == "false" else None
+    try:
+        bounces = float(props.get("hs_email_bounce") or 0)
+    except ValueError:
+        bounces = 0
+    return {"contact_urn": urn, "hs_lifecycle": props.get("lifecyclestage") or None, "hs_in_sequence": flag("hs_sequences_is_enrolled"), "hs_bounced": bounces >= 1,
+            "hs_bounce_reason": props.get("hs_email_hard_bounce_reason_enum") or None, "hs_last_sent": props.get("hs_email_last_send_date") or None,
+            "hs_mkt_optout": flag("hs_email_optout_621322507"), "hs_optout_all": flag("hs_email_optout"), "hs_owner": props.get("hubspot_owner_id") or None,
+            "hs_neverbounce": props.get("neverbounce_status") or None, "hs_state_at": now}
+
+
+def sync_contact_state(rest, hub, now):
+    """Copy what HubSpot knows about each of Atlas's HubSpot-linked contacts (lifecycle, sequence, bounce, unsubscribe, owner, NeverBounce) onto the contact, in batches of 100 reads."""
+    mine = [r for r in rest.select_all("contacts", "contact_urn,hubspot_contact_id", order="contact_urn", params={"hubspot_contact_id": "not.is.null"}) if r.get("hubspot_contact_id")]
+    props = read_objects(hub, "contacts", [r["hubspot_contact_id"] for r in mine], CONTACT_STATE_PROPS)
+    rows = [contact_state(props[str(r["hubspot_contact_id"])], r["contact_urn"], now) for r in mine if str(r["hubspot_contact_id"]) in props]
+    done = 0
+    for ch in chunks(rows, 1000):
+        done += int(rest.rpc("apply_contact_state", {"items": ch}) or 0)
+    return {"contact_states": done, "contact_states_missing": len(mine) - len(rows)}
+
+
 FED_LABELS = {"federation", "member practice"}                  # practice -> federation / federation -> practice
 GROUP_LABELS = {"operating provider", "operated practice"}      # practice -> operating group / group -> practice
 HS_ORG_PROPS = ["name", "org_type", "operating_status", "patient_list_size", "patient_list_rollup"]
@@ -1041,6 +1071,11 @@ def sync(rest, hub, now=None, actor="daily sync"):
                     print("Slack post skipped:", e)
         except Exception as e:  # noqa: BLE001
             pcn_stats = {"pcn_sync_error": str(e)[:300]}
+    contact_stats = {}
+    try:   # campaign eligibility needs each contact's HubSpot state; a failure here must not undo the practice sync above
+        contact_stats = sync_contact_state(rest, hub, now)
+    except Exception as e:  # noqa: BLE001
+        contact_stats = {"contact_state_error": str(e)[:300]}
     org_stats = {}
     try:   # federations and groups defined in HubSpot; a failure here must not undo the practice sync above
         org_stats = sync_hubspot_orgs(rest, hub, by_ods)
@@ -1048,7 +1083,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         org_stats = {"hubspot_orgs_error": str(e)[:300]}
     audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
-    return {**nets, **pcn_stats, **org_stats, "primary_contacts_set": managers_set, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
+    return {**nets, **pcn_stats, **org_stats, **contact_stats, "primary_contacts_set": managers_set, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
             "contacts_updated": len(crow), **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
 
 

@@ -918,3 +918,17 @@ def test_hubspot_sync_does_not_refetch_nhs_ods_the_same_day():
     assert hsy.ods_fetched_recently(R("2026-11-02T08:30:00+00:00"), now) is False      # yesterday's: fetch again
     assert hsy.ods_fetched_recently(R(None), now) is False
     assert [r["id"] for r in hsy.network_audit_kept(R(None))] == ["pcn_association-1", "p"]      # the PCN / ICB audit rows survive a skipped step
+
+
+def test_hubspot_contact_state_reads_the_exclusion_facts():
+    from datetime import datetime, timezone
+
+    from src.hubspot_sync import contact_state
+
+    now = datetime(2026, 11, 3, tzinfo=timezone.utc)
+    st = contact_state({"lifecyclestage": "lead", "hs_sequences_is_enrolled": "true", "hs_email_bounce": "1", "hs_email_hard_bounce_reason_enum": "UNKNOWN_USER",
+                        "hs_email_optout": "false", "hs_email_optout_621322507": "true", "hubspot_owner_id": "78343211", "neverbounce_status": "Valid"}, 7, now)
+    assert st["contact_urn"] == 7 and st["hs_lifecycle"] == "lead" and st["hs_in_sequence"] is True and st["hs_bounced"] is True
+    assert st["hs_bounce_reason"] == "UNKNOWN_USER" and st["hs_mkt_optout"] is True and st["hs_optout_all"] is False and st["hs_owner"] == "78343211" and st["hs_neverbounce"] == "Valid"
+    blank = contact_state({}, 8, now)
+    assert blank["hs_in_sequence"] is None and blank["hs_bounced"] is False and blank["hs_lifecycle"] is None

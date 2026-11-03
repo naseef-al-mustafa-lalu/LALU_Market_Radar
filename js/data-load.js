@@ -113,6 +113,7 @@ function stateToUrl(push) {
   if (currentTab === "networks" && netKind !== "pcn") u.set("nk", netKind);
   if (currentTab === "data" && dataSub !== "overview") u.set("ds", dataSub);
   if (currentTab === "signals" && sigSub !== "feed") u.set("ss", sigSub);
+  if (currentTab === "contacts" && typeof ctSub !== "undefined" && ctSub !== "contacts") u.set("cs", ctSub);
   if (drawerCode) u.set("open", drawerCode);
   const qs = u.toString(), url = location.pathname + (qs ? "?" + qs : "") + location.hash;
   if (url !== location.pathname + location.search + location.hash) history[push ? "pushState" : "replaceState"](null, "", url);
@@ -127,6 +128,7 @@ function stateFromUrl() {
     netKind = ["pcn", "group", "federation", "icb"].includes(u.get("nk")) ? u.get("nk") : "pcn";
     currentTab = TABS.includes(u.get("tab")) ? u.get("tab") : "practices";
     setDataSub(["overview", "sources", "audit", "branches", "signals", "pricing"].includes(u.get("ds")) ? u.get("ds") : "overview");
+    ctSub = ["contacts", "review", "segments", "import", "settings"].includes(u.get("cs")) ? u.get("cs") : "contacts";
     setSigSub(["feed", "mergers", "jobs"].includes(u.get("ss")) ? u.get("ss") : "feed");
   } finally { restoringUrl = false; }
   return u.get("open");
@@ -134,8 +136,8 @@ function stateFromUrl() {
 window.addEventListener("popstate", () => { if (!$("app").classList.contains("hidden")) { const open = stateFromUrl(); applyFilters(); renderNetworks(); showTab(currentTab, true); if (open && byOds.get(open)) openDrawer(byOds.get(open)); else closeDrawer(); } });
 
 /* ---------- tabs ---------- */
-const TABS = ["practices", "networks", "revenue", "signals", "audiences", "data"]; let currentTab = "practices";
-const SUBNAV = { networks: "net-kinds", revenue: "rev-sub", signals: "sig-sub", audiences: "aud-sub", data: "data-sub" };   // tab -> its sub-tab strip in the second row (#subnav)
+const TABS = ["practices", "networks", "revenue", "signals", "audiences", "contacts", "data"]; let currentTab = "practices";
+const SUBNAV = { networks: "net-kinds", revenue: "rev-sub", signals: "sig-sub", audiences: "aud-sub", contacts: "ct-sub", data: "data-sub" };   // tab -> its sub-tab strip in the second row (#subnav)
 window.addEventListener("resize", () => { if (!$("subnav").classList.contains("hidden")) $("subnav").style.top = document.querySelector("#app > nav").offsetHeight + "px"; });
 function showTab(which, fromUrl) {
   if (which === "data" && currentTab !== "data") setDataSub("overview");
@@ -146,6 +148,7 @@ function showTab(which, fromUrl) {
   if (strip) $("subnav").style.top = document.querySelector("#app > nav").offsetHeight + "px";
   if (which === "revenue") { renderRevenue(); if (revSub === "pum") renderPum(); }
   if (which === "audiences") loadAudiences();
+  if (which === "contacts") loadContacts();
   if (which === "data") renderData();
   if (which !== "practices") closeDrawer();
   if (!fromUrl) stateToUrl(changed);
