@@ -83,10 +83,18 @@ def read_objects(hub, obj, ids, props):
     return out
 
 
+PAST_CUSTOMER = "4726262995"   # Lifecycle Stage: Past Customer
+
+
+def ended(c):
+    """A company that is no longer a customer: Company Status Ex-Customer, or Lifecycle Stage Past Customer."""
+    return c.get("company_status") == "Ex-Customer" or c.get("lifecyclestage") == PAST_CUSTOMER
+
+
 def classify(companies, contact_ids, contacts, deal_ids, deals):
     """One practice's flags from all HubSpot companies that carry its ODS code. Returns dict of the dashboard fields."""
-    # HubSpot never moves a company back out of the Customer stage, so a company whose Company Status is Ex-Customer is not a customer
-    live = [c for c in companies if c.get("company_status") != "Ex-Customer"]
+    # HubSpot never moves a company back out of the Customer stage, so a company whose Company Status is Ex-Customer, or whose Lifecycle Stage has been set to Past Customer (eMR inactive), is not a customer
+    live = [c for c in companies if not ended(c)]
     model = next((c.get("current_subscription") for c in live if c.get("current_subscription")), None)   # the company's Commercial Model: HubSpot clears it at churn
     customer = any(c.get("lifecyclestage") == "customer" for c in live) or bool(model) or (bool(live) and any(deals.get(d, {}).get("hs_is_closed_won") == "true" for d in deal_ids))
     engaged = any(c.get("lifecyclestage") in ENGAGED_STAGES for c in companies)
@@ -446,7 +454,7 @@ def lifecycle_fields(companies, deal_ids, deals, service_ids, services, line_qty
     qty = hist[-1][1] if hist else None
     return {"hubspot_company_status": primary.get("company_status") or None, "hubspot_service_name": (main or {}).get("hs_name") or None, "hubspot_product": product,
             "hubspot_product_service": ps or ({"self": "eMR"}.get(product, "eMR+") if product in ("all", "sar", "self") else None),
-            "hubspot_first_start": min(starts) if starts else None, "hubspot_churned_date": max(churned) if churned and (primary.get("company_status") == "Ex-Customer" or not any(
+            "hubspot_first_start": min(starts) if starts else None, "hubspot_churned_date": max(churned) if churned and (ended(primary) or not any(
                 sv.get("current_subscription") for sv in paid)) else None,
             "hubspot_signed_size": int(qty) if qty else (int(list_size_value) if list_size_value else None), "hubspot_size_history": hist or None}
 

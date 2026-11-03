@@ -854,3 +854,14 @@ def test_practice_role_links_read_the_labels():
     assert links == {"1": {"successor": "9"}, "2": {"branch_parent": "7", "successor": "7"}}      # one company can hold both roles; plain parent / child links are not these roles
     assert hsy.role_columns(links, "1") == {"hubspot_successor_company_id": "9", "hubspot_branch_parent_company_id": None}
     assert hsy.role_columns(links, "5") == {"hubspot_successor_company_id": None, "hubspot_branch_parent_company_id": None}
+
+
+def test_past_customer_lifecycle_is_not_a_customer():
+    from src import hubspot_sync as hsy
+    deals = {"d1": {"hs_is_closed_won": "true"}}
+    live = [{"id": "1", "lifecyclestage": "customer", "createdate": "2025-01-01"}]
+    past = [{"id": "1", "lifecyclestage": hsy.PAST_CUSTOMER, "createdate": "2025-01-01"}]
+    assert hsy.classify(live, [], {}, ["d1"], deals)["hubspot_customer"] is True
+    f = hsy.classify(past, [], {}, ["d1"], deals)      # eMR inactive: set to Past Customer, so its old closed-won deal no longer makes it a customer
+    assert f["hubspot_customer"] is False and f["hubspot_stage"] == "Past Customer" and f["hubspot_engaged"] is False
+    assert hsy.classify([{**past[0], "current_subscription": "Subscription"}], [], {}, ["d1"], deals)["hubspot_customer"] is False      # nor does a Commercial Model that was not cleared
