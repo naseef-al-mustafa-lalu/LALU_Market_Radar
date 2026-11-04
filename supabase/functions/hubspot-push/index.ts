@@ -74,6 +74,14 @@ async function assocLabel(toType: string, name: string): Promise<{ category: str
   } catch (_) { return null; }
 }
 
+// The deal -> contact "Primary contact" label (looked up by name, so no id is hard-coded). HubSpot's deal creation form needs one contact carrying it.
+async function dealPrimaryLabel(): Promise<{ category: string; typeId: number }> {
+  const r = await cached("labels:deals-contacts", () => hs(`/crm/v4/associations/deals/contacts/labels`));
+  const hit = (r?.results ?? []).find((x: any) => /^primary\b/i.test(String(x.label ?? "").trim()));
+  if (!hit) throw new Fail("HubSpot has no 'Primary contact' association label between deals and contacts, so a primary contact cannot be set. Create it in HubSpot (Settings > Data management > Objects > Deals > Associations).");
+  return { category: String(hit.category ?? "USER_DEFINED"), typeId: Number(hit.typeId) };
+}
+
 // Company-to-company role labels, so a company can have as many relationships as it needs (HubSpot's Parent Company allows one parent each). Created in the account on first use.
 // Each is the label shown on the record that points at the other: a merged practice shows its successor as "Successor Practice" (the successor shows it as "Merged Practice");
 // a branch site shows its practice as "Parent Practice" (the practice shows it as "Branch Site").
@@ -639,11 +647,16 @@ Deno.serve(async (req) => {
       if (props.amount != null && !(Number(props.amount) >= 0 && Number(props.amount) < 100000000)) throw new Fail("Invalid amount");
       if (props.closedate && Number.isNaN(Date.parse(String(props.closedate)))) throw new Fail("Invalid close date");
       props.deal_currency_code = "GBP";
-      const contactIds = (Array.isArray(b.contactIds) ? b.contactIds : []).slice(0, 5).map(idOf);
+      if (!b.primaryContactId) throw new Fail("Pick a primary contact: every new deal needs one");
+      const primaryId = idOf(b.primaryContactId);
+      const contactIds = [primaryId, ...(Array.isArray(b.contactIds) ? b.contactIds : []).map(idOf).filter((x: string) => x !== primaryId)].slice(0, 5);
+      const primaryLabel = await dealPrimaryLabel();
       const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name`);   // proves the company exists
+      const onCompany = await hs(`/crm/v4/objects/contacts/${primaryId}/associations/companies?limit=100`);
+      if (!(onCompany?.results ?? []).some((x: any) => String(x.toObjectId) === companyId)) throw new Fail("The primary contact must be one of the company's contacts");
       const d = await hs(`/crm/v3/objects/deals`, { method: "POST", body: JSON.stringify({ properties: props, associations: [
         { to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ASSOC_DEAL_TO_COMPANY }] },
-        ...contactIds.map((id: string) => ({ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ASSOC_DEAL_TO_CONTACT }] }))] }) });
+        ...contactIds.map((id: string) => ({ to: { id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ASSOC_DEAL_TO_CONTACT }, ...(id === primaryId ? [{ associationCategory: primaryLabel.category, associationTypeId: primaryLabel.typeId }] : [])] }))] }) });
       const warnings: string[] = [], linked: string[] = [];
       const objs = net ? (Array.isArray(b.networkObjects) ? b.networkObjects : []).filter((o: any) => NETWORK_TYPES.has(String(o.type))).slice(0, 60).map((o: any) => ({ type: String(o.type), id: idOf(o.id), name: String(o.name ?? "").slice(0, 80) })) : [];
       for (let i = 0; i < objs.length; i += 10) {   // the deal is linked to the network's own PCN and ICB records, so HubSpot shows it on each of them
@@ -656,7 +669,7 @@ Deno.serve(async (req) => {
       await noteOn("deals", String(d.id), noteBody(who, net ? `deal created from the ${label} ${String(net.name).slice(0, 120)}'s Atlas network profile on ${co.properties?.name ?? companyId}` : `deal created from the practice profile on ${co.properties?.name ?? companyId}`,
         [...changes({}, props), ...(net ? [`Network: blank → ${label} ${String(net.name).slice(0, 120)}`, `ICB and PCN records: blank → ${linked.length} linked${linked.length ? " (" + linked.sort().join(", ") + ")" : ""}`] : [])]), warnings);
       await log({ actor: who, kind: "create_deal", ods_code: net ? null : ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
-        summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s)${net ? ` for the ${label} ${net.name}, linked to ${linked.length} ICB / PCN record(s)` : ""}`, detail: { companyId, properties: props, contactIds, network: net ? { kind: net.kind, name: net.name, linked } : null, warnings } });
+        summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s), primary ${primaryId}${net ? ` for the ${label} ${net.name}, linked to ${linked.length} ICB / PCN record(s)` : ""}`, detail: { companyId, properties: props, contactIds, primaryContactId: primaryId, network: net ? { kind: net.kind, name: net.name, linked } : null, warnings } });
       if (net && /^[0-9a-f-]{36}$/i.test(String(net.orgId ?? ""))) await admin.from("hubspot_network_deals").upsert({ deal_id: String(d.id), org_id: String(net.orgId), company_id: companyId, deal_name: String(props.dealname), created_by: who }).then(() => null, () => null);
       const grouped = net ? [] : await linkIntoGroup(admin, ods, String(d.id), warnings).catch(() => []);
       return reply({ ok: true, dealId: String(d.id), grouped, linked: linked.length, warnings });

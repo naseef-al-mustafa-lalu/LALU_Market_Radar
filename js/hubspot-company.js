@@ -46,6 +46,18 @@ const hsPicker = (list, cls, skipped = []) => list.map((c, i) => `<label class="
   + skipped.map(c => `<div class="flex items-start gap-2 border-t border-slate-100 py-1.5 text-slate-400"><input type="checkbox" disabled class="mt-1"><span><b>${esc(c.name || "Unnamed")}</b> <span class="text-xs">not added: ${esc(c.why)}</span></span></div>`).join("");
 const hsPicked = (list, cls) => [...document.querySelectorAll("." + cls + ":checked")].map(x => list[+x.dataset.i]);
 const hsNameOf = c => [c.firstname, c.lastname].filter(Boolean).join(" ") || c.email || "Unnamed";
+// The deal needs one contact carrying the "Primary contact" label (HubSpot's own form requires it): picked here, others are optional.
+function hsContactBlock(contacts) {
+  if (!contacts.length) return '<div class="mt-3 rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-800">A deal needs a primary contact and this company has no contacts yet. <button id="nd-addfirst" type="button" class="font-semibold underline">Add contacts first</button></div>';
+  const first = (hs.picked && contacts.find(c => hs.picked.includes(c.id)) || contacts[0]).id;
+  return `<div class="mt-3 grid gap-2 sm:grid-cols-2">${hsField("Primary contact (required)", `<select id="nd-primary" class="${hsInp}">${hsOpts(contacts.map(c => [c.id, hsNameOf(c) + (c.jobtitle ? " · " + c.jobtitle : "")]), first)}</select>`)}</div>
+    ${contacts.length > 1 ? `<div class="mt-2"><div class="mb-1 text-xs font-semibold text-slate-600">Also associate</div>${contacts.slice(0, 10).map(c => `<label class="nd-also flex items-center gap-2 py-0.5 ${c.id === first ? "hidden" : ""}" data-c="${esc(c.id)}"><input type="checkbox" data-nd-contact="${esc(c.id)}" ${hs.picked && hs.picked.includes(c.id) ? "checked" : ""}><span>${esc(hsNameOf(c))} <span class="text-xs text-slate-500">${esc(c.jobtitle || "")} ${esc(c.email || "")}</span></span></label>`).join("")}</div>` : ""}`;
+}
+function hsContactWire(onAdd) {
+  const pr = $("nd-primary"); if (pr) pr.onchange = () => document.querySelectorAll(".nd-also").forEach(l => l.classList.toggle("hidden", l.dataset.c === pr.value));
+  const af = $("nd-addfirst"); if (af) af.onclick = onAdd;
+}
+const hsContactIds = () => ({ primaryContactId: $("nd-primary")?.value || "", contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact).filter(x => x !== $("nd-primary")?.value) });
 
 /* the company page: Company > Contacts > Leads > Deals. Loaded once, then updated in place so going back is instant. */
 const hsStep = (n, label, done, note) => `<div class="flex min-w-0 flex-1 items-center gap-2"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${done ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"}">${done ? "✓" : n}</span><div class="min-w-0"><div class="text-xs font-semibold text-slate-700">${label}</div><div class="truncate text-[11px] text-slate-500">${note}</div></div></div>`;
@@ -141,17 +153,18 @@ async function hsDealForm(company) {
         ${field("Deal owner", pre.owners ? `<select id="nd-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
         ${field("Close date", `<input id="nd-close" type="date" class="${inp}" value="${close}">`)}
         ${field("Amount (£, per year)", `<input id="nd-amount" type="number" min="0" step="0.01" class="${inp}" value="${amount}">`)}</div>
-      ${contacts.length ? `<div class="mt-3"><div class="mb-1 text-xs font-semibold text-slate-600">Associate contacts</div>${contacts.map(c => `<label class="flex items-center gap-2 py-0.5"><input type="checkbox" data-nd-contact="${esc(c.id)}" ${!hs.picked || hs.picked.includes(c.id) ? "checked" : ""}><span>${esc([c.firstname, c.lastname].filter(Boolean).join(" ") || c.email)} <span class="text-xs text-slate-500">${esc(c.jobtitle || "")} ${esc(c.email || "")}</span></span></label>`).join("")}</div>` : '<p class="mt-3 text-xs text-slate-500">This company has no contacts to associate.</p>'}
+      ${hsContactBlock(contacts)}
       ${pre.warnings.map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
       <p class="mt-2 text-xs text-slate-500">The Amount starts at the annual revenue above. The pricing above (discounts, size tier, value per patient, commercial model and line item) is written to the deal straight after it is created, and checked against HubSpot on the same page.</p>
       <div id="nd-msg" class="mt-2" role="status"></div>
       <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal and push pricing</button></div></div>`;
     $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value); $("nd-stage").innerHTML = opts(pp.stages.map(s => [s.id, s.label]), pp.stages[0].id); };
     $("nd-cancel").onclick = () => hsCompanyPage(company.id);
+    hsContactWire(() => hsHubRender()); if (!contacts.length) $("nd-create").disabled = true;
     $("nd-create").onclick = async () => {
       const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
-        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: company.id, contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact),
+        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: company.id, ...hsContactIds(),
           deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
             hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
         hs.hub = null; delete hsHubCache[company.id]; Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false, auto: true }); hsPreview();

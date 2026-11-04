@@ -57,7 +57,7 @@ async function hsNetDealForm(company) {
       ${field("Product / service", `<select id="nd-prod" class="${inp}">${opts([["eMR+", "ReportSure - Managed Service"], ["eMR", "ReportSure - Self Service"]], "eMR+")}</select>`)}
       ${field("Deal owner", pre.owners ? `<select id="nd-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
       ${field("Close date", `<input id="nd-close" type="date" class="${inp}" value="${close}">`)}${field("Amount (£, per year)", `<input id="nd-amount" type="number" min="0" step="0.01" class="${inp}" value="${annual}">`)}</div>
-      ${hub.contacts.length ? `<div class="mt-3"><div class="mb-1 text-xs font-semibold text-slate-600">Associate contacts</div>${hub.contacts.slice(0, 10).map(c => `<label class="flex items-center gap-2 py-0.5"><input type="checkbox" data-nd-contact="${esc(c.id)}"><span>${esc(hsNameOf(c))} <span class="text-xs text-slate-500">${esc(c.jobtitle || "")} ${esc(c.email || "")}</span></span></label>`).join("")}</div>` : ""}
+      ${hsContactBlock(hub.contacts)}
       <label class="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" id="nd-link" class="mt-1" ${objs.length ? "checked" : "disabled"}><span>Link the deal to its HubSpot ${objs.length ? `records: <b>${nPcn}</b> PCN${nPcn === 1 ? "" : "s"}${nIcb ? ` and <b>${nIcb}</b> ICB` : ""}` : "PCN and ICB records (none found in HubSpot)"}
         ${objs.length ? `<details class="text-xs text-slate-500"><summary class="cursor-pointer">Show them</summary>${esc(objs.map(o => o.name).sort().join(", "))}</details>` : ""}</span></label>
       ${(pre.warnings || []).map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
@@ -66,10 +66,11 @@ async function hsNetDealForm(company) {
       <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Cancel</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal</button></div></div>`);
     $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value); $("nd-stage").innerHTML = opts(pp.stages.map(s => [s.id, s.label]), pp.stages[0].id); };
     $("nd-cancel").onclick = hsClose;
+    hsContactWire(() => hsHubRender()); if (!hub.contacts.length) $("nd-create").disabled = true;
     $("nd-create").onclick = async () => {
       const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
-        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", network: { kind: n.kind, name: n.name, orgId: n.id }, companyId: company.id, contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact),
+        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", network: { kind: n.kind, name: n.name, orgId: n.id }, companyId: company.id, ...hsContactIds(),
           networkObjects: $("nd-link").checked ? objs : [], deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
             hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
         hsRender(`<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900" role="status">Deal created: ${hsLink("0-3", r.dealId, "open it in HubSpot")}<div class="text-xs">Linked to ${r.linked || 0} PCN / ICB record${r.linked === 1 ? "" : "s"}, with a note on the deal.</div></div>
