@@ -240,7 +240,7 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const size0 = Number(tierRow.size_discount), size = disc ? size0 : 0, speed = Number(tierRow.speed_discount), term = monthly ? 0 : termDiscount(termYrs), floor = setting("price_floor_per_patient");
   const useSpeed = speedOn && !monthly && speed > 0;   // the speed discount is its own switch and does not need the size discount
   const anyDisc = disc || useSpeed || term > 0;
-  const refGrp = route === "practice" && lead && disc ? referralFor(lead) : null, ref = refGrp ? refGrp.extra : 0, sizeAll = size + ref;   // a referral group adds its extra size discount (conditional on the others signing)
+  const refGrp = route === "practice" && lead && !monthly ? referralFor(lead) : null, ref = refGrp ? refGrp.extra : 0, sizeAll = size + ref;   // a referral group adds its extra size discount (conditional on the others signing)
   // The speed discount applies to every year of the term and ends at renewal.
   const termRate = dealRate(sizeAll, term, useSpeed ? speed : 0), renewal = dealRate(sizeAll, term, 0);
   const sum = sizeAll + term + (useSpeed ? speed : 0), floored = !sar && !monthly && list * (1 - sum) < floor - 1e-9;
@@ -248,13 +248,13 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const line = (label, detail, pctText, value, cls = "") => `<tr class="border-t border-emerald-100 ${cls}"><td class="py-1.5 pr-3 align-top"><div class="font-medium leading-snug">${label}</div>${detail ? sub(detail) : ""}</td><td class="py-1.5 px-2 text-right align-top whitespace-nowrap text-slate-600">${pctText}</td><td class="py-1.5 pl-2 text-right align-top whitespace-nowrap font-mono">${value}</td></tr>`;
   const adj = termRate - list * (1 - sum);
   const rowsHtml = [
-    line("List price", `${prodName} · ` + (monthly ? "monthly plan, rolling, no discounts" : anyDisc ? `annual plan, ${termYrs}-year commitment` : `annual plan, ${termYrs}-year commitment, list price, no discount`), "", `£${rate3(list)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
+    line("List price", `${prodName} · ` + (monthly ? "monthly plan, rolling, no discounts" : (anyDisc || ref > 0) ? `annual plan, ${termYrs}-year commitment` : `annual plan, ${termYrs}-year commitment, list price, no discount`), "", `£${rate3(list)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
     !disc ? "" : line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
     ref > 0 ? line("Referral group discount", `${refGrp.n} other practice${refGrp.n > 1 ? "s" : ""}, ${refGrp.combined.toLocaleString()} patients combined (${pct(refGrp.groupSize)} size discount, own ${pct(refGrp.ownSize)}) ${chip("Conditional", "bg-amber-100 text-amber-800")}`, "−" + pct(ref), amt(list * ref)) : "",
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
     useSpeed ? line("Speed discount", termYrs > 1 ? "Every year of the term, not guaranteed" : "Term year, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
     adj > 1e-9 ? line("Price floor", `Never below £${rate3(floor)} per month`, "", "+£" + rate3(adj)) : "",
-    line("Price p/month", "", !anyDisc ? "" : `${pct(1 - termRate / list)} off`, `£${rate3(termRate)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "font-semibold border-t-2 border-emerald-200"),
+    line("Price p/month", "", !(anyDisc || ref > 0) ? "" : `${pct(1 - termRate / list)} off`, `£${rate3(termRate)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "font-semibold border-t-2 border-emerald-200"),
     line(`× ${patients.toLocaleString()} patients × 12 months`, "Per year", "", gbpFull(yearly(patients, termRate)), "font-semibold")
   ].join("");
   // Price by year: every term year pays the same rate; the speed discount ends at renewal.
@@ -279,7 +279,7 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
     ${monthly ? "" : `<div class="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">${toggle("disc-toggle", "Size discount", discountsOn, "dsc-l-" + id, pct(size0) + " off")}${speed > 0 ? toggle("speed-toggle", "Speed discount", speedOn, "spd-l-" + id, pct(speed) + " off, not guaranteed") : ""}</div>`}
     ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
       `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
-    ${route === "practice" && lead && disc && lead.total_patients > 0 ? referralPanel(lead, id) : ""}
+    ${route === "practice" && lead && !monthly && lead.total_patients > 0 ? referralPanel(lead, id) : ""}
     ${steps}${yearTable}
     </div>`;
 }

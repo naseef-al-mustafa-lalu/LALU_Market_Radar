@@ -46,6 +46,15 @@ const hsPicker = (list, cls, skipped = []) => list.map((c, i) => `<label class="
   + skipped.map(c => `<div class="flex items-start gap-2 border-t border-slate-100 py-1.5 text-slate-400"><input type="checkbox" disabled class="mt-1"><span><b>${esc(c.name || "Unnamed")}</b> <span class="text-xs">not added: ${esc(c.why)}</span></span></div>`).join("");
 const hsPicked = (list, cls) => [...document.querySelectorAll("." + cls + ":checked")].map(x => list[+x.dataset.i]);
 const hsNameOf = c => [c.firstname, c.lastname].filter(Boolean).join(" ") || c.email || "Unnamed";
+// A company with an open deal gets that deal updated with the current pricing; a second deal is only made on purpose.
+function hsOpenDealNotice(company, existing, again) {
+  const box = $("hs-results"), esc2 = esc;
+  box.innerHTML = `<div class="rounded-xl border border-amber-300 bg-amber-50 p-3"><h4 class="text-sm font-bold text-amber-900">${esc2(company.name)} already has an open deal</h4><p class="mt-0.5 text-xs text-amber-900">Update it with the current pricing instead of creating another.</p>
+    <div class="mt-2 space-y-1.5">${existing.map(d => `<button type="button" class="od-use flex w-full items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-left hover:border-emerald-600" data-id="${esc2(d.id)}"><span class="min-w-0"><span class="block truncate text-sm font-semibold">${esc2(d.dealname)}</span><span class="block text-xs text-slate-500">${d.amount ? "£" + Number(d.amount).toLocaleString() : "no amount"} ${hsLink("0-3", d.id, "open in HubSpot")}</span></span><span class="shrink-0 text-xs font-semibold text-emerald-700">Update this deal</span></button>`).join("")}</div>
+    <div class="mt-2 flex justify-between text-xs"><button type="button" id="od-back" class="font-semibold text-slate-600 underline">Back</button><button type="button" id="od-another" class="font-semibold text-slate-600 underline">Create another deal anyway</button></div></div>`;
+  box.querySelectorAll(".od-use").forEach(b => b.onclick = async () => { box.innerHTML = '<p class="text-slate-500">Reading the records…</p>'; try { Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: b.dataset.id }), { linked: false }); hsPreview(); } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc2(e.message)}</p>`; } });
+  $("od-back").onclick = () => hsCompanyPage(company.id); $("od-another").onclick = again;
+}
 // The deal needs one contact carrying the "Primary contact" label (HubSpot's own form requires it): picked here, others are optional.
 function hsContactBlock(contacts) {
   if (!contacts.length) return '<div class="mt-3 rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-800">A deal needs a primary contact and this company has no contacts yet. <button id="nd-addfirst" type="button" class="font-semibold underline">Add contacts first</button></div>';
@@ -164,10 +173,11 @@ async function hsDealForm(company) {
     $("nd-create").onclick = async () => {
       const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
-        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: company.id, ...hsContactIds(),
+        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: company.id, allowAnother: hs.anotherDeal === true, ...hsContactIds(),
           deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
             hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
-        hs.hub = null; delete hsHubCache[company.id]; Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false, auto: true }); hsPreview();
+        if (r.ok === false && r.existing) { hsOpenDealNotice(company, r.existing, () => { hs.anotherDeal = true; hsDealForm(company); }); return; }
+        hs.anotherDeal = false; hs.hub = null; delete hsHubCache[company.id]; Object.assign(hs, await hsCall({ action: "read", companyId: company.id, dealId: r.dealId }), { linked: false, auto: true }); hsPreview();
       } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create deal and push pricing"; }
     };
   } catch (e) { box.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; }

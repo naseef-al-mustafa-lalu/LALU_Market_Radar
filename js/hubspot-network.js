@@ -70,9 +70,14 @@ async function hsNetDealForm(company) {
     $("nd-create").onclick = async () => {
       const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
-        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", network: { kind: n.kind, name: n.name, orgId: n.id }, companyId: company.id, ...hsContactIds(),
+        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", network: { kind: n.kind, name: n.name, orgId: n.id }, companyId: company.id, allowAnother: hs.anotherDeal === true, ...hsContactIds(),
           networkObjects: $("nd-link").checked ? objs : [], deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
             hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
+        if (r.ok === false && r.existing) {
+          msg.innerHTML = `<div class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900"><b>${esc(company.name)} already has an open deal</b>, so no second one was created: ${r.existing.map(d => `${esc(d.dealname)} ${hsLink("0-3", d.id, "open in HubSpot")}`).join(", ")}. Update that deal in HubSpot, or <button type="button" id="nd-another" class="font-semibold underline">create another anyway</button>.</div>`;
+          $("nd-another").onclick = () => { hs.anotherDeal = true; $("nd-create").click(); }; b.disabled = false; b.textContent = "Create deal"; return;
+        }
+        hs.anotherDeal = false;
         hsRender(`<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900" role="status">Deal created: ${hsLink("0-3", r.dealId, "open it in HubSpot")}<div class="text-xs">Linked to ${r.linked || 0} PCN / ICB record${r.linked === 1 ? "" : "s"}, with a note on the deal.</div></div>
           ${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}<div class="mt-3 flex justify-end"><button id="nd-done" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Close</button></div>`);
         $("nd-done").onclick = hsClose;

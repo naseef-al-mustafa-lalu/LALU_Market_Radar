@@ -579,7 +579,7 @@ Deno.serve(async (req) => {
         const ids = (a?.results ?? []).map((x: any) => String(x.toObjectId)).slice(0, 5);
         return ids.length ? ((await hs(`/crm/v3/objects/contacts/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["firstname", "lastname", "jobtitle", "email"], inputs: ids.map((id: string) => ({ id })) }) }))?.results ?? []).map((c: any) => ({ id: c.id, ...c.properties })) : [];
       })();
-      const pipelinesP = cached("pipelines:deals", () => hs(`/crm/v3/pipelines/deals`)).then((r) => (r?.results ?? []).map((p: any) => ({ id: p.id, label: p.label, stages: (p.stages ?? []).sort((x: any, y: any) => x.displayOrder - y.displayOrder).map((s: any) => ({ id: s.id, label: s.label })) })));
+      const pipelinesP = cached("pipelines:deals", () => hs(`/crm/v3/pipelines/deals`)).then((r) => (r?.results ?? []).map((p: any) => ({ id: p.id, label: p.label, stages: (p.stages ?? []).sort((x: any, y: any) => x.displayOrder - y.displayOrder).map((s: any) => ({ id: s.id, label: s.label, closed: String(s.metadata?.isClosed) === "true" })) })));
       const ownersP = cached("owners", () => hs(`/crm/v3/owners?limit=100&archived=false`)).then((r) => (r?.results ?? []).map((o: any) => ({ id: String(o.id), name: `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim() || o.email, email: o.email }))).catch(() => null);
       const [contacts, pipelines, owners] = await Promise.all([contactsP, pipelinesP, ownersP]);
       let ownerId: string | null = null;
@@ -650,6 +650,12 @@ Deno.serve(async (req) => {
       if (!b.primaryContactId) throw new Fail("Pick a primary contact: every new deal needs one");
       const primaryId = idOf(b.primaryContactId);
       const contactIds = [primaryId, ...(Array.isArray(b.contactIds) ? b.contactIds : []).map(idOf).filter((x: string) => x !== primaryId)].slice(0, 5);
+      // A company with an open deal gets that deal updated, not a second one: say so and let the caller choose (allowAnother) only on purpose.
+      if (b.allowAnother !== true) {
+        const closedStage = new Set<string>(); for (const pl of pipes) for (const st of pl.stages ?? []) if (String(st.metadata?.isClosed) === "true") closedStage.add(String(st.id));
+        const open = (await dealsOf(companyId)).filter((x: any) => x.dealstage && !closedStage.has(String(x.dealstage)) && !WON_STAGES.has(String(x.dealstage)));
+        if (open.length) return reply({ ok: false, existing: open.map((x: any) => ({ id: String(x.id), dealname: x.dealname ?? "Deal", dealstage: x.dealstage, amount: x.amount ?? null })) });
+      }
       const primaryLabel = await dealPrimaryLabel();
       const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name`);   // proves the company exists
       const onCompany = await hs(`/crm/v4/objects/contacts/${primaryId}/associations/companies?limit=100`);

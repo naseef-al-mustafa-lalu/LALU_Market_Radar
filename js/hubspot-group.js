@@ -68,13 +68,14 @@ async function hsGroupRun() {
       else if (atl) primary = String(((await hsCall({ action: "add_contacts", ods: p.ods_code, companyId: String(companyId), contacts: [asContact(atl)] })).contacts || [])[0]?.id || "");
       if (!primary) throw new Error("The primary contact could not be added to HubSpot");
       const want = hsDesired(p, { referral: r.extra, member: hs.p ? refSaved.get(hs.p.ods_code).row : null }), amount = Math.round(p.total_patients * want.rate * 12 * 100) / 100;
-      const d = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: String(companyId), primaryContactId: primary, contactIds: [], deal: { dealname: p.practice_name, pipeline: pipe.id, dealstage: (pipe.stages.find(s => s.id === "appointmentscheduled") || pipe.stages[0]).id,
+      let d = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: String(companyId), primaryContactId: primary, contactIds: [], deal: { dealname: p.practice_name, pipeline: pipe.id, dealstage: (pipe.stages.find(s => s.id === "appointmentscheduled") || pipe.stages[0]).id,
         dealtype: "newbusiness", product___service: "eMR+", hubspot_owner_id: owner, closedate: close ? close + "T00:00:00Z" : "", amount } });
+      let updated = false; if (d.ok === false && d.existing && d.existing.length) { d = { dealId: d.existing[0].id }; updated = true; }   // an open deal is updated with the group price, not duplicated
       const w = want.line;
       await hsCall({ action: "write", ods: p.ods_code, companyId: String(companyId), dealId: d.dealId, company: { patient_list_size: p.total_patients },
         deal: { size_discount: hsPct(want.size), speed_discount: hsPct(want.speed), term_length_discount: hsPct(want.term), term_length_years: String(want.termYears), referral_discount: hsPct(want.referral), size_tier: want.tier, commercial_model: want.model, value_per_patient: want.vpp, contracted_patient_list_size: w.quantity },
         lineItem: { productId: w.productId, quantity: w.quantity, listUnit: w.listUnit, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
-      done++; row(i, `<span class="text-emerald-700">✓ Created</span> ${hsLink("0-3", d.dealId, "Open deal")}`);
+      done++; row(i, `<span class="text-emerald-700">${updated ? "✓ Updated existing deal" : "✓ Created"}</span> ${hsLink("0-3", d.dealId, "Open deal")}`);
     } catch (e) { failed++; row(i, `<span class="text-rose-700" title="${esc(e.message)}">✗ ${esc(e.message.slice(0, 90))}</span>`); }
   }
   refSaved.delete(hs.p.ods_code); refGroups = null; repaintPriceCards();
