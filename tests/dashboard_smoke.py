@@ -639,5 +639,9 @@ with sync_playwright() as p:
     pg.evaluate("showTab('contacts'); setCtSub('contacts'); ctMode = 'reengage'; ctRows[0].hs_dq_reason = 'Bad timing'; ctRows[0].hs_dq_note = 'Ask again in Q1'; ctEvalAll(); renderContacts()"); pg.wait_for_function("document.querySelector('#ct-body').innerText.toLowerCase().includes('disqualified because')")
     assert "Bad timing" in pg.inner_text("#ct-body") and "Ask again in Q1" in pg.inner_text("#ct-body")      # the Re-engagement view shows why a lead was disqualified (the Lead property Disqualification Reason)
     pg.evaluate("ctMode = 'standard'; renderContacts()")
+    ad = pg.evaluate("""(() => { showTab('practices'); const p = practices.find(x => x.ods_code === 'A10001'); openDrawer(p); pricingTouched = false; discountsOn = false; speedOn = false; termYrs = 1;
+      hsAdoptLine(p, { deal: { size_tier: 'Tier 3', size_discount: '0.05', speed_discount: '0.05', term_length_years: '2' } }); const r = [discountsOn, speedOn, termYrs]; pricingTouched = true; hsAdoptLine(p, { deal: { size_tier: 'Tier 1', size_discount: '0', speed_discount: '0', term_length_years: '1' } }); return r.concat([discountsOn, termYrs]); })()""")
+    assert ad == [True, True, 2, True, 2], ad      # a deal's own size, speed and term set the switches (HubSpot to calculator), unless you have already chosen
+    pg.keyboard.press("Escape")
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

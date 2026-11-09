@@ -124,7 +124,13 @@ function hsShowBar(p) { const html = p ? hsBarHtml(p) : ""; $("dr-hs").innerHTML
 // A line item the tool already put on this deal says how the contract is billed (SAR or all reports, monthly or annual): start the profile's plan from it, unless the user has already chosen one,
 // so a monthly contract is not pushed as annual just because the profile defaults to annual.
 function hsAdoptLine(p, pair) {
-  const cur = hsOurLine(pair); if (!cur || pricingTouched || !document.querySelector(".price-card")) return;
+  if (pricingTouched || !document.querySelector(".price-card")) return;
+  const d = (pair && pair.deal) || {};   // the deal's own pricing fields set the switches too (HubSpot to calculator): size discount, speed discount and term, when the deal carries a size tier
+  if (d.size_tier) {
+    const size = Number(d.size_discount) > 0, speed = Number(d.speed_discount) > 0, term = Number(d.term_length_years);
+    if (discountsOn !== size || speedOn !== speed || ([1, 2, 3].includes(term) && termYrs !== term)) { discountsOn = size; speedOn = speed; if ([1, 2, 3].includes(term)) termYrs = term; repaintPriceCards(); }
+  }
+  const cur = hsOurLine(pair); if (!cur) return;
   const hit = Object.entries(HS_PRODUCTS).find(([, v]) => v[0] === String(cur.hs_product_id)); if (!hit) return;
   const [prod, bill] = hit[0].split("|");      // the product names the term (annual or monthly plan); billing is monthly either way
   if (prod === product && bill === billing) return;

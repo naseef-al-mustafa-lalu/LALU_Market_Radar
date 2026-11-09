@@ -228,12 +228,12 @@ function priceCard(args) {
 function repaintPriceCards() { const live = new Set([...document.querySelectorAll(".price-card")].map(el => el.dataset.pc)); for (const k of priceCards.keys()) if (!live.has(k)) priceCards.delete(k); document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc), el.dataset.pc); }); document.querySelectorAll(".route-cmp").forEach(el => { el.innerHTML = routeCmpPractice ? routeComparisonBody(routeCmpPractice) : ""; }); if (typeof hsRefreshBars === "function") hsRefreshBars(); }
 document.addEventListener("click", e => {
   const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt"), pr = e.target.closest(".prod-opt"), dc = e.target.closest(".disc-toggle");
-  if (dc) { discountsOn = !discountsOn; document.querySelectorAll(".net-disc").forEach(el => el.classList.toggle("hidden", !discountsOn)); repaintPriceCards(); document.querySelector(".disc-toggle")?.focus({ preventScroll: true }); }
-  else if (sw) { speedOn = !speedOn; repaintPriceCards(); document.querySelector(".speed-toggle")?.focus({ preventScroll: true }); }
+  if (dc) { pricingTouched = true; discountsOn = !discountsOn; document.querySelectorAll(".net-disc").forEach(el => el.classList.toggle("hidden", !discountsOn)); repaintPriceCards(); document.querySelector(".disc-toggle")?.focus({ preventScroll: true }); }
+  else if (sw) { pricingTouched = true; speedOn = !speedOn; repaintPriceCards(); document.querySelector(".speed-toggle")?.focus({ preventScroll: true }); }
   else if (bl) { pricingTouched = true; billing = bl.dataset.b; repaintPriceCards(); document.querySelector(`.bill-opt[data-b="${billing}"]`)?.focus({ preventScroll: true }); }
   else if (pr) { pricingTouched = true; product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
 });
-document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
+document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { pricingTouched = true; termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
 function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const monthly = billing === "monthly", sar = product === "sar", list = baseRate(), prodName = sar ? "SAR only" : "All reports";
   if (!tierRow || !patients) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
