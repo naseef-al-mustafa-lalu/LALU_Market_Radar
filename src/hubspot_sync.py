@@ -128,9 +128,15 @@ TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_
 LALU_PRODUCTS = {"440423339237", "440425147578", "440434162881", "440498134244"}   # the four Lalu Care products: a deal's line item quantity is the patients it bills
 
 
-def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=3000):
+def made_by_atlas(pr):
+    """A HubSpot contact Atlas itself created (the NeverBounce run, from Oscar data): it is already in Atlas, so it is never stored again."""
+    return (pr.get("um_source_detail_1") or "").strip().lower() in ("oscar ai", "lalu atlas") or str(pr.get("um_source_detail_2") or "").startswith("Lalu Atlas Import")
+
+
+def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=3000, known_emails=frozenset()):
     """Store the HubSpot contacts of practice companies that Atlas does not hold yet, source 'hubspot', with their address and role graded like every other contact (campaign eligibility is decided from that
-    and the suppression rules, so nothing here makes a contact campaign-ready). Returns how many were added."""
+    and the suppression rules, so nothing here makes a contact campaign-ready). Only contacts a person made in HubSpot (from any lead source) that Atlas does not already hold, by HubSpot id or email address;
+    contacts Atlas created in HubSpot are skipped. Returns how many were added."""
     from . import contact_quality
     rows, now, seen = [], datetime.now(timezone.utc).isoformat(), set(known)
     for ods, cs in by_ods.items():
@@ -138,7 +144,7 @@ def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=3000
             for cid in to_contacts.get(str(c["id"]), []):
                 cid = str(cid)
                 pr = contacts.get(cid)
-                if cid in seen or not pr or not (pr.get("email") or pr.get("firstname") or pr.get("lastname")):
+                if cid in seen or not pr or not (pr.get("email") or pr.get("firstname") or pr.get("lastname")) or made_by_atlas(pr) or (pr.get("email") or "").strip().lower() in known_emails:
                     continue
                 seen.add(cid)
                 first, last, email = (pr.get("firstname") or "").strip(), (pr.get("lastname") or "").strip(), (pr.get("email") or "").strip().lower() or None
@@ -1135,7 +1141,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
             by_ods.setdefault(ods, []).append(props)
     cids = [str(c["id"]) for cs in by_ods.values() for c in cs]
     to_contacts, to_deals = associations(hub, "contacts", cids), associations(hub, "deals", cids)
-    contacts = read_objects(hub, "contacts", [i for v in to_contacts.values() for i in v], ["lifecyclestage", "email", "createdate", "firstname", "lastname", "jobtitle", "phone"])
+    contacts = read_objects(hub, "contacts", [i for v in to_contacts.values() for i in v], ["lifecyclestage", "email", "createdate", "firstname", "lastname", "jobtitle", "phone", "um_source_detail_1", "um_source_detail_2"])
     deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won", "hs_is_closed", "amount", "pipeline", "dealname", "hs_lastmodifieddate", *TERM_PROPS])
     link_open_deals(rest, by_ods, to_deals, deals)
     line_qty = deal_line_quantities(hub, won_deal_ids(deals))
@@ -1218,7 +1224,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     try:   # contacts HubSpot holds on a practice's company that Atlas does not have yet (the export import only approved decision-makers with direct addresses)
         urn_id = {c["contact_urn"]: c.get("hubspot_contact_id") for c in ours}
         urn_id.update({r["contact_urn"]: r.get("hubspot_contact_id") for r in crow})
-        contacts_added = import_hubspot_contacts(rest, by_ods, to_contacts, contacts, {str(v) for v in urn_id.values() if v})
+        contacts_added = import_hubspot_contacts(rest, by_ods, to_contacts, contacts, {str(v) for v in urn_id.values() if v}, known_emails={(c.get("email") or "").strip().lower() for c in ours if c.get("email")})
     except Exception as e:  # noqa: BLE001
         contacts_added = 0
         print("HubSpot contact import skipped:", e)

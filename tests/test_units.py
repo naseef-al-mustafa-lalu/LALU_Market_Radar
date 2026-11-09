@@ -1144,6 +1144,21 @@ def test_disqualified_leads_give_each_contact_its_latest_reason():
     assert st["hs_dq_reason"] == "No budget" and st["hs_dq_note"] == "Next year" and hsy.contact_state({}, 6, "now")["hs_dq_reason"] is None
 
 
+def test_hubspot_contacts_stored_only_when_a_person_made_them_and_atlas_lacks_them():
+    from src import hubspot_sync as hsy
+
+    class R:
+        def __init__(self): self.rows = []
+        def insert(self, table, rows): self.rows += rows
+    contacts = {"1": {"email": "new@nhs.net", "firstname": "New", "lastname": "Person"},
+                "2": {"email": "atlas@nhs.net", "firstname": "By", "lastname": "Atlas", "um_source_detail_1": "Oscar AI"},
+                "3": {"email": "held@nhs.net", "firstname": "In", "lastname": "Atlas"},
+                "4": {"email": "x@nhs.net", "firstname": "Dated", "lastname": "Atlas", "um_source_detail_2": "Lalu Atlas Import: 2026-11-09"}}
+    r = R()
+    n = hsy.import_hubspot_contacts(r, {"A1": [{"id": 10}]}, {"10": ["1", "2", "3", "4"]}, contacts, set(), known_emails={"held@nhs.net"})
+    assert n == 1 and r.rows[0]["hubspot_contact_id"] == "1"      # not Atlas-made contacts, not an address Atlas already holds
+
+
 def test_a_customer_with_only_a_signed_deal_is_linked_to_it():
     from src import hubspot_sync as hsy
 
