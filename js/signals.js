@@ -9,10 +9,11 @@ function setSigSub(which) {
   sigSub = which;
   $("sig-feed").classList.toggle("hidden", which !== "feed"); $("sig-jobs").classList.toggle("hidden", which !== "jobs"); $("sig-mergers").classList.toggle("hidden", which !== "mergers");
   $("s-type").classList.toggle("hidden", which !== "feed"); $("sig-settings-link").classList.toggle("hidden", which !== "feed"); $("s-search").classList.toggle("hidden", which !== "feed"); $("s-count").classList.toggle("hidden", which !== "feed"); $("s-status").classList.toggle("hidden", which !== "feed"); $("s-export").classList.toggle("hidden", which !== "feed");
-  $("sig-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.s === which ? "bg-white shadow-sm" : "text-slate-500"));
-  stateToUrl();
+  sigStripSync(); stateToUrl();
 }
-$("sig-sub").querySelectorAll("button").forEach(b => b.onclick = () => setSigSub(b.dataset.s));
+// Audiences are the second sub page of Signals: its view is its own tab underneath, but the Signals tab and strip stay lit.
+function sigStripSync() { const cur = currentTab === "audiences" ? "audiences" : sigSub; $("sig-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.s === cur ? "bg-white shadow-sm" : "text-slate-500")); }
+$("sig-sub").querySelectorAll("button").forEach(b => b.onclick = () => { if (b.dataset.s === "audiences") showTab("audiences"); else { if (currentTab === "audiences") showTab("signals"); setSigSub(b.dataset.s); } });
 $("sig-settings-link").onclick = () => { showTab("data"); setDataSub("signals"); };
 function renderSignalTypes() {
   const cut = Date.now() - 30 * 864e5, tot = new Map(), rec = new Map();
@@ -127,8 +128,8 @@ function renderMoreSignals() {
       <td class="px-3 py-1.5 text-center">${sigLink(s)}</td>`;
     tr.onclick = ev => {
       if (ev.target.closest(".sg-ctl, .info-i, .info-slot, a")) return;
-      if (t.kind === "practice") { clearFilters(); showTab("practices"); $("f-search").value = t.p.ods_code; applyFilters(); openDrawer(t.p); }
-      else if (t.kind === "network" && t.n) { netKind = t.n.kind; showTab("networks"); renderNetworks(); openNetworkProfile(t.n); }
+      if (t.kind === "practice") openDrawer(t.p);   // the profile opens in the drawer; the feed stays where it is
+      else if (t.kind === "network" && t.n) { netKind = t.n.kind; openNetworkProfile(t.n); }
       else if (t.kind === "unlinked") { setSigSub("jobs"); $("jm-status").value = t.e ? t.e.match_status : "review"; $("jm-search").value = t.label; renderJobMatches(); }
     };
     frag.appendChild(tr);

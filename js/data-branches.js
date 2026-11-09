@@ -29,7 +29,7 @@ function renderBranchReview() {
         ${brFilter === "review" ? `<button data-br-set="confirmed" data-code="${esc(b.branch_code)}" class="rounded-md bg-lalu-teal-700 px-2.5 py-1 font-semibold text-white hover:bg-lalu-teal-800">Confirm</button><button data-br-set="rejected" data-code="${esc(b.branch_code)}" class="rounded-md border border-slate-300 px-2.5 py-1 font-semibold hover:bg-slate-50">Reject</button>`
           : `<button data-br-set="${b.resolution === "hosted" ? "review" : "probable"}" data-code="${esc(b.branch_code)}" class="rounded-md border border-slate-300 px-2.5 py-1 font-semibold hover:bg-slate-50">Undo</button>`}</div></div>`; }).join("")
     : `<p class="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">${brFilter === "review" ? "Nothing to review." : "No decisions yet."}</p>`;
-  $("br-list").querySelectorAll("[data-br-open]").forEach(b => b.onclick = () => { const p = byOds.get(b.dataset.brOpen); if (p) { showTab("practices"); openDrawer(p); } });
+  $("br-list").querySelectorAll("[data-br-open]").forEach(b => b.onclick = () => { const p = byOds.get(b.dataset.brOpen); if (p) openDrawer(p); });
   $("br-list").querySelectorAll("[data-br-set]").forEach(b => b.onclick = async () => {
     b.disabled = true; const { error } = await db.from("practice_branches").update({ match_status: b.dataset.brSet }).eq("branch_code", b.dataset.code);
     if (error) { b.disabled = false; b.textContent = "Not saved"; b.title = error.message; return; }

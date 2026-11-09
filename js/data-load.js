@@ -137,17 +137,18 @@ window.addEventListener("popstate", () => { if (!$("app").classList.contains("hi
 
 /* ---------- tabs ---------- */
 const TABS = ["practices", "networks", "revenue", "signals", "audiences", "contacts", "data"]; let currentTab = "practices";
-const SUBNAV = { networks: "net-kinds", revenue: "rev-sub", signals: "sig-sub", audiences: "aud-sub", contacts: "ct-sub", data: "data-sub" };   // tab -> its sub-tab strip in the second row (#subnav)
+const SUBNAV = { networks: "net-kinds", revenue: "rev-sub", signals: "sig-sub", audiences: "sig-sub", contacts: "ct-sub", data: "data-sub" };   // tab -> its sub-tab strip in the second row (#subnav)
 window.addEventListener("resize", () => { if (!$("subnav").classList.contains("hidden")) $("subnav").style.top = document.querySelector("#app > nav").offsetHeight + "px"; });
 function showTab(which, fromUrl) {
   if (which === "data" && currentTab !== "data") setDataSub("overview");
   const changed = currentTab !== which; currentTab = which;
-  for (const t of TABS) { $("view-" + t).classList.toggle("hidden", t !== which); $("tab-" + t).className = "px-2.5 lg:px-3 py-1 rounded-md whitespace-nowrap " + (t === which ? "bg-white text-lalu-navy shadow-sm" : "text-slate-300 hover:text-white hover:bg-white/10"); }
+  for (const t of TABS) { $("view-" + t).classList.toggle("hidden", t !== which); $("tab-" + t).className = t === "audiences" ? "hidden" : "px-2.5 lg:px-3 py-1 rounded-md whitespace-nowrap " + (t === which || (t === "signals" && which === "audiences") ? "bg-white text-lalu-navy shadow-sm" : "text-slate-300 hover:text-white hover:bg-white/10"); }
   const strip = SUBNAV[which]; $("subnav").classList.toggle("hidden", !strip);      // each tab with sub tabs shows its own strip in the second row
   for (const id of Object.values(SUBNAV)) $(id).classList.toggle("hidden", id !== strip);
   if (strip) $("subnav").style.top = document.querySelector("#app > nav").offsetHeight + "px";
   if (which === "revenue") { renderRevenue(); if (revSub === "pum") renderPum(); }
   if (which === "audiences") loadAudiences();
+  if (typeof sigStripSync === "function") sigStripSync();
   if (which === "contacts") loadContacts();
   if (which === "data") renderData();
   if (which !== "practices") closeDrawer();

@@ -201,7 +201,7 @@ function hsLogRender() {
         <td class="py-1.5"><div>${p ? `<a href="#" data-hsp-open="${esc(p.ods_code)}" class="font-medium text-lalu-teal-700 hover:underline">${esc(p.practice_name)}</a> ` : ""}${esc(r.summary)}</div>
         ${r.detail ? `<details class="text-xs text-slate-500"><summary class="cursor-pointer">Details</summary><pre class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2">${esc(JSON.stringify(r.detail, null, 1).slice(0, 4000))}</pre></details>` : ""}</td></tr>`; }).join("") + "</tbody></table>"
     : '<p class="py-3 text-sm italic text-slate-500">No activity matches.</p>';
-  box.querySelectorAll("[data-hsp-open]").forEach(a => a.onclick = e => { e.preventDefault(); const p = practices.find(x => x.ods_code === a.dataset.hspOpen); if (p) { showTab("practices"); openDrawer(p); } });
+  box.querySelectorAll("[data-hsp-open]").forEach(a => a.onclick = e => { e.preventDefault(); const p = practices.find(x => x.ods_code === a.dataset.hspOpen); if (p) openDrawer(p); });
 }
 
 document.addEventListener("click", async e => {      // approve one held-back list size: write the NHS figure to HubSpot now

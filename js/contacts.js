@@ -150,7 +150,8 @@ document.addEventListener("change", e => {
 });
 document.addEventListener("click", e => {
   const t = e.target;
-  const o = t.closest("a.ct-open"); if (o) { e.preventDefault(); const p = byOds.get(o.dataset.ods); if (p) { showTab("practices"); openDrawer(p); } return; }
+  const o = t.closest("a.ct-open"); if (o) { e.preventDefault(); const p = byOds.get(o.dataset.ods); if (p) openDrawer(p); return; }   // opens the profile in the side drawer, so the page and your place stay put
+
   const md = t.closest(".ct-mode"); if (md) { ctMode = md.dataset.m; ctEvalAll(); renderContacts(); return; }
   const rs = t.closest(".ct-role-set"); if (rs) { ctRules.roles[rs.dataset.id] = rs.dataset.m; ctRulesChanged(); return; }
   if (t.closest("#ct-more-btn")) { ctMoreOpen = !ctMoreOpen; renderContacts(); return; }

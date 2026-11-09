@@ -146,7 +146,7 @@ function renderMoreMergers() {
   if (!mgList.length) $("mg-rows").innerHTML = `<tr><td colspan="4" class="py-6 text-slate-500 italic">${st === "review" ? "Nothing to review: every practice with no list size has been dealt with." : "Nothing here."}</td></tr>`;
 }
 $("mg-rows").addEventListener("click", async e => {
-  const o = e.target.closest("a[data-mgopen]"); if (o) { e.preventDefault(); const t = byOds.get(o.dataset.mgopen); if (t) { clearFilters(); $("f-status").value = "all"; $("f-search").value = t.ods_code; showTab("practices"); applyFilters(); openDrawer(t); } return; }
+  const o = e.target.closest("a[data-mgopen]"); if (o) { e.preventDefault(); const t = byOds.get(o.dataset.mgopen); if (t) openDrawer(t); return; }
   const b = e.target.closest("button[data-mg]"); if (!b) return; b.disabled = true;
   const act = b.dataset.mg, err = await decide(act, b.dataset.ods, b);
   $("mg-msg").textContent = err ? "Could not save: " + err : ({ confirm: "Merger recorded.", close: "Closure recorded: a signal was raised on its PCN.", undo: "Merger undone.", unclose: "Closure undone.", dismiss: "Reviewed: neither a merger nor a closure.", restore: "Back in the review list." })[act] || "";

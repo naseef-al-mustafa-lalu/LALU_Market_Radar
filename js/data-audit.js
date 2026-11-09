@@ -49,7 +49,7 @@ function auditList() {
     || '<p class="text-sm text-slate-500">Nothing matches.</p>';
   if (rows.length > auditShown) box.insertAdjacentHTML("beforeend", `<div class="pt-2 text-center"><button id="au-more" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(rows.length - auditShown).toLocaleString()} left)</button></div>`);
   const more = $("au-more"); if (more) more.onclick = () => { auditShown += 200; auditList(); };
-  box.querySelectorAll("[data-au-open]").forEach(b => b.onclick = () => { const p = practices.find(x => x.ods_code === b.dataset.auOpen); if (p) { showTab("practices"); openDrawer(p); } });
+  box.querySelectorAll("[data-au-open]").forEach(b => b.onclick = () => { const p = practices.find(x => x.ods_code === b.dataset.auOpen); if (p) openDrawer(p); });
   box.querySelectorAll("[data-au-dismiss]").forEach(b => b.onclick = () => auditDismiss([b.dataset.auDismiss]));
   auditTools(rows.length);
 }
