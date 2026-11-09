@@ -2,6 +2,7 @@
 import os
 import sys
 import traceback
+import re
 from datetime import date, datetime, timedelta, timezone
 
 from . import branches, contact_quality, cqc, jobs, maintenance, oscar, software, sources
@@ -9,7 +10,7 @@ from .common import Rest, need_env, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
            "status", "clinical_software", "software_source", "manager_name", "manager_title", "manager_email",
-           "manager_phone", "manager_email_opt_out", "data_month"] + oscar.ORG_KEYS
+           "manager_phone", "manager_email_opt_out", "data_month", "org_kind"] + oscar.ORG_KEYS
 CONTACT_FIELDS = ["ods_code", "full_name", "job_title", "seniority", "email", "phone", "email_opt_out", "is_primary",
                   "org_urn", "title", "first_name", "last_name", "quals", "dept", "categories", "data_types", "main_site"]
 SOFTWARE_DAILY_CAP = 400
@@ -20,6 +21,15 @@ BRANCH_DAILY_CAP = 2000
 BRANCH_RECHECK = timedelta(days=90)
 BRANCH_MIN = 1000   # ODS holds ~2,500 active branches; a far smaller list means the API misbehaved
 BRANCH_COLS = ["branch_code", "branch_name", "address", "town", "county", "postcode", "phone", "opened", "status", "parent_code", "parent_name", "parent_role", "parent_role_name", "kind", "practice_code", "resolution", "matched_branch_code", "match_status", "match_note", "checked_at"]
+
+
+GP_NAME = re.compile(r"surgery|medical|practice|health cent|doctors|family|group", re.I)
+
+
+def org_kind(code, patients, customer=False, hubspot_company=None, name=""):
+    """'non_gp' for a Y code with no registered patients (walk-in and community services, ICB cost centres, trusts: ODS gives them the GP Practice role but they have no list), else 'gp'.
+    Never for a customer, a practice that has a HubSpot company, or one whose name reads like a surgery (those are new or merged practices whose list is not published yet)."""
+    return "non_gp" if str(code).upper().startswith("Y") and not patients and not customer and not hubspot_company and not GP_NAME.search(name or "") else "gp"
 
 
 def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software, pcn_checked=frozenset(), dates=None):
@@ -42,6 +52,7 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
             r["operational_start_date"], r["operational_end_date"], r["ods_dates_checked_at"] = dates[code][0], dates[code][1], now.isoformat()
         if o["status"] == "Active" and code in patients:
             r["total_patients"] = patients[code]
+        r["org_kind"] = org_kind(code, r.get("total_patients"), r.get("hubspot_customer"), r.get("hubspot_company_id"), r.get("practice_name"))
         pcn_icb = None
         if code in pcn_checked:
             r["pcn_checked_at"] = now.isoformat()

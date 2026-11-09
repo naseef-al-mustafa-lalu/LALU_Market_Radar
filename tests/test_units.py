@@ -932,3 +932,14 @@ def test_hubspot_contact_state_reads_the_exclusion_facts():
     assert st["hs_bounce_reason"] == "UNKNOWN_USER" and st["hs_mkt_optout"] is True and st["hs_optout_all"] is False and st["hs_owner"] == "78343211" and st["hs_neverbounce"] == "Valid"
     blank = contact_state({}, 8, now)
     assert blank["hs_in_sequence"] is None and blank["hs_bounced"] is False and blank["hs_lifecycle"] is None
+
+
+def test_org_kind_separates_non_gp_services_from_practices_without_a_list_yet():
+    from src.ingest import org_kind
+
+    assert org_kind("Y00570", 0, False, None, "GP Led Dermatology Service") == "non_gp"
+    assert org_kind("Y01822", 0, False, None, "I.C.B. (Oxford City)") == "non_gp"
+    assert org_kind("Y02469", 9556, False, None, "Heron GP Practice") == "gp"        # has a list
+    assert org_kind("Y05733", 0, False, "123", "Parkfields Surgery") == "gp"        # in HubSpot and named like a surgery
+    assert org_kind("C81039", 0, False, None, "Eyam Surgery") == "gp"               # only Y codes are candidates
+    assert org_kind("Y00001", 0, True, None, "Some Service") == "gp"                # a customer is never reclassified

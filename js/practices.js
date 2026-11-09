@@ -26,7 +26,8 @@ function expansionFlag(p) {
 const readFilters = () => ({ drift: $("f-drift").value, q: $("f-search").value.trim().toLowerCase(), tier: $("f-tier").value, sw: $("f-sw").value, hs: $("f-hs").value, cqc: $("f-cqc").value, icb: $("f-icb").value, country: $("f-country").value,
   size: $("f-size").value, st: $("f-status").value, sig: $("f-sig").checked, grp: $("f-grp").checked, closed: $("f-closed").checked, net: netFilter });
 function matchPractice(p, f, hits) {
-  return (f.st === "all" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : !p.merged_into && (isClosed(p) ? f.closed : p.status === "Active"))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
+  if (p.org_kind === "non_gp" ? f.st !== "all" && f.st !== "nongp" : f.st === "nongp") return false;   // non-GP services (Y codes with no list) only show under "Non-GP services" or "All"
+  return (f.st === "all" || f.st === "nongp" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : !p.merged_into && (isClosed(p) ? f.closed : p.status === "Active"))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
     (!f.sw || p.clinical_software === f.sw) && (!f.hs || (f.hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === f.hs)) &&
     (!f.cqc || (f.cqc === "None" ? !p.cqc_rating : p.cqc_rating === f.cqc)) && (!f.icb || p.icb_name === f.icb) && (!f.country || (p.country || "England") === f.country) && (!f.size || (f.size === "yes") === (p.total_patients > 0)) &&
     (!f.drift || (f.drift === "expand" ? !!(expansionFlag(p) || {}).due : (d => d && d.tierChanged)(sizeDrift(p)))) && (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
