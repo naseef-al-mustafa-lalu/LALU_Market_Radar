@@ -1093,3 +1093,18 @@ def test_pcn_wrong_links_are_removed_only_when_the_one_shot_is_on():
     assert archive == [] and conflicts and conflicts[0][3] == ["Wrong PCN"]      # add-only by default: the audit lists it
     stats, conflicts, archive = run(True)
     assert stats["pcn_links_removed"] == 1 and conflicts == [] and archive[0][2] == {"inputs": [{"from": {"id": "100"}, "to": [{"id": "2"}]}]}      # only the wrong one goes; the practice's own PCN stays
+
+
+def test_open_deals_are_linked_for_practices_without_a_link():
+    from src import hubspot_sync as hsy
+
+    class R:
+        def __init__(self): self.up = []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return [{"ods_code": "B2"}]
+        def upsert(self, table, rows, on_conflict, batch=500): self.up += rows
+    by_ods = {"B1": [{"id": "10", "name": "Sherburn Surgery", "createdate": "2020"}], "B2": [{"id": "20", "name": "Linked already"}], "B3": [{"id": "30", "name": "No deal"}]}
+    to_deals = {"10": ["d1", "d2"], "20": ["d3"], "30": ["d4"]}
+    deals = {"d1": {"pipeline": hsy.PIPELINE_CONVERSION, "hs_is_closed": "false", "dealname": "Sherburn and Rillington Practice", "hs_lastmodifieddate": "2026-11-09"}, "d2": {"pipeline": hsy.PIPELINE_SALES, "hs_is_closed": "false", "dealname": "Older", "hs_lastmodifieddate": "2026-10-01"},
+             "d3": {"pipeline": hsy.PIPELINE_SALES, "hs_is_closed": "false"}, "d4": {"pipeline": hsy.PIPELINE_SALES, "hs_is_closed": "true", "dealname": "Closed"}}
+    r = R()
+    assert hsy.link_open_deals(r, by_ods, to_deals, deals) == 1 and r.up[0]["ods_code"] == "B1" and r.up[0]["deal_id"] == "d1" and r.up[0]["linked_by"] == "daily sync"      # newest open deal; an existing link and a closed deal are left alone

@@ -86,6 +86,13 @@ function hsChanges(p, want, company, deal, pair) {
   const line = hsLineStatus(want, pair);
   return { fixes, writes, line, count: fixes.filter(f => !f.same).length + writes.filter(s => !s).length + (line.unreadable || line.same ? 0 : 1) };
 }
+// A deal made for the practice's group, federation, PCN or ICB covers it: its profile says so instead of "no deal linked".
+function hsNetworkDeal(p) {
+  if (!hsNetDeals.length) return null;
+  const keys = [["group", p.cqc_provider_id], ["federation", (p.gp_federation || "").toLowerCase()], ["pcn", p.pcn_code], ["icb", (p.icb_name || "").toLowerCase()]].filter(k => k[1]);
+  for (const n of networks) { if (!keys.some(([kind, key]) => n.kind === kind && keyOf(n) === key)) continue; const d = hsNetDeals.find(x => x.org_id === n.id); if (d) return { ...d, network: n.name }; }
+  return null;
+}
 function hsBarHtml(p) {
   if (!p || p.status !== "Active" || !(p.total_patients > 0) || !p.price_tier) return "";
   const i = hsInfo[p.ods_code] || { loading: true }, linked = !!p.hubspot_company_id;   // not looked up yet counts as loading
@@ -94,6 +101,7 @@ function hsBarHtml(p) {
   if (!linked) { dot = "bg-amber-400"; text = "Not in HubSpot yet"; right = act("create", "Add to HubSpot"); }
   else if (i.loading) text = "Checking the linked deal…";
   else if (!i.link && p.hubspot_commercial_model === "Freemium") { dot = "bg-teal-500"; text = "Freemium customer" + infoTip("A Freemium customer uses the free product, so there is no contract to price and no deal to create. Manage the account from its company record in HubSpot; add a deal only if they move to a paid plan."); right = act("push", "Manage in HubSpot"); }
+  else if (!i.link && hsNetworkDeal(p)) { const nd = hsNetworkDeal(p); dot = "bg-teal-500"; text = `Covered by ${esc(nd.network)}'s deal`; right = `<a class="shrink-0 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50" target="_blank" rel="noopener" href="${esc(hsUrl("0-3", nd.deal_id))}">Open deal ↗</a>`; }
   else if (!i.link) { dot = "bg-amber-400"; text = "Company in HubSpot, no deal linked yet"; right = act("push", "Set up in HubSpot"); }
   else if (i.error) { dot = "bg-rose-500"; text = "Could not read the linked deal"; right = act("push", "Retry"); }
   else if (i.pair && hsIsWon(i.pair.deal)) { dot = "bg-slate-400"; text = `${esc(i.pair.deal.dealname || "deal")}: won, locked. Change it in HubSpot`; right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", i.pair.deal.id, "Open deal")}${act("manage", "Manage in HubSpot")}</div>`; }

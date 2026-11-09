@@ -128,6 +128,24 @@ TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_
 LALU_PRODUCTS = {"440423339237", "440425147578", "440434162881", "440498134244"}   # the four Lalu Care products: a deal's line item quantity is the patients it bills
 
 
+def link_open_deals(rest, by_ods, to_deals, deals):
+    """A practice with no deal linked in Atlas (links are normally made by a pricing push) is linked to its open New Business or Freemium-conversion deal, newest first, so the profile shows the live deal
+    (for example a Freemium customer's conversion deal) instead of 'no deal needed'. Existing links are never changed."""
+    have = {r["ods_code"] for r in rest.select_all("hubspot_links", "ods_code", order="ods_code")}
+    rows, now = [], datetime.now(timezone.utc).isoformat()
+    for ods, cs in by_ods.items():
+        if ods in have:
+            continue
+        open_ = sorted(((deals[d].get("hs_lastmodifieddate") or "", d) for c in cs for d in to_deals.get(str(c["id"]), []) if d in deals and deals[d].get("hs_is_closed") != "true"
+                        and deals[d].get("pipeline") in (PIPELINE_SALES, PIPELINE_CONVERSION)), reverse=True)
+        if open_:
+            primary = sorted(cs, key=lambda c: (c.get("createdate") or "", str(c.get("id"))))[0]
+            rows.append({"ods_code": ods, "company_id": str(primary["id"]), "company_name": primary.get("name"), "deal_id": str(open_[0][1]), "deal_name": deals[open_[0][1]].get("dealname"), "linked_by": "daily sync", "linked_at": now})
+    if rows:
+        rest.upsert("hubspot_links", rows, "ods_code")
+    return len(rows)
+
+
 def won_deal_ids(deals):
     return [i for i, d in deals.items() if d.get("hs_is_closed_won") == "true" and d.get("pipeline") in PIPELINE_WON]
 
@@ -975,7 +993,8 @@ def sync(rest, hub, now=None, actor="daily sync"):
     cids = [str(c["id"]) for cs in by_ods.values() for c in cs]
     to_contacts, to_deals = associations(hub, "contacts", cids), associations(hub, "deals", cids)
     contacts = read_objects(hub, "contacts", [i for v in to_contacts.values() for i in v], ["lifecyclestage", "email", "createdate"])
-    deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won", "hs_is_closed", "amount", "pipeline", *TERM_PROPS])
+    deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won", "hs_is_closed", "amount", "pipeline", "dealname", "hs_lastmodifieddate", *TERM_PROPS])
+    link_open_deals(rest, by_ods, to_deals, deals)
     line_qty = deal_line_quantities(hub, won_deal_ids(deals))
     to_services, services, service_error = {}, {}, None
     try:   # Service ACV is the contracted-ARR source; if the token cannot read Services, fall back to deals and say so in the run summary

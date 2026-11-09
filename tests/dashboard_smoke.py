@@ -631,5 +631,7 @@ with sync_playwright() as p:
         pg.click("#bk-go"); pg.wait_for_function("document.querySelector('#bk-msg').innerText.includes('created') && document.querySelector('#bk-go').innerText === 'Done'")
         assert pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company').length") > n0      # one create-company call per practice that is missing from HubSpot
     pg.click("#bk-close")
+    nd = pg.evaluate("""(() => { const was = hsNetDeals; for (const p of practices) { if (!p.pcn_code) continue; const n = networks.find(x => x.kind === 'pcn' && keyOf(x) === p.pcn_code); if (!n) continue; hsNetDeals = [{ org_id: n.id, deal_id: '9', deal_name: 'PCN deal' }]; const r = hsNetworkDeal(p); hsNetDeals = was; return r && [r.deal_id, r.network === n.name]; } return 'no pcn'; })()""")
+    assert nd == ["9", True] or nd == "no pcn", nd      # a practice in a network that has a deal says it is covered, instead of "no deal linked"
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)
