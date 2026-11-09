@@ -277,6 +277,9 @@ A customer's profile (Contract section) shows **Contract review due** when the N
 
 **Future task (not built):** on a due flag, a button creates an expansion deal in the Customer Success expansion pipeline (not created in HubSpot yet), associated with the company and its contacts, with a line item for the extra patients (NHS size minus signed size) at the customer's net unit price, previewed before sending. Atlas records the deal against the practice, the button then reads "Open expansion deal", and the flag clears when that deal is closed won. The signed size then becomes the original line quantity plus the closed-won expansion line quantities. It needs the edge function to create the line item and an expansion deal type, and Atlas to read expansion deals as well as the latest closed-won sales deal.
 
+## All HubSpot contacts are in Atlas
+The daily HubSpot sync now also stores every contact on a practice company that Atlas does not hold yet (`import_hubspot_contacts`; about 660 on 9 Nov, the ones the export import left out): source *hubspot*, address and role graded like every other contact, status Imported. Eligibility for a campaign is still decided by the Contacts rules and suppression settings, so adding them makes nothing campaign-ready. The run summary reports `hubspot_contacts_added`.
+
 ## Deal links on profiles
 A practice with no deal linked in Atlas (links are normally made by a pricing push) is now linked by the daily sync to its newest **open** New Business or Freemium-conversion deal (`link_open_deals`; for example Sherburn Surgery's conversion deal), so the profile shows the live deal rather than "no deal needed". Existing links are never changed. A practice in a group, federation, PCN or ICB that has a network deal says **Covered by <network>'s deal** with a link, instead of "no deal linked yet".
 

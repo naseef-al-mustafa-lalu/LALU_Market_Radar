@@ -1108,3 +1108,18 @@ def test_open_deals_are_linked_for_practices_without_a_link():
              "d3": {"pipeline": hsy.PIPELINE_SALES, "hs_is_closed": "false"}, "d4": {"pipeline": hsy.PIPELINE_SALES, "hs_is_closed": "true", "dealname": "Closed"}}
     r = R()
     assert hsy.link_open_deals(r, by_ods, to_deals, deals) == 1 and r.up[0]["ods_code"] == "B1" and r.up[0]["deal_id"] == "d1" and r.up[0]["linked_by"] == "daily sync"      # newest open deal; an existing link and a closed deal are left alone
+
+
+def test_hubspot_contacts_missing_from_atlas_are_stored_with_graded_addresses():
+    from src import hubspot_sync as hsy
+
+    class R:
+        def __init__(self): self.rows = []
+        def insert(self, table, rows, **kw): self.rows += rows
+    by_ods = {"A1": [{"id": "10"}], "A2": [{"id": "20"}]}
+    to_contacts = {"10": ["1", "2", "3"], "20": ["4"]}
+    contacts = {"1": {"email": "Sam.Hoes@nhs.net", "firstname": "Samantha", "lastname": "Hoes-Mole", "jobtitle": "Practice Manager"}, "2": {"email": "info@nhs.net", "firstname": "", "lastname": ""}, "3": {"email": "known@nhs.net", "firstname": "K", "lastname": "N"}, "4": {}}
+    r = R()
+    assert hsy.import_hubspot_contacts(r, by_ods, to_contacts, contacts, {"3"}) == 2 and {x["hubspot_contact_id"] for x in r.rows} == {"1", "2"}      # known ids and empty records are skipped
+    sam = [x for x in r.rows if x["hubspot_contact_id"] == "1"][0]
+    assert sam["source"] == "hubspot" and sam["ods_code"] == "A1" and sam["email"] == "sam.hoes@nhs.net" and sam["email_quality"] == "direct" and sam["role_tier"] == "A" and sam["hubspot_status"] == "Imported"

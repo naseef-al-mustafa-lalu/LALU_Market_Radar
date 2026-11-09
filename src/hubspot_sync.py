@@ -128,6 +128,30 @@ TERM_PROPS = ["closedate", "dealname", "size_discount", "speed_discount", "term_
 LALU_PRODUCTS = {"440423339237", "440425147578", "440434162881", "440498134244"}   # the four Lalu Care products: a deal's line item quantity is the patients it bills
 
 
+def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=3000):
+    """Store the HubSpot contacts of practice companies that Atlas does not hold yet, source 'hubspot', with their address and role graded like every other contact (campaign eligibility is decided from that
+    and the suppression rules, so nothing here makes a contact campaign-ready). Returns how many were added."""
+    from . import contact_quality
+    rows, now, seen = [], datetime.now(timezone.utc).isoformat(), set(known)
+    for ods, cs in by_ods.items():
+        for c in cs:
+            for cid in to_contacts.get(str(c["id"]), []):
+                cid = str(cid)
+                pr = contacts.get(cid)
+                if cid in seen or not pr or not (pr.get("email") or pr.get("firstname") or pr.get("lastname")):
+                    continue
+                seen.add(cid)
+                first, last, email = (pr.get("firstname") or "").strip(), (pr.get("lastname") or "").strip(), (pr.get("email") or "").strip().lower() or None
+                quality, _ = contact_quality.email_quality(email, first, last)
+                rows.append({"ods_code": ods, "full_name": (first + " " + last).strip() or None, "first_name": first or None, "last_name": last or None, "job_title": pr.get("jobtitle") or None, "email": email, "phone": pr.get("phone") or None,
+                             "email_opt_out": False, "is_primary": False, "source": "hubspot", "hubspot_status": "Imported", "hubspot_contact_id": cid, "hubspot_imported_at": now,
+                             "email_quality": quality if quality in ("direct", "likely_direct", "check", "shared") else None, "role_tier": contact_quality.role_tier(pr.get("jobtitle"))[0]})
+    rows = rows[:cap]
+    for i in range(0, len(rows), 500):
+        rest.insert("contacts", rows[i:i + 500])
+    return len(rows)
+
+
 def link_open_deals(rest, by_ods, to_deals, deals):
     """A practice with no deal linked in Atlas (links are normally made by a pricing push) is linked to its open New Business or Freemium-conversion deal, newest first, so the profile shows the live deal
     (for example a Freemium customer's conversion deal) instead of 'no deal needed'. Existing links are never changed."""
@@ -992,7 +1016,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
             by_ods.setdefault(ods, []).append(props)
     cids = [str(c["id"]) for cs in by_ods.values() for c in cs]
     to_contacts, to_deals = associations(hub, "contacts", cids), associations(hub, "deals", cids)
-    contacts = read_objects(hub, "contacts", [i for v in to_contacts.values() for i in v], ["lifecyclestage", "email", "createdate"])
+    contacts = read_objects(hub, "contacts", [i for v in to_contacts.values() for i in v], ["lifecyclestage", "email", "createdate", "firstname", "lastname", "jobtitle", "phone"])
     deals = read_objects(hub, "deals", [i for v in to_deals.values() for i in v], ["hs_is_closed_won", "hs_is_closed", "amount", "pipeline", "dealname", "hs_lastmodifieddate", *TERM_PROPS])
     link_open_deals(rest, by_ods, to_deals, deals)
     line_qty = deal_line_quantities(hub, won_deal_ids(deals))
@@ -1069,6 +1093,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
         if (c["hubspot_status"], c.get("hubspot_contact_id")) != (want[0], want[2]):
             crow.append({"contact_urn": c["contact_urn"], "ods_code": c["ods_code"], "hubspot_status": want[0], "hubspot_imported_at": want[1], "hubspot_contact_id": want[2]})
     rest.upsert("contacts", crow, "contact_urn")
+    try:   # contacts HubSpot holds on a practice's company that Atlas does not have yet (the export import only approved decision-makers with direct addresses)
+        urn_id = {c["contact_urn"]: c.get("hubspot_contact_id") for c in ours}
+        urn_id.update({r["contact_urn"]: r.get("hubspot_contact_id") for r in crow})
+        contacts_added = import_hubspot_contacts(rest, by_ods, to_contacts, contacts, {str(v) for v in urn_id.values() if v})
+    except Exception as e:  # noqa: BLE001
+        contacts_added = 0
+        print("HubSpot contact import skipped:", e)
     managers_set = fill_hubspot_managers(rest)
     pcn_stats = {}
     if ods_fetched_recently(rest, now):   # a repeat sync the same day does not call NHS ODS again; the PCN / ICB audit rows from the last full run are kept
@@ -1112,7 +1143,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
     return {**nets, **pcn_stats, **org_stats, **contact_stats, "primary_contacts_set": managers_set, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
-            "contacts_updated": len(crow), **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
+            "contacts_updated": len(crow), "hubspot_contacts_added": contacts_added, **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
 
 
 def main():
