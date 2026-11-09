@@ -1142,6 +1142,26 @@ def test_disqualified_leads_give_each_contact_its_latest_reason():
     assert st["hs_dq_reason"] == "No budget" and st["hs_dq_note"] == "Next year" and hsy.contact_state({}, 6, "now")["hs_dq_reason"] is None
 
 
+def test_lost_deals_give_each_contact_its_latest_closed_lost_reason():
+    from src import hubspot_sync as hsy
+
+    class Hub:
+        def call(self, method, path, **kw):
+            if path.endswith("/contacts/deals/batch/read"): return {"results": [{"from": {"id": "1"}, "to": [{"toObjectId": "50"}, {"toObjectId": "51"}]}, {"from": {"id": "2"}, "to": [{"toObjectId": "52"}, {"toObjectId": "53"}]}, {"from": {"id": "3"}, "to": [{"toObjectId": "54"}]}]}
+            if path.endswith("/deals/batch/read"):
+                return {"results": [{"id": "50", "properties": {"hs_is_closed": "true", "hs_is_closed_lost": "true", "um_closed_lost_reasons": "Timing / Project Delayed", "closedate": "2026-01-01T00:00:00Z", "pipeline": "default", "dealname": "Old"}},
+                                    {"id": "51", "properties": {"hs_is_closed": "true", "hs_is_closed_lost": "true", "um_closed_lost_reasons": "Selected Competitor", "closedate": "2026-06-01T00:00:00Z", "pipeline": "3784347852", "dealname": "Renewal"}},
+                                    {"id": "52", "properties": {"hs_is_closed": "true", "hs_is_closed_lost": "true", "um_closed_lost_reasons": "No Budget / Too Expensive", "closedate": "2026-02-01T00:00:00Z", "pipeline": "default"}},
+                                    {"id": "53", "properties": {"hs_is_closed": "false", "pipeline": "default"}},
+                                    {"id": "54", "properties": {"hs_is_closed": "true", "hs_is_closed_lost": "true", "closedate": "2026-03-01T00:00:00Z", "pipeline": "default"}}]}
+            raise AssertionError(path)
+    lost = hsy.lost_deals(Hub(), ["1", "2", "3"])
+    assert lost["1"]["reason"] == "Selected Competitor" and lost["1"]["kind"] == "customer" and lost["1"]["at"] == "2026-06-01"      # the latest lost deal wins; a renewals deal means they were a customer
+    assert "2" not in lost      # a contact with a deal still open is already being worked
+    assert lost["3"]["reason"] == "No reason recorded" and lost["3"]["kind"] == "lead"
+    assert hsy.contact_state({}, 1, "now", None, lost["1"])["hs_lost_reason"] == "Selected Competitor" and hsy.contact_state({}, 1, "now")["hs_lost_kind"] is None
+
+
 def test_slack_channels_are_the_ones_the_bot_is_in_and_follow_changes():
     from src import slack
 

@@ -803,7 +803,7 @@ def sequence_exit(props):
     return "replied" if since("hs_sales_email_last_replied") else "booked a meeting" if since("engagements_last_meeting_booked") else "completed"
 
 
-def contact_state(props, urn, now, dq=None):
+def contact_state(props, urn, now, dq=None, lost=None):
     """One contact's HubSpot state in the columns of public.contacts (see migration 63). Blank means HubSpot has no value."""
     def flag(k):
         v = str(props.get(k) or "").strip().lower()
@@ -818,7 +818,8 @@ def contact_state(props, urn, now, dq=None):
             "hs_neverbounce": props.get("neverbounce_status") or None, "hs_state_at": now,
             "hs_seq_id": props.get("hs_latest_sequence_enrolled") or None, "hs_seq_enrolled_at": (_ts(props.get("hs_latest_sequence_enrolled_date")) or None) and _ts(props.get("hs_latest_sequence_enrolled_date")).isoformat(),
             "hs_seq_ended_at": (_ts(props.get("hs_latest_sequence_ended_date")) or None) and _ts(props.get("hs_latest_sequence_ended_date")).isoformat(), "hs_seq_exit": sequence_exit(props),
-            "hs_dq_reason": (dq or {}).get("reason"), "hs_dq_note": (dq or {}).get("note"), "hs_dq_at": (dq or {}).get("at"), "hs_reengage_date": (dq or {}).get("reengage")}
+            "hs_dq_reason": (dq or {}).get("reason"), "hs_dq_note": (dq or {}).get("note"), "hs_dq_at": (dq or {}).get("at"), "hs_reengage_date": (dq or {}).get("reengage"),
+            "hs_lost_reason": (lost or {}).get("reason"), "hs_lost_at": (lost or {}).get("at"), "hs_lost_deal": (lost or {}).get("deal"), "hs_lost_kind": (lost or {}).get("kind")}
 
 
 LEAD_DQ_PROPS = ["hs_lead_disqualification_reason", "hs_lead_disqualification_note", "disqualified_lead_reengagement_date", "hs_lastmodifieddate"]
@@ -842,6 +843,30 @@ def disqualified_leads(hub, contact_ids):
     return out
 
 
+LOST_DEAL_PROPS = ["hs_is_closed_lost", "hs_is_closed", "um_closed_lost_reasons", "closed_lost_reason", "closedate", "dealname", "pipeline"]
+LOST_KIND = {PIPELINE_SALES: "lead", PIPELINE_CONVERSION: "freemium", PIPELINE_RENEWALS: "customer"}   # what the contact was when the deal was lost: a prospect, a freemium user, or an existing customer up for renewal
+
+
+def lost_deals(hub, contact_ids):
+    """{contact id: {reason, at, deal, kind}} from the latest closed-lost deal of each contact (UM Closed Lost Reasons, else HubSpot's standard Closed Lost Reason). A contact with a deal still open is skipped: it is already being worked."""
+    links = {}
+    for ch in chunks(sorted(set(contact_ids)), 1000):
+        d = hub.call("POST", "/crm/v4/associations/contacts/deals/batch/read", json={"inputs": [{"id": i} for i in ch]})
+        for r in d.get("results", []):
+            links[str(r["from"]["id"])] = [str(t["toObjectId"]) for t in r.get("to", [])]
+    deals = read_objects(hub, "deals", [i for v in links.values() for i in v], LOST_DEAL_PROPS)
+    out = {}
+    for cid, dids in links.items():
+        ds = [deals[i] | {"_id": i} for i in dids if i in deals]
+        if any(d.get("hs_is_closed") != "true" for d in ds):
+            continue
+        lost = sorted((d for d in ds if d.get("hs_is_closed_lost") == "true"), key=lambda d: _date(d.get("closedate")) or "", reverse=True)
+        if lost:
+            d = lost[0]
+            out[cid] = {"reason": d.get("um_closed_lost_reasons") or d.get("closed_lost_reason") or "No reason recorded", "at": _date(d.get("closedate")), "deal": (d.get("dealname") or "")[:200] or None, "kind": LOST_KIND.get(d.get("pipeline"), "lead")}
+    return out
+
+
 def sync_contact_state(rest, hub, now):
     """Copy what HubSpot knows about each of Atlas's HubSpot-linked contacts (lifecycle, sequence, bounce, unsubscribe, owner, NeverBounce) onto the contact, in batches of 100 reads."""
     mine = [r for r in rest.select_all("contacts", "contact_urn,hubspot_contact_id", order="contact_urn", params={"hubspot_contact_id": "not.is.null"}) if r.get("hubspot_contact_id")]
@@ -851,7 +876,12 @@ def sync_contact_state(rest, hub, now):
     except Exception as e:  # noqa: BLE001
         dq = {}
         print("Disqualified leads skipped:", e)
-    rows = [contact_state(props[str(r["hubspot_contact_id"])], r["contact_urn"], now, dq.get(str(r["hubspot_contact_id"]))) for r in mine if str(r["hubspot_contact_id"]) in props]
+    try:   # closed-lost deals for the Re-engagement view; a failure must not stop the rest
+        lost = lost_deals(hub, [r["hubspot_contact_id"] for r in mine])
+    except Exception as e:  # noqa: BLE001
+        lost = {}
+        print("Closed-lost deals skipped:", e)
+    rows = [contact_state(props[str(r["hubspot_contact_id"])], r["contact_urn"], now, dq.get(str(r["hubspot_contact_id"])), lost.get(str(r["hubspot_contact_id"]))) for r in mine if str(r["hubspot_contact_id"]) in props]
     done = 0
     for ch in chunks(rows, 1000):
         done += int(rest.rpc("apply_contact_state", {"items": ch}) or 0)

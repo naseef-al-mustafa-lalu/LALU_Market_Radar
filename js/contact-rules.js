@@ -97,6 +97,13 @@ const CT_DQ = { BAD_TIMING: "Bad Timing", BUDGET_CONSTRAINTS: "Budget Constraint
   PRIOR_NEGATIVE_EXPERIENCE: "Prior Negative Experience", TECHNICAL_LIMITATIONS: "Technical Limitations", Other: "Other", "Stale Contact": "Stale Contact", "No Response / Ghosted": "No Response / Ghosted", "No Email": "No Email",
   "Engaged With Another Contact at Practice": "Engaged With Another Contact at Practice", Unsubscribed: "Unsubscribed" };
 const CT_DQ_OFF = new Set(["Unsubscribed", "PRIOR_NEGATIVE_EXPERIENCE", "No Email", "NOT_A_GOOD_FIT"]);
+// Closed-lost deals (the Deal property UM Closed Lost Reasons) also make a contact a re-engagement candidate; the key in the switches is "lost:" + reason.
+const CT_LOST = ["No Budget / Too Expensive", "Timing / Project Delayed", "No Decision / Chose to Do Nothing", "Selected Competitor", "Poor Fit / Missing Requirements", "Lost Stakeholder Buy-In", "Sales Process Issue", "Other External Factors", "No reason recorded"];
+CT_DQ_OFF.add("lost:Poor Fit / Missing Requirements");
+const CT_LOST_KIND = { lead: "was a lead", freemium: "was a freemium user", customer: "was a customer" };
+const ctLostOn = c => !!c.hs_lost_reason && ctDqOn("lost:" + c.hs_lost_reason);
+const ctDqIn = c => !!c.hs_dq_reason && ctDqOn(c.hs_dq_reason);
+const ctReReasons = c => [c.hs_dq_reason, c.hs_lost_reason].filter(Boolean);   // every reason that puts the contact in Re-engagement
 const ctDqLabel = v => CT_DQ[v] || v;
 const ctDqOn = v => ctRules.dq && ctRules.dq[v] !== undefined ? !!ctRules.dq[v] : !CT_DQ_OFF.has(v);
 const ctRuleLabel = id => (CT_RULES.find(r => r[0] === id) || [id, id])[1];
