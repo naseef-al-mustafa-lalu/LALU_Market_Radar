@@ -823,7 +823,8 @@ def test_sync_hubspot_orgs_sends_the_plan():
 
     out = hsy.sync_hubspot_orgs(R(), H(), {"A1": [{"id": 11}]})
     assert out == {"hubspot_network_deals": 0, "hubspot_orgs": 1, "hubspot_org_links": 1, "hubspot_orgs_created": 1}
-    assert calls[-1][0] == "apply_hubspot_orgs" and calls[-1][1]["items"][0]["practices"] == ["A1"]
+    rpc = [c for c in calls if isinstance(c, tuple)][-1]
+    assert rpc[0] == "apply_hubspot_orgs" and rpc[1]["items"][0]["practices"] == ["A1"]
 
 
 def test_association_label_lookup():
