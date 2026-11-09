@@ -985,11 +985,13 @@ def test_neverbounce_queue_run_and_results():
         def __init__(self): self.patched, self.tables = [], {
             "contacts": [dict(contact_urn=1, ods_code="A1", full_name="Jane Doe", first_name="Jane", last_name="Doe", job_title="Practice Manager", email="jane.doe@nhs.net", phone=None, role_tier="A"),
                          dict(contact_urn=2, ods_code="A1", full_name="Bad One", first_name="Bad", last_name="One", job_title="Practice Manager", email="bad.one@nhs.net", phone=None, role_tier="A"),
+                         dict(contact_urn=4, ods_code="A1", full_name="Jane Dup", first_name="Jane", last_name="Dup", job_title="Practice Manager", email="jane.dup@nhs.net", phone=None, role_tier="A"),
                          dict(contact_urn=3, ods_code="A1", full_name="Nurse N", first_name="Nurse", last_name="N", job_title="Nurse", email="nurse.n@nhs.net", phone=None, role_tier="x")],
             "gp_practices": [dict(ods_code="A1", hubspot_company_id="77")], "hubspot_segments": [dict(list_id="4584", processing_type="MANUAL", criteria=dict(neverbounce=["Valid", "Accept All (Unverifiable)"], roles=["Practice Manager"]))]}
         def select_all(self, table, columns="*", order="id", params=None, page=1000):
             rows = self.tables[table]
             if table == "contacts" and params and params.get("nb_state") == "eq.approved": return rows[:2]
+            if table == "contacts" and params and params.get("hubspot_contact_id") == "not.is.null": return [dict(contact_urn=9, email="Jane.Dup@nhs.net")]      # an address HubSpot already holds
             if table == "contacts" and params and params.get("nb_state") == "is.null": return [r for r in rows]
             return rows
         def patch(self, table, filters, values): self.patched.append((table, filters, values))

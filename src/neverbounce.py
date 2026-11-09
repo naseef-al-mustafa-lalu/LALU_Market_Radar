@@ -53,9 +53,10 @@ def credits_left(key, get=requests.get):
 
 def queue_new(rest):
     """Put new Oscar contacts that qualify (a direct address, not opted out, a decision-maker or secondary role, not in HubSpot, never checked) in the approval queue. Returns how many were added."""
-    rows = rest.select_all("contacts", "contact_urn,role_tier", order="contact_urn", params={"source": "eq.oscar", "held_reason": "is.null", "email_quality": "eq.direct", "email_opt_out": "eq.false",
+    rows = rest.select_all("contacts", "contact_urn,role_tier,email", order="contact_urn", params={"source": "eq.oscar", "held_reason": "is.null", "email_quality": "eq.direct", "email_opt_out": "eq.false",
                                                                                             "hubspot_contact_id": "is.null", "nb_state": "is.null", "email": "not.is.null"})
-    urns = [r["contact_urn"] for r in rows if r.get("role_tier") in ("A", "B")]
+    known = {str(r["email"]).strip().lower() for r in rest.select_all("contacts", "contact_urn,email", order="contact_urn", params={"hubspot_contact_id": "not.is.null", "email": "not.is.null"})}   # an address HubSpot already holds needs no check
+    urns = [r["contact_urn"] for r in rows if r.get("role_tier") in ("A", "B") and str(r.get("email") or "").strip().lower() not in known]
     for i in range(0, len(urns), 200):
         rest.patch("contacts", {"contact_urn": "in.(" + ",".join(map(str, urns[i:i + 200])) + ")"}, {"nb_state": "pending"})
     return len(urns)
