@@ -971,3 +971,83 @@ def test_slack_atlas_alerts_use_their_own_channel(monkeypatch):
     assert sent[-1][1]["channel"] == "lalu_atlas"           # the bot token reaches #lalu_atlas by name; signals keep their own channel
     slack.post("signal")
     assert sent[-1][1]["channel"] == "lalu_market_radar"
+
+
+def test_neverbounce_queue_run_and_results():
+    from datetime import datetime, timezone
+    from src import neverbounce as nb
+
+    assert nb.standard_role("Deputy Practice Manager") == "Practice Manager" and nb.standard_role("GP Partner") == "GP Partner" and nb.standard_role("Health Care Assistant") == "Other"
+    assert nb.uk_monday_morning(datetime(2026, 11, 9, 7, 0, tzinfo=timezone.utc)) and not nb.uk_monday_morning(datetime(2026, 11, 9, 9, 30, tzinfo=timezone.utc)) and not nb.uk_monday_morning(datetime(2026, 11, 10, 7, 0, tzinfo=timezone.utc))
+    assert nb.uk_monday_morning(datetime(2026, 7, 6, 7, 30, tzinfo=timezone.utc)) and not nb.uk_monday_morning(datetime(2026, 7, 6, 8, 30, tzinfo=timezone.utc))      # BST: 08:30 UTC is 09:30 UK
+
+    class R:
+        def __init__(self): self.patched, self.tables = [], {
+            "contacts": [dict(contact_urn=1, ods_code="A1", full_name="Jane Doe", first_name="Jane", last_name="Doe", job_title="Practice Manager", email="jane.doe@nhs.net", phone=None, role_tier="A"),
+                         dict(contact_urn=2, ods_code="A1", full_name="Bad One", first_name="Bad", last_name="One", job_title="Practice Manager", email="bad.one@nhs.net", phone=None, role_tier="A"),
+                         dict(contact_urn=3, ods_code="A1", full_name="Nurse N", first_name="Nurse", last_name="N", job_title="Nurse", email="nurse.n@nhs.net", phone=None, role_tier="x")],
+            "gp_practices": [dict(ods_code="A1", hubspot_company_id="77")], "hubspot_segments": [dict(list_id="4584", processing_type="MANUAL", criteria=dict(neverbounce=["Valid", "Accept All (Unverifiable)"], roles=["Practice Manager"]))]}
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            rows = self.tables[table]
+            if table == "contacts" and params and params.get("nb_state") == "eq.approved": return rows[:2]
+            if table == "contacts" and params and params.get("nb_state") == "is.null": return [r for r in rows]
+            return rows
+        def patch(self, table, filters, values): self.patched.append((table, filters, values))
+    rest = R()
+    assert nb.queue_new(rest) == 2 and rest.patched[0][2] == {"nb_state": "pending"} and "1,2" in rest.patched[0][1]["contact_urn"]      # decision-makers only; the nurse is not queued
+    rest.patched.clear()
+
+    class H:
+        def __init__(self): self.calls = []
+        def call(self, method, path, **kw):
+            self.calls.append((method, path, kw.get("json")))
+            if path.endswith("/contacts/search"): return {"results": []}
+            if method == "POST" and path == "/crm/v3/objects/contacts": return {"id": "555"}
+            return {}
+    hub = H()
+    answers = {"jane.doe@nhs.net": "catchall", "bad.one@nhs.net": "invalid"}
+    def get(url, params=None, timeout=0):
+        class J:
+            def json(self_inner):
+                if url.endswith("/account/info"): return {"credits_info": {"paid_credits_remaining": 90, "free_credits_remaining": 10}}
+                return {"status": "success", "result": answers[params["email"]]}
+        return J()
+    out = nb.run(rest, hub, "k", datetime(2026, 11, 9, 7, 0, tzinfo=timezone.utc), get=get)
+    assert out["checked"] == 2 and out["passed"] == 1 and out["failed"] == 1 and out["created"] == 1 and out["enrolled"] == 1 and out["by_status"] == {"Accept All (Unverifiable)": 1, "Invalid": 1} and out["credits_remaining"] == 100, out
+    created = [c for c in hub.calls if c[0] == "POST" and c[1] == "/crm/v3/objects/contacts"][0][2]["properties"]
+    assert created["neverbounce_status"] == "Accept All (Unverifiable)" and created["job_role_standardised"] == "Practice Manager" and created["email"] == "jane.doe@nhs.net"
+    assert ("PUT", "/crm/v4/objects/contacts/555/associations/default/companies/77", None) in hub.calls and ("PUT", "/crm/v3/lists/4584/memberships/add", ["555"]) in hub.calls      # on its practice company, and into the static segment it fits
+    ok = [p for p in rest.patched if p[1] == {"contact_urn": "eq.1"}][0][2]
+    assert ok["nb_result"] == "Accept All (Unverifiable)" and ok["hubspot_contact_id"] == "555" and [p for p in rest.patched if p[1] == {"contact_urn": "eq.2"}][0][2]["hs_neverbounce"] == "Invalid"
+    assert nb.run(rest, hub, "k", datetime(2026, 11, 10, 7, 0, tzinfo=timezone.utc), get=get) == {"skipped": "outside Monday before 09:00 UK"}
+    assert "2 checked" in nb.report(out)
+
+
+def test_segments_sync_tracks_two_campaign_lists_and_reads_their_criteria():
+    from src import segments as sg
+
+    branch = {"filterBranchType": "OR", "filters": [], "filterBranches": [{"filterBranchType": "AND", "filterBranches": [], "filters": [
+        {"filterType": "PROPERTY", "property": "lifecyclestage", "operation": {"operator": "IS_ANY_OF", "values": ["2207373534", "lead"]}},
+        {"filterType": "PROPERTY", "property": "neverbounce_status", "operation": {"operator": "IS_ANY_OF", "values": ["Valid"]}},
+        {"filterType": "IN_LIST", "listId": "3428"}]}]}
+    text, crit = sg.summarize(branch)
+    assert crit == {"lifecycle": ["2207373534", "lead"], "neverbounce": ["Valid"]} and "in_list" in text and "neverbounce_status IS_ANY_OF Valid" in text
+
+    class Hub:
+        def call(self, method, path, **kw):
+            if path == "/crm/v3/lists/search": return {"lists": [{"listId": 2675, "objectTypeId": "0-1", "name": "UM | Campaign List Template", "processingType": "DYNAMIC", "additionalProperties": {"hs_list_size": "10"}},
+                                                               {"listId": 99, "objectTypeId": "0-1", "name": "Other list", "processingType": "MANUAL"}, {"listId": 5, "objectTypeId": "0-2", "name": "company list"}], "hasMore": False}
+            if path == "/crm/v3/lists/2675": return {"list": {"filterBranch": branch}}
+            if path == "/crm/v3/lists/2675/memberships": return {"results": [{"recordId": "1"}, {"recordId": "2"}]}
+            raise AssertionError(path)
+
+    class Rest:
+        def __init__(self): self.up, self.deleted = {}, []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return [{"contact_id": "9"}] if table == "hubspot_segment_members" else []
+        def upsert(self, table, rows, on_conflict, batch=500): self.up[table] = rows
+        def delete_in(self, table, column, values, chunk=200, extra=None): self.deleted.append((table, values, extra))
+    r = Rest()
+    out = sg.sync(r, Hub())
+    assert out == {"segments": 2, "segments_tracked": 1, "segment_members": 2}      # the company list is ignored; only UM (a default) is tracked
+    um = [x for x in r.up["hubspot_segments"] if x["list_id"] == "2675"][0]
+    assert um["tracked"] and um["criteria"]["neverbounce"] == ["Valid"] and [m["contact_id"] for m in r.up["hubspot_segment_members"]] == ["1", "2"] and r.deleted == [("hubspot_segment_members", ["9"], {"list_id": "eq.2675"})]

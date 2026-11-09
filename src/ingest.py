@@ -5,7 +5,7 @@ import traceback
 import re
 from datetime import date, datetime, timedelta, timezone
 
-from . import branches, contact_quality, cqc, jobs, maintenance, oscar, software, sources
+from . import branches, contact_quality, cqc, jobs, maintenance, neverbounce, oscar, slack, software, sources
 from .common import Rest, need_env, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
@@ -330,6 +330,13 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
     elif stale:
         stats["contacts_delete_skipped"] = len(stale)
     stats.update(contacts_changed=len(changed), contacts_removed=len(stale), contacts_adopted=len(adopted), contacts_held=held, generic_emails_added=len(new_generic))
+    try:   # new contacts that qualify wait for a person to approve their NeverBounce check
+        queued = neverbounce.queue_new(rest)
+        stats["neverbounce_queued"] = queued
+        if queued and slack.atlas_configured():
+            slack.post_atlas(f":mailbox_with_mail: *{queued} new contact{'s' if queued != 1 else ''}* from Oscar {'are' if queued != 1 else 'is'} waiting for NeverBounce approval in Atlas (Contacts > NeverBounce). Approved contacts are checked first thing on Monday.")
+    except Exception as e:  # noqa: BLE001  the queue is an extra: never block the contact load
+        stats["neverbounce_error"] = str(e)[:200]
 
 
 JOBS_MIN_INTERVAL = timedelta(hours=18)   # the feed is ~125 requests: never rescan within a day, however often the pipeline is run (JOBS_FORCE=1 overrides)

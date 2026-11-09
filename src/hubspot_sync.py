@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from . import oscar, slack, sources
+from . import oscar, segments, slack, sources
 from .common import Rest, need_env, norm_ods, send_alert, title_case
 
 BASE = "https://api.hubapi.com"
@@ -1069,6 +1069,10 @@ def sync(rest, hub, now=None, actor="daily sync"):
         contact_stats = sync_contact_state(rest, hub, now)
     except Exception as e:  # noqa: BLE001
         contact_stats = {"contact_state_error": str(e)[:300]}
+    try:   # HubSpot's contact segments and the members of the ones Atlas tracks (after the contact state, so a failure never blocks it)
+        contact_stats.update(segments.sync(rest, hub))
+    except Exception as e:  # noqa: BLE001
+        contact_stats["segments_error"] = str(e)[:300]
     org_stats = {}
     try:   # federations and groups defined in HubSpot; a failure here must not undo the practice sync above
         org_stats = sync_hubspot_orgs(rest, hub, by_ods)
