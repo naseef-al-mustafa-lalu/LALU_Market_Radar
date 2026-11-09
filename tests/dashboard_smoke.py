@@ -625,5 +625,11 @@ with sync_playwright() as p:
     nc = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && ['create_company_for_network', 'link_network_members'].includes(c[1].action)).slice(-2).map(c => c[1])")
     assert nc[0]["name"] == "Test Alliance" and nc[0]["kind"] == "federation" and nc[1]["kind"] == "federation" and nc[1]["companyId"] == "901" and nc[1]["memberCompanyIds"], nc
     pg.click("#hs-cancel")
+    n0 = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company').length")
+    pg.evaluate("hsBulkAdd()"); pg.wait_for_selector("#bk-go"); 
+    if pg.is_enabled("#bk-go"):
+        pg.click("#bk-go"); pg.wait_for_function("document.querySelector('#bk-msg').innerText.includes('created') && document.querySelector('#bk-go').innerText === 'Done'")
+        assert pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && c[1].action === 'create_company').length") > n0      # one create-company call per practice that is missing from HubSpot
+    pg.click("#bk-close")
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

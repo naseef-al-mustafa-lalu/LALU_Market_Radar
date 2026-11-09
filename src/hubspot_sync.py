@@ -573,9 +573,10 @@ def load_inactive_pcns(getj, page=1000):
         offset = len(out)
 
 
-def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None, conflicts=None):
+def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None, conflicts=None, unlink_wrong=False):
     """Keep HubSpot's PCN custom object in step with NHS ODS: create missing PCNs (capped), repair records with a bad address, mark closed ones
-    inactive, and add missing company -> PCN associations. Add-only: nothing is deleted or de-associated. Returns (stats, lines for Slack)."""
+    inactive, and add missing company -> PCN associations. Add-only, except when unlink_wrong is set (a one-shot, switched on in Data > HubSpot integration): then a company's association with a PCN record
+    that is not its own NHS PCN is removed. Returns (stats, lines for Slack)."""
     getj = getj or sources.get_json
     stats, lines, events = {"pcn_records_created": 0, "pcn_records_repaired": 0, "pcn_records_inactivated": 0, "pcn_associations_added": 0, "pcn_create_capped": 0}, [], []
     ev = lambda kind, c, name, hid, summary, detail=None: events.append({"kind": kind, "target": name, "hubspot_type": "pcn", "hubspot_id": str(hid), "summary": summary, "detail": {"ods": c, **(detail or {})}})
@@ -637,6 +638,13 @@ def sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, getj=None,
             extra = sorted(names.get(i, i) for i in have.get(cid, set()) if i != pid)
             if extra:
                 conflicts.append((cid, practices.get(ods_of.get(cid), {}).get("practice_name"), ods_of.get(cid), extra))
+        wrong = {cid: sorted(i for i in have.get(cid, set()) if i != pid) for cid, pid in want.items() if any(i != pid for i in have.get(cid, set()))}
+        if unlink_wrong and wrong:   # one-shot clean-up of links to a PCN that is not the practice's own: the right link stays
+            for ch in chunks(sorted(wrong.items()), 100):
+                hub.call("POST", f"/crm/v4/associations/companies/{PCN_OBJECT}/batch/archive", json={"inputs": [{"from": {"id": c}, "to": [{"id": i} for i in ids]} for c, ids in ch]})
+                add_notes(hub, "companies", [(c, note_text("wrong PCN link removed by the daily sync", [change_line("PCN", ", ".join(names.get(i, i) for i in ids), None)])) for c, ids in ch])
+            stats["pcn_links_removed"] = sum(len(v) for v in wrong.values())
+            conflicts.clear()
     todo = [{"from": {"id": cid}, "to": {"id": pid}} for cid, pid in want.items() if pid not in have.get(cid, set())][:MAX_ASSOCIATIONS]
     pcn_name = {str(pr["id"]): f"{pr.get('name') or pr.get('ods_code')} ({pr.get('ods_code')})" for pr in by_code.values()}
     label = association_label(hub, PCN_OBJECT, "belongs to pcn")   # the practice-to-PCN label the account defines; the default (unlabelled) association is the fallback
@@ -1054,7 +1062,10 @@ def sync(rest, hub, now=None, actor="daily sync"):
             rest.upsert("app_flags", [{"key": "ods_pcn_fetch", "value": {"at": now}, "updated_at": now}], "key")
             hs_pcns = [{"id": o["id"], **o.get("properties", {})} for o in fetch_custom(hub, PCN_OBJECT)]
             company_of = {ods: str(sorted(cs, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]["id"]) for ods, cs in by_ods.items()}
-            pcn_stats, lines, events = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, conflicts=conflicts)
+            unlink = bool(next((r.get("value") or {} for r in _flags(rest) if r.get("key") == "pcn_unlink"), {}).get("run_once"))
+            pcn_stats, lines, events = sync_pcn_records(rest, hub, epcn, hs_pcns, practices, company_of, conflicts=conflicts, unlink_wrong=unlink)
+            if unlink:
+                rest.upsert("app_flags", [{"key": "pcn_unlink", "value": {"run_once": False, "last_removed": pcn_stats.get("pcn_links_removed", 0), "at": now}, "updated_at": now}], "key")
             audit_all += network_audit_rows(hs_pcns, [{"id": o["id"], **o.get("properties", {})} for o in icb_objs], epcn, now, conflicts)
             record(rest, events, actor)
             if lines:

@@ -129,14 +129,15 @@ async function renderHubspotPanel() {
   const eligible = practices.filter(p => p.status === "Active" && p.total_patients > 0), missing = eligible.filter(p => !p.hubspot_company_id);
   const linkedIds = new Set((links || []).map(l => l.org_id));
   const eng = kind => networks.filter(n => n.kind === kind && n.patients > 0 && (kind === "pcn" ? /^ods:U\d{5}$/.test(n.source_key) : /ICB/i.test(n.name)));
+  const pcnUnlinkOn = (((flags || []).find(f => f.key === "pcn_unlink") || {}).value || {}).run_once === true, pcnConflicts = ((await db.from("hubspot_audit").select("id").eq("issue", "pcn_association")).data || []).length;
   const pcnMiss = eng("pcn").filter(n => !linkedIds.has(n.id)), icbMiss = eng("icb").filter(n => !linkedIds.has(n.id));
   const latestCheck = new Map(); for (const r of hsLog) if (r.kind === "push_check" && r.ods_code && !latestCheck.has(r.ods_code)) latestCheck.set(r.ods_code, r);
   const badChecks = [...latestCheck.values()].filter(r => !r.ok);
   const tile = (k, v, sub = "") => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-xl font-bold leading-tight">${v}</div>${sub ? `<div class="text-xs text-slate-500">${sub}</div>` : ""}</div>`;
   const attn = (n, label, action = "") => n ? `<div class="flex items-center justify-between gap-3 border-t border-slate-100 py-1.5 first:border-0"><span class="text-sm"><b>${n.toLocaleString()}</b> ${label}</span>${action}</div>` : "";
   const items = [attn(ok === false ? 1 : 0, "The last sync failed: " + esc((run?.summary || "").slice(0, 120))),
-    attn(missing.length, "active practices with a list size are not in HubSpot", '<button id="hsp-missing" class="text-xs font-semibold text-lalu-teal-700 hover:underline">View them</button>'),
-    attn(pcnMiss.length, "PCNs have no HubSpot PCN record yet (the next sync creates English ones)"), attn(icbMiss.length, "ICBs have no HubSpot ICB record"),
+    attn(missing.length, "active practices with a list size are not in HubSpot", '<span class="flex gap-3"><button id="hsp-missing" class="text-xs font-semibold text-lalu-teal-700 hover:underline">View them</button><button id="hsp-addall" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Add them all…</button></span>'),
+    attn(pcnConflicts, "practices are also linked to another PCN in HubSpot", pcnUnlinkOn ? '<span class="text-xs font-semibold text-emerald-700">The next sync removes the wrong links</span>' : '<button id="hsp-unlink" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Remove the wrong links on the next sync</button>'), attn(pcnMiss.length, "PCNs have no HubSpot PCN record yet (the next sync creates English ones)"), attn(icbMiss.length, "ICBs have no HubSpot ICB record"),
     attn(badChecks.length, "recent pricing pushes where HubSpot's calculated values did not match the tool", '<button id="hsp-bad" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Show</button>')].join("");
   box.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3"><div class="flex items-center gap-2"><h2 class="font-bold">HubSpot integration</h2>
       ${chip(ok === null ? "Never synced" : ok ? "Healthy" : "Last sync failed", ok === null ? "bg-slate-100 text-slate-700" : ok ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800")}</div>
@@ -151,6 +152,8 @@ async function renderHubspotPanel() {
     <div id="hsp-log" class="mt-2 max-h-96 overflow-y-auto text-sm"></div>`;
   hsLogRender();
   const tc = $("hsp-timclear"); if (tc) tc.onclick = () => { hsTimings = []; try { localStorage.removeItem(HS_TIMING_KEY); } catch (e) {} renderHubspotPanel(); };
+  const unl = $("hsp-unlink"); if (unl) unl.onclick = async () => { if (!confirm(`Remove each of these ${pcnConflicts} practices' links to a PCN that is not its own NHS PCN, at the next HubSpot sync? The right PCN link stays and each company gets a note.`)) return; const { error } = await db.from("app_flags").upsert([{ key: "pcn_unlink", value: { run_once: true }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) alert("Could not save: " + error.message); else renderHubspotPanel(); };
+  const addAll = $("hsp-addall"); if (addAll) addAll.onclick = hsBulkAdd;
   $("hsp-missing").onclick = () => { showTab("practices"); $("f-hs").value = "missing"; applyFilters(); };
   const bad = $("hsp-bad"); if (bad) bad.onclick = () => { hsLogFilter = "bad"; $("hsp-filter").value = "bad"; hsLogRender(); $("hsp-log").scrollIntoView({ behavior: "smooth", block: "center" }); $("hsp-log").classList.add("ring-2", "ring-amber-300"); setTimeout(() => $("hsp-log").classList.remove("ring-2", "ring-amber-300"), 2500); };
   $("hsp-filter").onchange = e => { hsLogFilter = e.target.value; hsLogRender(); };
@@ -210,3 +213,28 @@ document.addEventListener("click", async e => {      // approve one held-back li
   try { await hsCall({ action: "set_list_size", ods: p.ods_code, companyId: String(p.hubspot_company_id), size: Number(p.total_patients) }); p.hubspot_list_size = p.total_patients; b.closest("tr").remove(); }
   catch (err) { b.disabled = false; b.textContent = "Failed"; b.title = err.message; }
 });
+
+/* Add every active practice with a list size that is not in HubSpot yet, one company at a time (name, ODS code, list size, address, status Prospective Customer; no contacts: add them from the practice or via NeverBounce).
+   The daily sync then links each company's PCN and ICB records. Practices already in HubSpot under that ODS code are reported and skipped by the edge function. */
+let hsBulkStop = false;
+async function hsBulkAdd() {
+  const todo = practices.filter(p => p.status === "Active" && p.total_patients > 0 && !p.hubspot_company_id && p.org_kind !== "non_gp" && !p.merged_into && !isClosed(p));
+  hs = { net: true, p: { practice_name: "HubSpot" } }; hsBulkStop = false;
+  $("hs-modal").classList.remove("hidden"); hsTitle("Add practices to HubSpot");
+  hsRender(`<div class="space-y-3 text-sm"><p class="text-slate-600"><b>${todo.length}</b> active practice${todo.length === 1 ? "" : "s"} with a list size ${todo.length === 1 ? "is" : "are"} not in HubSpot. Each gets a company (name, GP ODS Code, list size, address, status Prospective Customer). It takes a few seconds each; you can stop at any point and carry on later.</p>
+    <div class="h-2 overflow-hidden rounded-full bg-slate-100"><div id="bk-bar" class="h-2 bg-emerald-600 transition-all" style="width:0%"></div></div><div id="bk-msg" class="text-xs text-slate-500" role="status">${todo.length ? "Ready." : "Nothing to add."}</div>
+    <div id="bk-rows" class="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 text-xs">${todo.map(p => `<div class="flex justify-between gap-3 px-3 py-1" data-bk="${esc(p.ods_code)}"><span class="truncate">${esc(p.practice_name)} <span class="font-mono text-slate-500">${esc(p.ods_code)}</span></span><span class="shrink-0 text-slate-400">waiting</span></div>`).join("")}</div>
+    <div class="flex justify-end gap-2 border-t border-slate-200 pt-3"><button id="bk-close" class="rounded-lg border border-slate-300 px-3 py-2 font-semibold">Close</button><button id="bk-go" class="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" ${todo.length ? "" : "disabled"}>Create ${todo.length} compan${todo.length === 1 ? "y" : "ies"}</button></div></div>`);
+  $("bk-close").onclick = () => { hsBulkStop = true; hsClose(); };
+  $("bk-go").onclick = async () => {
+    const go = $("bk-go"); go.disabled = true; go.textContent = "Working…"; let ok = 0, fail = 0, i = 0;
+    const row = (ods, html) => { const el = document.querySelector(`[data-bk="${ods}"] span:last-child`); if (el) el.innerHTML = html; };
+    for (const p of todo) {
+      if (hsBulkStop) break; i++; row(p.ods_code, '<span class="text-slate-500">working…</span>');
+      try { const r = await hsCall({ action: "create_company", ods: p.ods_code, company: hsCompanyProps(p), contacts: [], networks: [] }); p.hubspot_company_id = r.companyId; ok++; row(p.ods_code, '<span class="text-emerald-700">created</span>'); }
+      catch (e) { fail++; row(p.ods_code, `<span class="text-rose-700" title="${esc(e.message)}">${esc(e.message.slice(0, 50))}</span>`); }
+      $("bk-bar").style.width = Math.round(i / todo.length * 100) + "%"; $("bk-msg").textContent = `${ok} created, ${fail} failed, ${todo.length - i} to go.`;
+    }
+    $("bk-msg").textContent = `${ok} created${fail ? ", " + fail + " failed (hover a row for the reason)" : ""}${hsBulkStop ? ", stopped" : ""}. The next HubSpot sync links their PCN and ICB records.`; go.textContent = "Done"; renderHubspotPanel();
+  };
+}

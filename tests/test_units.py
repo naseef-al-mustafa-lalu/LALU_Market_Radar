@@ -1066,3 +1066,30 @@ def test_audience_alerts_only_for_audiences_with_the_switch_on(monkeypatch):
             return [dict(id="a1", name="Job report role", signal_type="JOB_REPORT_ROLE", kind="signal", slack_alert=True, archived=False), dict(id="a2", name="Other", signal_type="NEW_PRACTICE", kind="signal", slack_alert=True, archived=False)]
     sent = [dict(trigger_type="JOB_REPORT_ROLE", gp_practices=dict(ods_code="A1", practice_name="Test Surgery")), dict(trigger_type="CQC_PROVIDER_CHANGE", gp_practices=dict(ods_code="A2", practice_name="Nope"))]
     assert notify.audience_alerts(R(), sent, "https://x") == 1 and len(posted) == 1 and "Job report role" in posted[0] and "Test Surgery" in posted[0] and "Nope" not in posted[0]
+
+
+def test_pcn_wrong_links_are_removed_only_when_the_one_shot_is_on():
+    from src import hubspot_sync as hsy
+
+    def run(unlink):
+        calls = []
+
+        class Hub:
+            def call(self, method, path, **kw):
+                calls.append((method, path, kw.get("json")))
+                if path.endswith("/batch/read"): return {"results": [{"from": {"id": "100"}, "to": [{"toObjectId": "1"}, {"toObjectId": "2"}]}]}
+                if "labels" in path: return {"results": []}
+                return {}
+
+        class Rest:
+            def select_all(self, *a, **k): return []
+            def upsert(self, *a, **k): pass
+        pcns = [{"id": "1", "ods_code": "P1", "name": "Right PCN"}, {"id": "2", "ods_code": "P2", "name": "Wrong PCN"}]
+        epcn = {"P1": {"name": "Right PCN"}, "P2": {"name": "Wrong PCN"}}
+        conflicts = []
+        stats, _, _ = hsy.sync_pcn_records(Rest(), Hub(), epcn, pcns, {"A1": {"pcn_code": "P1", "practice_name": "Practice A"}}, {"A1": "100"}, getj=lambda url, *a, **k: {"Organisations": []}, conflicts=conflicts, unlink_wrong=unlink)
+        return stats, conflicts, [c for c in calls if c[1].endswith("/batch/archive")]
+    stats, conflicts, archive = run(False)
+    assert archive == [] and conflicts and conflicts[0][3] == ["Wrong PCN"]      # add-only by default: the audit lists it
+    stats, conflicts, archive = run(True)
+    assert stats["pcn_links_removed"] == 1 and conflicts == [] and archive[0][2] == {"inputs": [{"from": {"id": "100"}, "to": [{"id": "2"}]}]}      # only the wrong one goes; the practice's own PCN stays
