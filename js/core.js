@@ -63,7 +63,7 @@ const contractedCell = p => {
 };
 const hsState = p => p.hubspot_customer ? (p.hubspot_commercial_model === "Freemium" ? "freemium" : "customer") : p.hubspot_engaged ? "engaged" : p.hs_imported > 0 ? "imported" : p.hubspot_company_id ? "company" : "none";
 const NET_KINDS = { pcn: "PCNs", group: "Provider groups", federation: "Federations", icb: "ICBs" };
-const HOT = ["MERGER_DETECTED", "NEW_PRACTICE", "CQC_DEREGISTERED", "CQC_PROVIDER_CHANGE"];
+const HOT = ["CUSTOMER_MERGER", "MERGER_DETECTED", "NEW_PRACTICE", "CQC_DEREGISTERED", "CQC_PROVIDER_CHANGE"];
 
 /* ---------- auth ---------- */
 /* Invite and password-reset links arrive as #access_token=…&type=invite|recovery (or #error=… when the link has expired). */
