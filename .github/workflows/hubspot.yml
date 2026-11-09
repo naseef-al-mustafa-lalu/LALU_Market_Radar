@@ -23,4 +23,6 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL }}
+          SLACK_ATLAS_WEBHOOK_URL: ${{ secrets.SLACK_ATLAS_WEBHOOK_URL }}
+          SLACK_ATLAS_CHANNEL: ${{ vars.SLACK_ATLAS_CHANNEL }}
         run: python -m src.hubspot_sync

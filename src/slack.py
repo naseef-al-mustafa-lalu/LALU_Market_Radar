@@ -24,14 +24,27 @@ def link(url, label):
     return f"<{url}|{mrkdwn(label)}>" if ok else mrkdwn(label)
 
 
-def post(text, blocks=None):
-    """Raises on failure so the caller can leave signals unsent and try again next run."""
-    token, hook = os.environ.get("SLACK_BOT_TOKEN"), os.environ.get("SLACK_WEBHOOK_URL")
+ATLAS_CHANNEL = "lalu_atlas"
+
+
+def atlas_configured():
+    """Atlas's own alerts (new contacts in an audience, NeverBounce batches and results) go to #lalu_atlas: a bot token reaches it by channel name, a webhook is tied to its channel (SLACK_ATLAS_WEBHOOK_URL)."""
+    return bool(os.environ.get("SLACK_BOT_TOKEN") or os.environ.get("SLACK_ATLAS_WEBHOOK_URL"))
+
+
+def post_atlas(text, blocks=None):
+    """Post to #lalu_atlas. Raises on failure."""
+    post(text, blocks, channel=os.environ.get("SLACK_ATLAS_CHANNEL") or ATLAS_CHANNEL, hook=os.environ.get("SLACK_ATLAS_WEBHOOK_URL"))
+
+
+def post(text, blocks=None, channel=None, hook=None):
+    """Raises on failure so the caller can leave signals unsent and try again next run. channel / hook override the signals channel (used by post_atlas)."""
+    token, hook = os.environ.get("SLACK_BOT_TOKEN"), hook or os.environ.get("SLACK_WEBHOOK_URL")   # a bot token wins over a webhook, as before
     payload = {"text": text, "unfurl_links": False, "unfurl_media": False}
     if blocks:
         payload["blocks"] = blocks
     if token:
-        payload["channel"] = os.environ.get("SLACK_CHANNEL") or DEFAULT_CHANNEL
+        payload["channel"] = channel or os.environ.get("SLACK_CHANNEL") or DEFAULT_CHANNEL
         r = requests.post("https://slack.com/api/chat.postMessage", json=payload, timeout=30, headers={"Authorization": f"Bearer {token}"})
         data = r.json() if r.ok else {}
         if not r.ok or not data.get("ok"):

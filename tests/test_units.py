@@ -943,3 +943,33 @@ def test_org_kind_separates_non_gp_services_from_practices_without_a_list_yet():
     assert org_kind("Y05733", 0, False, "123", "Parkfields Surgery") == "gp"        # in HubSpot and named like a surgery
     assert org_kind("C81039", 0, False, None, "Eyam Surgery") == "gp"               # only Y codes are candidates
     assert org_kind("Y00001", 0, True, None, "Some Service") == "gp"                # a customer is never reclassified
+
+
+def test_slack_atlas_alerts_use_their_own_channel(monkeypatch):
+    import importlib
+
+    from src import slack
+
+    importlib.reload(slack)   # an earlier test replaces slack.post without restoring it
+    sent = []
+
+    class R:
+        ok = True
+        status_code = 200
+        text = "ok"
+
+        def json(self):
+            return {"ok": True}
+
+    monkeypatch.setattr(slack.requests, "post", lambda url, **kw: sent.append((url, kw.get("json"))) or R())
+    monkeypatch.setattr(slack.time, "sleep", lambda s: None)
+    for k in ("SLACK_BOT_TOKEN", "SLACK_WEBHOOK_URL", "SLACK_ATLAS_WEBHOOK_URL", "SLACK_ATLAS_CHANNEL", "SLACK_CHANNEL"):
+        monkeypatch.delenv(k, raising=False)
+    assert not slack.atlas_configured()
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    monkeypatch.setenv("SLACK_CHANNEL", "lalu_market_radar")
+    assert slack.atlas_configured()
+    slack.post_atlas("hello")
+    assert sent[-1][1]["channel"] == "lalu_atlas"           # the bot token reaches #lalu_atlas by name; signals keep their own channel
+    slack.post("signal")
+    assert sent[-1][1]["channel"] == "lalu_market_radar"
