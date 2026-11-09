@@ -436,21 +436,13 @@ def _price(v):
 
 def contract_patients(deal, qty=None, ref=None):
     """Patients a won deal contracts for, best source first: the deal's own Contracted Patient List Size (a static figure that matches the signed contract; HubSpot's Patient List Size is synced
-    from the company, so it drifts), then its Lalu Care line item quantity, else the Amount (a year's price) over twelve months of the net price per patient."""
+    from the company, so it drifts), then its Lalu Care line item quantity. Nothing is back-calculated from the Amount, so a number shown is always a contracted one."""
     fixed = _num(deal.get("contracted_patient_list_size"))
     if fixed and fixed > 0 and (not ref or 0.35 * ref <= fixed <= 2.5 * ref):   # a group deal's figure far from this practice's own size is not this practice's contract
         return int(fixed)
     if qty:
         return int(qty)
-    amount, net, tot = _num(deal.get("amount")), _num(deal.get("actual_value_per_patient_calculated")), _num(deal.get("total_discount"))
-    lst = _price(deal.get("value_per_patient"))
-    rate = net or (lst * (1 - (tot / 100 if tot and tot > 1 else tot or 0)) if lst else None)
-    if amount and rate and rate > 0:
-        n = round(amount / (12 * rate))
-        if ref and not 0.35 * ref <= n <= 2.5 * ref:   # far from the practice's own list size: a group deal or a part-year Amount, not this practice's contract
-            return None
-        return n if 50 <= n <= 200000 else None
-    return None
+    return None   # never guessed from the Amount: a deal without a contracted size shows as "needs size" in Atlas
 
 
 def lifecycle_fields(companies, deal_ids, deals, service_ids, services, line_qty, list_size_value):
@@ -473,11 +465,12 @@ def lifecycle_fields(companies, deal_ids, deals, service_ids, services, line_qty
                                                                                                        and deals[i].get("pipeline") in (PIPELINE_WON | {PIPELINE_RENEWALS}))), key=lambda x: x[0] or "")
     hist = [[d, n] for d, n in hist if d and n]
     qty = hist[-1][1] if hist else None
+    # signed size: the contract; only contract-free products (freemium, PAYG, self service) fall back to the company list size
     return {"hubspot_company_status": primary.get("company_status") or None, "hubspot_service_name": (main or {}).get("hs_name") or None, "hubspot_product": product,
             "hubspot_product_service": ps or ({"self": "eMR"}.get(product, "eMR+") if product in ("all", "sar", "self") else None),
             "hubspot_first_start": min(starts) if starts else None, "hubspot_churned_date": max(churned) if churned and (ended(primary) or not any(
                 sv.get("current_subscription") for sv in paid)) else None,
-            "hubspot_signed_size": int(qty) if qty else (int(list_size_value) if list_size_value else None), "hubspot_size_history": hist or None}
+            "hubspot_signed_size": int(qty) if qty else (int(list_size_value) if list_size_value and product in ("freemium", "payg", "self") else None), "hubspot_size_history": hist or None}
 
 
 def revenue_fields(deal_ids, deals, service_ids, services, customer, model, line_qty=None):

@@ -751,17 +751,15 @@ def test_lifecycle_fields_for_customers_and_churned_practices():
     live = hsy.lifecycle_fields([{"id": "1", "company_status": "Current Customer"}], ["d1"], deals, ["s1", "s3"], sv, {"d1": 9000}, 8800)
     assert (live["hubspot_product"], live["hubspot_product_service"], live["hubspot_first_start"], live["hubspot_churned_date"], live["hubspot_signed_size"], live["hubspot_company_status"]) == ("sar", "eMR+", "2024-03-01", None, 9000, "Current Customer") and live["hubspot_size_history"] == [["2024-02-20", 9000]]
     gone = hsy.lifecycle_fields([{"id": "2", "company_status": "Ex-Customer"}], [], {}, ["s2"], sv, {}, 7000)
-    assert (gone["hubspot_product"], gone["hubspot_product_service"], gone["hubspot_first_start"], gone["hubspot_churned_date"], gone["hubspot_signed_size"]) == ("all", "eMR+", "2022-04-20", "2025-06-30", 7000)
+    assert (gone["hubspot_product"], gone["hubspot_product_service"], gone["hubspot_first_start"], gone["hubspot_churned_date"], gone["hubspot_signed_size"]) == ("all", "eMR+", "2022-04-20", "2025-06-30", None)      # a paid customer with no contracted size is not guessed from the company list size
     assert hsy.service_product({"hs_name": "ReportSure Self Service"}) == "self" and hsy.service_product({"hs_name": "x", "current_subscription": "PAYG"}) == "payg"
 
 
 def test_contract_patients_come_from_the_contract_not_the_synced_deal_size():
     from src import hubspot_sync as hsy
     c = hsy.contract_patients
-    assert c({"amount": "3840.00", "value_per_patient": "£0.08", "patient_list_size": "3653"}) == 4000      # Amount over twelve months of the price per patient: a round contract size, unlike the drifting synced one
-    assert c({"amount": "12096", "actual_value_per_patient_calculated": "0.0720", "value_per_patient": "£0.08"}) == 14000 and c({"amount": "5000", "value_per_patient": "Other"}) is None
-    assert c({"amount": "1", "value_per_patient": "£0.08"}, 9500) == 9500 and c({"amount": "5760", "value_per_patient": "£0.08", "total_discount": "0.1"}) == 6667
-    assert c({"amount": "132800", "value_per_patient": "£0.08"}, None, 15369) is None and c({"amount": "13280", "value_per_patient": "£0.08"}, None, 14000) == 13833      # a deal far from the practice's own list size is not taken as its contract
+    assert c({"amount": "3840.00", "value_per_patient": "£0.08", "patient_list_size": "3653"}) is None and c({"amount": "12096", "actual_value_per_patient_calculated": "0.0720"}) is None      # never back-calculated from the Amount
+    assert c({"amount": "1", "value_per_patient": "£0.08"}, 9500) == 9500      # a line item quantity is a contract figure
     assert c({"contracted_patient_list_size": "17300", "amount": "12456", "value_per_patient": "£0.08"}, 17151, 17151) == 17300      # the signed figure on the deal wins over the line item and the Amount
     assert c({"contracted_patient_list_size": "500000"}, None, 15369) is None and c({"contracted_patient_list_size": "500000"}, 9500, 15369) == 9500      # a group figure far from the practice's own size is ignored
 
