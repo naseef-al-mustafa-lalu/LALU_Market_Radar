@@ -153,7 +153,7 @@ def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=3000
 
 
 def link_open_deals(rest, by_ods, to_deals, deals):
-    """A practice with no deal linked in Atlas (links are normally made by a pricing push) is linked to its open New Business or Freemium-conversion deal, newest first, so the profile shows the live deal
+    """A practice with no deal linked in Atlas (links are normally made by a pricing push) is linked to its open New Business or Freemium-conversion deal, newest first (else its latest signed one), so the profile shows the live deal
     (for example a Freemium customer's conversion deal) instead of 'no deal needed'. Existing links are never changed."""
     have = {r["ods_code"] for r in rest.select_all("hubspot_links", "ods_code", order="ods_code")}
     rows, now = [], datetime.now(timezone.utc).isoformat()
@@ -162,6 +162,9 @@ def link_open_deals(rest, by_ods, to_deals, deals):
             continue
         open_ = sorted(((deals[d].get("hs_lastmodifieddate") or "", d) for c in cs for d in to_deals.get(str(c["id"]), []) if d in deals and deals[d].get("hs_is_closed") != "true"
                         and deals[d].get("pipeline") in (PIPELINE_SALES, PIPELINE_CONVERSION)), reverse=True)
+        if not open_:   # no open deal: the latest signed one (a customer's contract), which the profile shows as won and locked
+            open_ = sorted(((_date(deals[d].get("closedate")) or "", d) for c in cs for d in to_deals.get(str(c["id"]), []) if d in deals and deals[d].get("hs_is_closed_won") == "true"
+                            and deals[d].get("pipeline") in PIPELINE_WON), reverse=True)
         if open_:
             primary = sorted(cs, key=lambda c: (c.get("createdate") or "", str(c.get("id"))))[0]
             rows.append({"ods_code": ods, "company_id": str(primary["id"]), "company_name": primary.get("name"), "deal_id": str(open_[0][1]), "deal_name": deals[open_[0][1]].get("dealname"), "linked_by": "daily sync", "linked_at": now})

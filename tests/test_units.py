@@ -1144,6 +1144,21 @@ def test_disqualified_leads_give_each_contact_its_latest_reason():
     assert st["hs_dq_reason"] == "No budget" and st["hs_dq_note"] == "Next year" and hsy.contact_state({}, 6, "now")["hs_dq_reason"] is None
 
 
+def test_a_customer_with_only_a_signed_deal_is_linked_to_it():
+    from src import hubspot_sync as hsy
+
+    class R:
+        def __init__(self): self.up = []
+        def select_all(self, *a, **k): return []
+        def upsert(self, table, rows, key): self.up += rows
+    r = R()
+    by_ods = {"C1": [{"id": 5, "name": "Lea Vale", "createdate": "2020"}]}
+    deals = {"d1": {"hs_is_closed": "true", "hs_is_closed_won": "true", "pipeline": "default", "closedate": "2026-01-01T00:00:00Z", "dealname": "Old"},
+             "d2": {"hs_is_closed": "true", "hs_is_closed_won": "true", "pipeline": "default", "closedate": "2026-06-01T00:00:00Z", "dealname": "Lea Vale Medical Group"},
+             "d3": {"hs_is_closed": "true", "hs_is_closed_lost": "true", "pipeline": "default", "closedate": "2026-08-01T00:00:00Z", "dealname": "Lost"}}
+    assert hsy.link_open_deals(r, by_ods, {"5": ["d1", "d2", "d3"]}, deals) == 1 and r.up[0]["deal_id"] == "d2"      # no open deal: the latest signed one, never a lost one
+
+
 def test_lost_deals_give_each_contact_its_latest_closed_lost_reason():
     from src import hubspot_sync as hsy
 
