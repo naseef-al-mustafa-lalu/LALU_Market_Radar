@@ -124,9 +124,9 @@ async function audLoadContacts(ods) {
   const p = byOds.get(ods); if (!p || !p.hubspot_company_id || (audContacts.has(ods) && !audContacts.get(ods).error)) return;
   audContacts.set(ods, { loading: true }); renderAudiences();
   try {
-    const { data, error } = await db.from("contacts").select("contact_urn,hubspot_contact_id,full_name,job_title,email,email_opt_out,role_tier").eq("ods_code", ods); if (error) throw error;
+    const { data, error } = await db.from("contacts").select("contact_urn,hubspot_contact_id,full_name,job_title,email,email_opt_out,role_tier,held_reason").eq("ods_code", ods); if (error) throw error;
     const tier = { A: 0, B: 1, "?": 2 };
-    audContacts.set(ods, { list: (data || []).sort((x, y) => ((tier[x.role_tier] ?? 3) - (tier[y.role_tier] ?? 3)) || String(x.full_name).localeCompare(String(y.full_name))).map(k => ({ id: k.hubspot_contact_id ? String(k.hubspot_contact_id) : "u" + k.contact_urn, name: k.full_name || "", title: k.job_title || "", email: k.email || "", optout: !!k.email_opt_out, bad: false, noHs: !k.hubspot_contact_id })), all: false });
+    audContacts.set(ods, { list: (data || []).filter(k => !k.held_reason).sort((x, y) => ((tier[x.role_tier] ?? 3) - (tier[y.role_tier] ?? 3)) || String(x.full_name).localeCompare(String(y.full_name))).map(k => ({ id: k.hubspot_contact_id ? String(k.hubspot_contact_id) : "u" + k.contact_urn, name: k.full_name || "", title: k.job_title || "", email: k.email || "", optout: !!k.email_opt_out, bad: false, noHs: !k.hubspot_contact_id })), all: false });
   } catch (e) { audContacts.set(ods, { error: e.message }); }
   renderAudiences();
 }

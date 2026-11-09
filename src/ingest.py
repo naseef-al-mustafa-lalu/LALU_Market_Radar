@@ -23,7 +23,7 @@ BRANCH_MIN = 1000   # ODS holds ~2,500 active branches; a far smaller list means
 BRANCH_COLS = ["branch_code", "branch_name", "address", "town", "county", "postcode", "phone", "opened", "status", "parent_code", "parent_name", "parent_role", "parent_role_name", "kind", "practice_code", "resolution", "matched_branch_code", "match_status", "match_note", "checked_at"]
 
 
-GP_NAME = re.compile(r"surgery|medical|practice|health cent|doctors|family|group", re.I)
+GP_NAME = re.compile(r"surgery|medical|practice|health cent|doctors|family|group|aspiro|healthcare|health care|partnership|alliance", re.I)
 
 
 def org_kind(code, patients, customer=False, hubspot_company=None, name=""):
@@ -306,10 +306,15 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
             keep.append(c)
         elif quality == "shared" and generic.get(c["ods_code"], {}).get("source") != "oscar" and c["ods_code"] not in new_generic:
             new_generic[c["ods_code"]] = {"ods_code": c["ods_code"], "email": c["email"], "source": "oscar"}
-        else:
+            c["held_reason"] = "shared mailbox, not a person"
+            keep.append(c)
+        else:   # not usable for campaigns yet, but stored (with the reason) so it can be reviewed
             held += 1
-            rejects.append(("oscar", str(c["contact_urn"]), "new contact held back: " + ("practice already has a generic address" if quality == "shared" else f"email is not a direct address ({quality})")))
-    cols = CONTACT_FIELDS + ["email_quality", "role_tier", "source"]
+            c["held_reason"] = "shared mailbox, not a person" if quality == "shared" else f"email is not a direct address ({quality})"
+            keep.append(c)
+    for c in keep:
+        c.setdefault("held_reason", None)
+    cols = CONTACT_FIELDS + ["email_quality", "role_tier", "source", "held_reason"]
     changed = [c for c in keep if c["contact_urn"] not in db or any(c.get(k) != db[c["contact_urn"]].get(k) for k in cols)]
     rest.upsert("contacts", changed, "contact_urn")
     if adopted:

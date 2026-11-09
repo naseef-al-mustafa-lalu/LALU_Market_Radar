@@ -693,10 +693,10 @@ def test_oscar_contacts_step_keeps_hubspot_contacts_adopts_by_email_and_gates_ne
     rest, stats, rejects = R(db, []), {}, []
     ingest.contacts_step(rest, feed, {"A1": {}}, [], stats, rejects)
     up = {c["contact_urn"]: c for c in rest.up["contacts"]}
-    assert set(up) == {10, 11} and up[10]["hubspot_contact_id"] == "777" and up[10]["hubspot_status"] == "Imported" and up[10]["job_title"] == "Business Manager"      # Oscar's details win; the HubSpot id is kept
+    assert set(up) == {10, 11, 12, 13, 14} and up[10]["held_reason"] is None and up[11]["held_reason"] is None and up[12]["held_reason"] and up[13]["held_reason"] and up[14]["held_reason"] and up[10]["hubspot_contact_id"] == "777" and up[10]["hubspot_status"] == "Imported" and up[10]["job_title"] == "Business Manager"      # Oscar's details win; the HubSpot id is kept
     assert rest.deleted == [("contacts", -1)] and stats["contacts_adopted"] == 1      # the adopted HubSpot row goes; the other HubSpot-sourced contact is never touched, never deleted as "stale"
     assert [g["email"] for g in rest.up["practice_generic_emails"]] == ["enquiries@nhs.net"] and stats["generic_emails_added"] == 1      # one generic address per practice
-    assert stats["contacts_held"] == 2 and sorted(r[1] for r in rejects if "held back" in r[2]) == ["13", "14"], rejects      # the second shared mailbox and the unclear address are held back
+    assert stats["contacts_held"] == 2 and up[13]["held_reason"].startswith("shared") and "not a direct address" in up[14]["held_reason"], up      # the second shared mailbox and the unclear address are stored, flagged as held back
     rest2 = R(db, [dict(ods_code="A1", email="old@nhs.net", source="oscar")]); ingest.contacts_step(rest2, [oc(12, "A", "B", "enquiries@nhs.net")], {"A1": {}}, [], {}, [])
     assert "practice_generic_emails" not in rest2.up      # the practice already has an Oscar generic address: nothing more is ingested
 

@@ -63,7 +63,7 @@ function ctEvaluate(c, p, locked = new Map()) {
   else if (!direct) out.excluded = q === "likely_direct" ? "address only partly matches the name" : "address does not clearly belong to this person";
   else if (mode === "off") out.excluded = "role switched off: " + role.label;
   else out.section = mode;
-  if (out.excluded) return out;
+  if (out.excluded) { if (c.held_reason) out.excluded = "held back at import: " + c.held_reason; return out; }
   const why = [], on = ctRuleOn, hs = c.hubspot_contact_id, lc = c.hs_lifecycle;
   if (on("optout") && (c.email_opt_out || c.hs_optout_all)) why.push("optout");
   if (on("mkt_optout") && c.hs_mkt_optout && c.hs_last_sent) why.push("mkt_optout");
