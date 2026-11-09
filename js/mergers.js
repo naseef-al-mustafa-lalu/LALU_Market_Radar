@@ -103,7 +103,7 @@ $("dr-body").addEventListener("click", async e => {
   if (open) { e.preventDefault(); const t = byOds.get(open.dataset.open); if (t) openDrawer(t); return; }
   const b = e.target.closest("button[data-mg]"); if (!b) return;
   const act = b.dataset.mg, ods = b.dataset.ods || drawerCode;
-  if (act === "choose") { const det = b.closest("details"), x = byOds.get(b.dataset.into); det.dataset.into = x.ods_code; det.querySelector("[data-mg-picked]").textContent = "Merged into: " + x.practice_name + " (" + x.ods_code + ")"; det.querySelector('[data-mg="pick-save"]').disabled = false; det.querySelector("[data-mg-results]").innerHTML = ""; return; }
+  if (act === "choose") { const det = b.closest("details"), x = byOds.get(b.dataset.into); det.dataset.into = x.ods_code; det.querySelector("[data-mg-search]").value = x.practice_name + " (" + x.ods_code + ")"; det.querySelector("[data-mg-picked]").textContent = "Selected: merged into " + x.practice_name + " (" + x.ods_code + ")"; det.querySelector("[data-mg-picked]").className = "text-xs font-semibold text-emerald-700 flex-1"; det.querySelector('[data-mg="pick-save"]').disabled = false; det.querySelector("[data-mg-results]").innerHTML = ""; return; }
   b.disabled = true; const err = await decide(act, ods, b);
   if (err && $("mg-msg")) { $("mg-msg").textContent = "Could not save: " + err; b.disabled = false; }
 });

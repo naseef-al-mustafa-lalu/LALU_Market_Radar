@@ -413,8 +413,8 @@ with sync_playwright() as p:
     sv = js("(() => { const d = pumSeries(pumRows(), 'product'), at = m => d.series.all[d.months.indexOf(m)]; return [at('2024-03'), at('2025-07'), at('2025-10')]; })()"); assert sv == [14000, 14500, 9500], sv      # the contract size follows the renewal in June 2025, and the churned practice's 5,000 go from September 2025
     now = lambda: int(js("document.querySelector('#rev-pum .grid div:first-child .text-xl').textContent").replace(",", ""))
     assert now() == 9500 + 8000, now()      # the churned practice's 5,000 are off after 15 Sep 2025
-    js("document.getElementById('pum-service').value = 'eMR'; document.getElementById('pum-service').dispatchEvent(new Event('change'))"); assert now() == 0      # self service only: its one customer has churned
-    js("document.getElementById('pum-service').value = ''; document.getElementById('pum-service').dispatchEvent(new Event('change'))"); js("document.querySelector('.pum-prod[value=sar]').click()"); assert now() == 9500      # product filter
+    js("document.querySelector('#pum-basis button[data-v=current]').click()"); assert now() > 0 and js("!document.getElementById('pum-service')")      # Current list counts customers at their latest NHS list size; the old Service dropdown is gone
+    js("document.querySelector('#pum-basis button[data-v=contract]').click()"); assert now() == 9500 + 8000; js("document.querySelector('.pum-prod[value=sar]').click()"); assert now() == 9500      # product filter
     js("document.querySelector('#pum-churn button[data-v=active]').click()"); js("document.querySelector('#pum-split button[data-v=service]').click()"); assert js("!!document.querySelector('#rev-pum svg')")
     js("setRevSub('est')"); assert js("document.getElementById('rev-pum').classList.contains('hidden') && !document.getElementById('rev-est').classList.contains('hidden')")      # the old estimates page is still there
     # signals + data
@@ -604,5 +604,8 @@ with sync_playwright() as p:
     sv = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'contact_rules').pop()[1][0]"); assert sv["value"]["roles"]["clinical"] == "off", sv
     pg.click("#ct-sub button[data-c=import]"); pg.wait_for_function("document.querySelector('#contact-import') && document.querySelector('#contact-import').innerText.includes('Contacts from HubSpot')")      # the HubSpot export upload now lives on the Contacts tab
     pg.click("#ct-sub button[data-c=review]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Titles the role groups do not recognise')")
+    pg.click("#ct-sub button[data-c=contacts]"); pg.click("#ct-more-btn"); pg.wait_for_selector("#ct-more:not(.hidden)"); pg.select_option("#ct-section", "main"); assert pg.is_visible("#ct-more") and "Filters" in pg.inner_text("#ct-more-btn")      # filters match the practice page: a Filters button and a panel that stays open while you pick
+    pg.evaluate("showTab('signals'); setSigSub('mergers')"); pg.click("#sig-mergers .info-btn"); assert pg.is_visible("#sig-mergers .info-pop") and "list size" in pg.inner_text("#sig-mergers .info-pop")      # long notes sit behind an (i) button
+    pg.evaluate("showTab('data'); setDataSub('pricing')"); pg.wait_for_selector("#d-rules h3"); dr = pg.inner_text("#d-rules"); assert "Size discount" in dr and "Term discount" in dr and "Speed discount" in dr and "Referral group discount" in dr and "ends at renewal" in dr and "90 days" in dr, dr      # the rate card page explains each discount
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

@@ -38,7 +38,7 @@ function openNetworkProfile(n) {
   const row = route.find(t => t.tier === n.network_tier), base = n.network_base_price != null ? Number(n.network_base_price) : null;
   const next = route.find(t => t.threshold > n.patients && (!row || t.tier < row.tier));
   $("dr-title").textContent = n.name;
-  $("dr-sub").innerHTML = `${chip(KIND, "bg-slate-100 text-slate-700")} ${n.network_tier ? chip("Tier " + n.network_tier + (row ? " · " + row.label : ""), TIER_CLS["Tier " + n.network_tier]) : ""} ${n.customers > 0 ? chip("Has a customer", "bg-emerald-100 text-emerald-800") : ""} ${n.confirmed === false ? chip("inferred: verify", "bg-amber-50 text-amber-700") : ""}`;
+  $("dr-sub").innerHTML = `${chip(KIND, "bg-slate-100 text-slate-700")} ${n.network_tier ? chip("Tier " + n.network_tier + (row ? " · " + row.label : ""), TIER_CLS["Tier " + n.network_tier]) : ""} ${n.customers > 0 ? chip("Has a customer", "bg-emerald-100 text-emerald-800") : ""} ${n.confirmed === false ? chip("inferred: verify", "bg-amber-50 text-amber-700") + infoTip("This link between the practice and the network was inferred automatically (from Oscar or name matching) and nobody has confirmed it. Check it in the network profile or in HubSpot; confirmed links show no label.") : ""}`;
   const saving = n.arr_single != null && n.arr_network != null ? n.arr_single - n.arr_network : null;
   const price = !row || base == null ? '<div class="text-sm italic text-slate-500">No price route is configured for this kind of network (edit <code>pricing_tiers</code>).</div>' :
     priceCard({ patients: Number(n.patients), tierRow: row, route: n.kind, arr: n.arr_network, who: "the network" }) +

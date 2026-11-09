@@ -1,7 +1,7 @@
 /* Contacts tab: every contact Atlas holds, who may be contacted and why not, saved segments, the HubSpot export import, and the settings that switch job roles and suppression rules on and off.
    The rules live in contact-rules.js. Loaded after contact-rules.js. Contacts are read from public.contacts; their HubSpot state (lifecycle, sequence, bounce...) is kept there by the daily HubSpot sync. */
 let ctAll = [], ctLoaded = false, ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctLocked = new Map(), ctHeld = null, ctSaving = false;
-let ctF = { q: "", section: "", status: "", role: "", source: "", reason: "" };
+let ctMoreOpen = false, ctF = { q: "", section: "", status: "", role: "", source: "", reason: "" };
 const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce";
 const CT_STATUS = { eligible: ["Eligible", "bg-emerald-100 text-emerald-800"], suppressed: ["Held back", "bg-amber-100 text-amber-800"], excluded: ["Not used", "bg-slate-100 text-slate-600"] };
 const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other", "bg-sky-100 text-sky-800"] };
@@ -52,28 +52,27 @@ const ctModeBar = () => `<div class="flex flex-wrap items-center gap-2 text-xs">
 function ctRow(r) {
   const { c, p, ev } = r, st = CT_STATUS[ev.status], sec = ev.section && CT_SECTION[ev.section];
   const why = ev.status === "suppressed" ? ev.reasons.map(ctRuleLabel).join("; ") : ev.excluded;
-  return `<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2"><div class="font-medium leading-tight">${esc(ev.name || "(no name)")}${c.is_primary ? " " + chip("Key contact", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-xs text-slate-500 break-all">${esc(c.email || "")}</div></td>
+  return `<tr class="border-t border-slate-100 align-top"><td class="py-1.5 pr-2"><div class="font-medium leading-tight">${c.hubspot_contact_id ? `<a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${esc(hsUrl("0-1", c.hubspot_contact_id))}" title="Open in HubSpot">${esc(ev.name || "(no name)")}</a>` : esc(ev.name || "(no name)")}${c.is_primary ? " " + chip("Key contact", "bg-indigo-100 text-indigo-800") : ""}</div><div class="text-xs text-slate-500 break-all">${esc(c.email || "")}</div></td>
     <td class="px-2"><div class="text-sm">${esc(c.job_title || c.title || "")}</div><div class="text-xs text-slate-500">${esc(ev.role.label)}</div></td>
     <td class="px-2">${p ? `<a href="#" class="ct-open text-lalu-teal-700 hover:underline" data-ods="${esc(p.ods_code)}">${esc(p.practice_name)}</a>` : esc(c.ods_code || "")}<div class="font-mono text-xs text-slate-500">${esc(c.ods_code || "")}</div></td>
     <td class="px-2">${sec ? ctChip(sec) : '<span class="text-slate-300">–</span>'}</td>
     <td class="px-2">${ctChip(st, why)}${why ? `<div class="mt-0.5 max-w-[16rem] text-xs text-slate-500">${esc(why)}</div>` : ""}</td>
-    <td class="px-2 text-xs text-slate-600">${c.hs_lifecycle ? esc(CT_LIFECYCLE[c.hs_lifecycle] || c.hs_lifecycle) : '<span class="text-slate-300">not in HubSpot</span>'}${c.hubspot_contact_id ? `<div><a class="text-lalu-teal-700 hover:underline" target="_blank" rel="noopener" href="${esc(hsUrl("0-1", c.hubspot_contact_id))}">HubSpot ↗</a></div>` : ""}</td></tr>`;
+    <td class="px-2 text-xs text-slate-600">${c.hs_lifecycle ? esc(CT_LIFECYCLE[c.hs_lifecycle] || c.hs_lifecycle) : '<span class="text-slate-300">not in HubSpot</span>'}</td></tr>`;
 }
 function ctList() {
-  const rows = ctAll.filter(ctMatch).sort((a, b) => ctSortKey(a) - ctSortKey(b)), shown = rows.slice(0, ctShown);
+  const rows = ctAll.filter(ctMatch).sort((a, b) => ctSortKey(a) - ctSortKey(b)), shown = rows.slice(0, ctShown), nF = ["section", "status", "reason", "role", "source"].filter(k => ctF[k]).length;
   const roleOpts = CT_ROLES.map(r => [r[0], r[1]]), reasonOpts = CT_RULES.map(r => [r[0], r[1]]);
   return `${ctTiles()}<div class="mt-3">${ctModeBar()}</div>
-    <div class="mt-3 flex flex-wrap items-end gap-2">
-      <input id="ct-q" type="search" value="${esc(ctF.q)}" placeholder="Search name, email, job title, practice, ODS code…" class="min-w-[16rem] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" aria-label="Search contacts">
-      <select id="ct-section" class="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm" aria-label="Section">${ctOptions([["main", "Main"], ["other", "Other"]], ctF.section, "Any section")}</select>
-      <select id="ct-status" class="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm" aria-label="Status">${ctOptions([["eligible", "Eligible"], ["suppressed", "Held back"], ["excluded", "Not used"]], ctF.status, "Any status")}</select>
-      <select id="ct-reason" class="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm" aria-label="Held back by">${ctOptions(reasonOpts, ctF.reason, "Any rule")}</select>
-      <select id="ct-role" class="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm" aria-label="Job role">${ctOptions(roleOpts, ctF.role, "Any job role")}</select>
-      <select id="ct-source" class="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm" aria-label="Source">${ctOptions([["oscar", "Oscar"], ["hubspot", "HubSpot"]], ctF.source, "Any source")}</select>
-      <button id="ct-csv" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold hover:bg-slate-50">Download eligible (CSV)</button>
-      <button id="ct-seg-save" class="rounded-lg bg-lalu-navy px-3 py-2 text-xs font-semibold text-white hover:bg-lalu-navy-700">Save as segment…</button></div>
-    <div class="mt-1 text-xs text-slate-500" id="ct-count">${rows.length.toLocaleString()} contact${rows.length === 1 ? "" : "s"} match · ${rows.filter(r => r.ev.status === "eligible").length.toLocaleString()} eligible</div>
-    <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-2 py-2">Contact</th><th class="px-2">Job title</th><th class="px-2">Practice</th><th class="px-2">Section</th><th class="px-2">Status</th><th class="px-2">HubSpot</th></tr></thead>
+    <div class="relative mt-3 flex flex-wrap items-center gap-2">
+      <div class="relative min-w-[220px] max-w-lg flex-1"><svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+        <input id="ct-q" type="search" value="${esc(ctF.q)}" placeholder="Search name, email, job title, practice, ODS code…" class="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm" aria-label="Search contacts"></div>
+      <button id="ct-more-btn" type="button" aria-expanded="${ctMoreOpen}" aria-controls="ct-more" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"><svg class="h-4 w-4 text-slate-500" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h14M6 10h8M9 15h2"/></svg>Filters${nF ? ` <span class="rounded-full bg-lalu-teal-700 px-1.5 text-[11px] font-bold leading-5 text-white">${nF}</span>` : ""}</button>
+      <span class="ml-auto flex items-center gap-3"><span id="ct-count" class="text-sm text-slate-500">${rows.length.toLocaleString()} contact${rows.length === 1 ? "" : "s"} · ${rows.filter(r => r.ev.status === "eligible").length.toLocaleString()} eligible</span>
+        <button id="ct-seg-save" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50">Save as segment</button><button id="ct-csv" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Export eligible</button></span>
+      <div id="ct-more" class="${ctMoreOpen ? "" : "hidden"} absolute left-0 top-full z-20 mt-2 w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-4 shadow-xl" role="region" aria-label="Filters"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        ${[["ct-section", "Section", ctOptions([["main", "Main"], ["other", "Other"]], ctF.section, "Any section")], ["ct-status", "Status", ctOptions([["eligible", "Eligible"], ["suppressed", "Held back"], ["excluded", "Not used"]], ctF.status, "Any status")], ["ct-reason", "Held back by", ctOptions(reasonOpts, ctF.reason, "Any rule")], ["ct-role", "Job role", ctOptions(roleOpts, ctF.role, "Any job role")], ["ct-source", "Source", ctOptions([["oscar", "Oscar"], ["hubspot", "HubSpot"]], ctF.source, "Any source")]].map(([id, l, o]) => `<label class="block text-xs font-semibold text-slate-600">${l}<span class="mt-1 block"><select id="${id}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm">${o}</select></span></label>`).join("")}</div>
+        <div class="mt-3 text-right"><button id="ct-clear" type="button" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Clear filters</button></div></div></div>
+    <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-2 py-2">Contact</th><th class="px-2">Job title</th><th class="px-2">Practice</th><th class="px-2">Section</th><th class="px-2">Status</th><th class="px-2">Lifecycle</th></tr></thead>
       <tbody>${shown.map(ctRow).join("") || '<tr><td colspan="6" class="p-6 text-center text-sm italic text-slate-500">No contact matches.</td></tr>'}</tbody></table></div>
     ${rows.length > shown.length ? `<div class="pt-3 text-center"><button class="ct-more rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(rows.length - shown.length).toLocaleString()} more)</button></div>` : ""}`;
 }
@@ -154,6 +153,9 @@ document.addEventListener("click", e => {
   const o = t.closest("a.ct-open"); if (o) { e.preventDefault(); const p = byOds.get(o.dataset.ods); if (p) { showTab("practices"); openDrawer(p); } return; }
   const md = t.closest(".ct-mode"); if (md) { ctMode = md.dataset.m; ctEvalAll(); renderContacts(); return; }
   const rs = t.closest(".ct-role-set"); if (rs) { ctRules.roles[rs.dataset.id] = rs.dataset.m; ctRulesChanged(); return; }
+  if (t.closest("#ct-more-btn")) { ctMoreOpen = !ctMoreOpen; renderContacts(); return; }
+  if (t.closest("#ct-clear")) { ctF = { ...ctF, section: "", status: "", reason: "", role: "", source: "" }; renderContacts(); return; }
+  if (ctMoreOpen && !t.closest("#ct-more")) { ctMoreOpen = false; renderContacts(); }
   if (t.closest("#ct-save")) { ctSave(); return; }
   if (t.closest("#ct-reset")) { if (confirm("Reset job roles and suppression rules to the defaults?")) { ctSetRules(null); ctRulesChanged(); } return; }
   if (t.closest(".ct-more")) { ctShown += 200; renderContacts(); return; }

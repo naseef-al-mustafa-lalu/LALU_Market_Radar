@@ -2,7 +2,7 @@
    Each customer counts at the size they signed for (hubspot_signed_size) from their first Service start (else the won deal's close date) until the date the Service churned. Loaded after networks.js. */
 const PUM_PRODUCTS = { all: ["All reports", "#0d9488"], sar: ["SAR only", "#1e3a8a"], self: ["Self service (GP eMR)", "#a855f7"], payg: ["PAYG", "#f59e0b"], freemium: ["Freemium", "#94a3b8"] };
 const PUM_SERVICES = { "eMR+": "Managed service", eMR: "Self service" };      // HubSpot deal property Product / Service
-let pumProducts = new Set(["all", "sar"]), pumService = "", pumChurn = "offset", pumSplit = "product", revSub = "est";
+let pumProducts = new Set(["all", "sar"]), pumService = "", pumBasis = "contract", pumChurn = "offset", pumSplit = "product", revSub = "est";
 const pumMonth = d => d.slice(0, 7), pumNext = m => { const [y, n] = m.split("-").map(Number); return n === 12 ? `${y + 1}-01` : `${y}-${String(n + 1).padStart(2, "0")}`; };
 const pumShort = n => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "m" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(Math.round(n));
 // The rows the chart uses: customers (and churned ones) with a product, a start and a signed size, after the filters.
@@ -19,7 +19,7 @@ function pumSeries(rows, splitKey) {
   for (const p of dated) {
     const k = splitKey === "service" ? (p.hubspot_product_service === "eMR" ? "eMR" : "eMR+") : p.hubspot_product, from = months.indexOf(pumMonth(p.hubspot_first_start)), gone = p.hubspot_churned_date ? months.indexOf(pumMonth(p.hubspot_churned_date)) : -1;
     if (!series[k] || from < 0) continue;
-    const hist = (p.hubspot_size_history || []).map(([d, n]) => [pumMonth(d), Number(n)]), at = i => { let n = hist.length ? hist[0][1] : Number(p.hubspot_signed_size); for (const [m, v] of hist) if (m <= months[i]) n = v; return n; };      // the size in the contract in force that month
+    const hist = (p.hubspot_size_history || []).map(([d, n]) => [pumMonth(d), Number(n)]), at = i => { if (pumBasis === "current" && Number(p.total_patients) > 0) return Number(p.total_patients); let n = hist.length ? hist[0][1] : Number(p.hubspot_signed_size); for (const [m, v] of hist) if (m <= months[i]) n = v; return n; };      // "current" counts each customer at its latest NHS list size instead of the size signed      // the size in the contract in force that month
     const to = pumChurn === "active" && p.hubspot_churned_date ? -2 : gone >= 0 ? gone : months.length;      // churned in the month it is dated: gone from that month's end
     if (to === -2) continue;
     for (let i = from; i < to; i++) series[k][i] += at(i);
@@ -77,7 +77,7 @@ function renderPum() {
   box.innerHTML = `<div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5"><div class="flex flex-wrap items-center justify-between gap-2"><h2 class="flex items-center gap-2 text-lg font-bold">${pumIcon("users", "h-5 w-5 text-lalu-teal-700")}Patients under management <span class="info-slot align-middle" data-text="Each customer counts at the patient size in their contract (the won deal's line item quantity, else the Amount over twelve months of the price per patient), updated at each renewal, from their first Service start until the date the Service churned. The company's list size is only used where no contract size can be worked out."></span></h2>
       ${seg("pum-range", "calendar", pumRange, [["12", "12m"], ["24", "24m"], ["all", "All time"]])}</div>
     <div class="mt-4 flex flex-wrap items-center gap-2">${Object.entries(PUM_PRODUCTS).map(([k, v]) => chip(k, v)).join("")}</div>
-    <div class="mt-3 flex flex-wrap items-center gap-3"><label class="relative inline-flex items-center"><span class="pointer-events-none absolute left-2.5 text-slate-400">${pumIcon("filter")}</span><select id="pum-service" class="appearance-none rounded-xl border border-slate-200 bg-white py-1.5 pl-8 pr-8 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-lalu-teal-600" aria-label="Service"><option value="">Managed and self service</option>${Object.entries(PUM_SERVICES).map(([k, l]) => `<option value="${esc(k)}" ${pumService === k ? "selected" : ""}>${l} (${esc(k)})</option>`).join("")}</select><span class="pointer-events-none absolute right-2.5 text-slate-400">${pumIcon("chevron")}</span></label>
+    <div class="mt-3 flex flex-wrap items-center gap-3">${seg("pum-basis", "users", pumBasis, [["contract", "Contracted list"], ["current", "Current list"]])}
       ${seg("pum-churn", "userMinus", pumChurn, [["offset", "Net of churn"], ["active", "Current only"]])}${seg("pum-split", "layers", pumSplit, [["product", "By product"], ["service", "By service type"]])}</div>
     <div class="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">${tile("users", "bg-teal-50 text-teal-700", "Patients today", now.toLocaleString(), `${live.length.toLocaleString()} practice${live.length === 1 ? "" : "s"}`)}
       ${tile(diff != null && diff < 0 ? "down" : "trend", diff != null && diff < 0 ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700", "Last 12 months", diff == null ? "–" : diff === 0 ? "No change" : (diff > 0 ? "+" : "−") + Math.abs(diff).toLocaleString(), diff == null ? "less than a year of history" : `from ${yearAgo.toLocaleString()}`)}
@@ -86,7 +86,7 @@ function renderPum() {
     ${noContract ? `<p class="mt-3 flex items-center gap-1.5 text-xs text-slate-500">${pumIcon("info")}${noContract.toLocaleString()} of ${rows.length.toLocaleString()} customers have no contract size in HubSpot (no priced won deal), so they are counted at the company's list size.</p>` : ""}
     <div class="mt-3 flex flex-wrap items-center gap-2 text-xs"><span class="text-slate-500">Lines</span>${Object.keys(d.series).map(k => `<button type="button" data-k="${esc(k)}" class="pum-line inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-semibold transition ${pumHidden.has(k) ? "border-slate-200 text-slate-400 line-through" : "border-slate-200 bg-white text-slate-700"}"><span class="inline-block h-0.5 w-4 rounded" style="background:${(labels[k] || [])[1]}"></span>${(labels[k] || [k])[0]}</button>`).join("")}${Object.keys(d.series).length > 1 ? '<span class="inline-flex items-center gap-1.5 text-slate-500"><span class="inline-block w-4 border-t-2 border-dashed border-slate-800"></span>Total</span>' : ""}</div></div>`;
   box.querySelectorAll(".pum-prod").forEach(c => c.onchange = () => { c.checked ? pumProducts.add(c.value) : pumProducts.delete(c.value); renderPum(); });
-  $("pum-service").onchange = e => { pumService = e.target.value; renderPum(); };
+  $("pum-basis").querySelectorAll("button").forEach(b => b.onclick = () => { pumBasis = b.dataset.v; renderPum(); });
   $("pum-churn").querySelectorAll("button").forEach(b => b.onclick = () => { pumChurn = b.dataset.v; renderPum(); });
   $("pum-split").querySelectorAll("button").forEach(b => b.onclick = () => { pumSplit = b.dataset.v; pumHidden.clear(); renderPum(); });
   $("pum-range").querySelectorAll("button").forEach(b => b.onclick = () => { pumRange = b.dataset.v; renderPum(); });

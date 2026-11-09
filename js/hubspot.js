@@ -92,7 +92,7 @@ function hsBarHtml(p) {
   let dot = "bg-slate-300", text = "", right = "";
   if (!linked) { dot = "bg-amber-400"; text = "Not in HubSpot yet"; right = act("create", "Add to HubSpot"); }
   else if (i.loading) text = "Checking the linked deal…";
-  else if (!i.link && p.hubspot_commercial_model === "Freemium") { dot = "bg-teal-500"; text = "Freemium customer: no deal needed"; right = act("push", "Manage in HubSpot"); }
+  else if (!i.link && p.hubspot_commercial_model === "Freemium") { dot = "bg-teal-500"; text = "Freemium customer" + infoTip("A Freemium customer uses the free product, so there is no contract to price and no deal to create. Manage the account from its company record in HubSpot; add a deal only if they move to a paid plan."); right = act("push", "Manage in HubSpot"); }
   else if (!i.link) { dot = "bg-amber-400"; text = "Company in HubSpot, no deal linked yet"; right = act("push", "Set up in HubSpot"); }
   else if (i.error) { dot = "bg-rose-500"; text = "Could not read the linked deal"; right = act("push", "Retry"); }
   else if (i.pair && hsIsWon(i.pair.deal)) { dot = "bg-slate-400"; text = `${esc(i.pair.deal.dealname || "deal")}: won, locked. Change it in HubSpot`; right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", i.pair.deal.id, "Open deal")}${act("manage", "Manage in HubSpot")}</div>`; }

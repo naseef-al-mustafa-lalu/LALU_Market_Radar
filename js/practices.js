@@ -306,7 +306,8 @@ function routeComparisonBody(p) {
   if (p.gp_federation) add("federation", p.gp_federation.toLowerCase(), "Federation");
   const ownRate = rateFor(cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier));
   if (!rows.length || ownRate == null) return "";
-  if (!discountsOn && !monthly) return `<p class="mt-3 text-xs text-slate-500">At list price every way of signing costs the same. Turn on size &amp; term discounts on the price card to compare the PCN, group and federation routes.</p>`;
+  if (!discountsOn && !monthly) return "";   // at list price every route costs the same: nothing to compare
+
   const alone = { name: "On its own", sub: `Single practice · Tier ${p.price_tier}`, sub2: `${p.total_patients.toLocaleString()} patients`, price: ownRate };
   const all = [alone, ...rows].map(r => ({ ...r, arr: yearly(p.total_patients, r.price) }));
   const best = Math.min(...all.map(r => r.price)), worst = Math.max(...all.map(r => r.price));
@@ -368,7 +369,7 @@ async function openDrawer(p) {
   body.innerHTML = mergeSection(p) + `<div id="dr-contacts" class="text-sm text-slate-500">Loading contacts…</div><div id="dr-signals"></div>` +
     sec("Practice details", kv("Address", addr) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Region", esc(p.region)) + kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : '<span class="text-slate-500">Not identified</span>') +
       kv("Org type", esc(HS_ORG_LABEL[atlasOrgType(p)]) + (hsCase(p) ? ` <span class="text-slate-400">${hsCase(p).mode === "merged" ? "merged into" : "site continues as a branch of"} ${esc(hsCase(p).parent.practice_name)}</span>` : "")) + kv("Operating status", chip(HS_OPSTATUS_LABEL[atlasOpStatus(p)], { active: "bg-emerald-100 text-emerald-800", closed: "bg-slate-200 text-slate-700", merged: "bg-violet-100 text-violet-800" }[atlasOpStatus(p)])) + kv("Operational", opPeriod(p)) + kv("Website", web) + kv("Main phone", esc(p.main_phone)) +
-      kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)) + kv("Categories", esc(p.oscar_categories))) +
+      kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend))) +
     branchSection(p) +
     sec("Network and ownership", kv("PCN", p.pcn_code ? link(p.pcn_name, "pcn", p.pcn_code) : "") + kv("Provider group", p.group_size > 1 ? link((p.group_name || "Group") + " (" + p.group_size + " practices)", "group", p.cqc_provider_id) : "") +
       kv("Federation", p.gp_federation ? link(p.gp_federation, "federation", p.gp_federation.toLowerCase()) : "") + kv("ICB", p.icb_name && p.icb_name !== "Unallocated ICB" ? link(p.icb_name, "icb", p.icb_name.toLowerCase()) : "")) +

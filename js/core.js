@@ -135,3 +135,12 @@ const infoIcon = text => `<button type="button" class="info-i ml-1 inline-flex h
 })();
 // static headings in index.html carry their explanation as <span class="info-slot" data-text="...">; each becomes an info icon
 document.querySelectorAll(".info-slot").forEach(el => { el.innerHTML = infoIcon(el.dataset.text || ""); });
+
+// Long explanations live behind a small (i) button instead of a paragraph: click or press Enter to open, Escape or a click elsewhere to close.
+const infoTip = (html, label = "More information") => `<span class="relative inline-block align-middle"><button type="button" class="info-btn ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold leading-none text-slate-500 hover:border-lalu-teal-700 hover:text-lalu-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lalu-teal-700" aria-label="${label}" aria-expanded="false">i</button><span role="note" class="info-pop absolute left-0 top-full z-30 mt-1 hidden w-72 max-w-[80vw] rounded-lg border border-slate-200 bg-white p-2.5 text-left text-xs font-normal normal-case leading-snug tracking-normal text-slate-700 shadow-lg">${html}</span></span>`;
+document.addEventListener("click", e => {
+  const b = e.target.closest(".info-btn"), pop = b && b.nextElementSibling;
+  document.querySelectorAll(".info-pop").forEach(x => { if (x !== pop) { x.classList.add("hidden"); x.previousElementSibling.setAttribute("aria-expanded", "false"); } });
+  if (b) { e.stopPropagation(); pop.classList.toggle("hidden"); b.setAttribute("aria-expanded", String(!pop.classList.contains("hidden"))); }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".info-pop").forEach(x => { x.classList.add("hidden"); x.previousElementSibling.setAttribute("aria-expanded", "false"); }); });

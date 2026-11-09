@@ -1,6 +1,21 @@
 // Data tab: overview, rate card and file uploads.
 /* ---------- data tab ---------- */
+// How each discount works, from the live rate card, so a salesperson can read the rules in one place.
+function renderDiscountRules() {
+  const box = $("d-rules"); if (!box) return;
+  const tiers = cfgTiers.filter(t => t.route === "practice").sort((a, b) => a.tier - b.tier), list = setting("list_price_per_patient"), floor = setting("price_floor_per_patient");
+  const card = (title, tone, body) => `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><h3 class="flex items-center gap-2 font-bold"><span class="inline-block h-2.5 w-2.5 rounded-full ${tone}"></span>${title}</h3><div class="mt-1.5 space-y-1.5 text-sm text-slate-600">${body}</div></div>`;
+  const rows = f => tiers.map(t => `<div class="flex justify-between border-b border-slate-50 py-0.5"><span>Tier ${t.tier} <span class="text-xs text-slate-400">from ${Number(t.threshold).toLocaleString()} patients</span></span><span class="font-mono font-semibold">${pct(Number(f(t)))}</span></div>`).join("");
+  box.innerHTML = `<h2 class="mb-2 font-bold">How the discounts work</h2><div class="grid gap-3 md:grid-cols-2">
+    ${card("Size discount", "bg-teal-600", `<p>Set by the list size of what is being signed (a practice, or a PCN, group or federation). The price card applies it when <b>Size discount</b> is switched on; off means list price (${"£" + rate3(list)} per patient per month for All reports).</p>${rows(t => t.size_discount)}`)}
+    ${card("Term discount", "bg-blue-700", `<p>Earned by the length of the commitment, chosen with the 1, 2 or 3-year tiles on the price card. It does not depend on the size switch. Monthly plans are rolling and never discount.</p><div class="flex justify-between border-b border-slate-50 py-0.5"><span>1 year</span><span class="font-mono font-semibold">${pct(0)}</span></div><div class="flex justify-between border-b border-slate-50 py-0.5"><span>2 years</span><span class="font-mono font-semibold">${pct(setting("term_discount_2yr"))}</span></div><div class="flex justify-between py-0.5"><span>3 years</span><span class="font-mono font-semibold">${pct(setting("term_discount_3yr"))}</span></div>`)}
+    ${card("Speed discount", "bg-amber-500", `<p>A reward for signing quickly. Its own switch: it works without the size discount, on annual plans only. It lasts for the whole term and <b>ends at renewal</b>; it is not guaranteed, so the card shows the renewal price without it.</p>${rows(t => t.speed_discount)}`)}
+    ${card("Referral group discount", "bg-purple-600", `<p>A practice that brings other practices is priced on the <b>combined</b> list size, using the single-practice size table. The extra discount over its own size discount is the referral discount, and it applies to annual plans.</p><p>It is <b>conditional</b>: the referred practices must sign within 90 days, otherwise it is set back to 0. Atlas records the group, links the deals, and puts a note on each deal. Open the <b>referral group</b> panel on the price card to choose the practices.</p>`)}
+    ${card("Price floor and monthly plans", "bg-slate-500", `<p>All reports never drop below <b>£${rate3(floor)}</b> per patient per month, whatever the discounts add up to. SAR only has no floor. Monthly plans pay the monthly rate and take no discount.</p>`)}
+  </div>`;
+}
 async function renderData() {
+  renderDiscountRules();
   renderHubspotPanel();
   const row = await latestCountRow(), withCounts = practices.filter(p => p.total_patients > 0).length, withCqc = practices.filter(p => p.cqc_location_id).length;
   renderUploads();

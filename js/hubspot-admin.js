@@ -152,7 +152,7 @@ async function renderHubspotPanel() {
   hsLogRender();
   const tc = $("hsp-timclear"); if (tc) tc.onclick = () => { hsTimings = []; try { localStorage.removeItem(HS_TIMING_KEY); } catch (e) {} renderHubspotPanel(); };
   $("hsp-missing").onclick = () => { showTab("practices"); $("f-hs").value = "missing"; applyFilters(); };
-  const bad = $("hsp-bad"); if (bad) bad.onclick = () => { hsLogFilter = "bad"; $("hsp-filter").value = "bad"; hsLogRender(); };
+  const bad = $("hsp-bad"); if (bad) bad.onclick = () => { hsLogFilter = "bad"; $("hsp-filter").value = "bad"; hsLogRender(); $("hsp-log").scrollIntoView({ behavior: "smooth", block: "center" }); $("hsp-log").classList.add("ring-2", "ring-amber-300"); setTimeout(() => $("hsp-log").classList.remove("ring-2", "ring-amber-300"), 2500); };
   $("hsp-filter").onchange = e => { hsLogFilter = e.target.value; hsLogRender(); };
   $("hsp-q").oninput = e => { hsLogQuery = e.target.value; hsLogRender(); };
   $("hsp-csv").onclick = () => downloadCsv("Lalu_HubSpot_Activity", ["Time", "Who", "Type", "Practice", "Record", "Summary", "OK"], hsLogRows().map(r => [r.at, r.actor, (HS_KINDS[r.kind] || [r.kind])[0], r.ods_code, r.target, r.summary, r.ok ? "yes" : "no"]));
