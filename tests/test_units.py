@@ -1164,6 +1164,14 @@ def test_lost_deals_give_each_contact_its_latest_closed_lost_reason():
     assert hsy.contact_state({}, 1, "now", None, lost["1"])["hs_lost_reason"] == "Selected Competitor" and hsy.contact_state({}, 1, "now")["hs_lost_kind"] is None
 
 
+def test_contacts_atlas_creates_in_hubspot_carry_source_and_legal_basis():
+    from datetime import datetime, timezone
+    from src import neverbounce as nb
+    p = nb.creation_props(today=datetime(2026, 11, 9, tzinfo=timezone.utc))
+    assert p["source_category"] == "Import" and p["um_source_detail_1"] == "Oscar AI" and p["um_source_detail_2"] == "Lalu Atlas Import: 2026-11-09" and p["um_lt_source_detail_2"] == p["um_source_detail_2"]
+    assert p["hs_marketable_status"] == "false" and p["hs_legal_basis"] == "Legitimate interest \u2013 prospect/lead"      # the exact HubSpot option value (en dash)
+
+
 def test_slack_channels_are_the_ones_the_bot_is_in_and_follow_changes():
     from src import slack
 

@@ -62,6 +62,13 @@ def queue_new(rest):
     return len(urns)
 
 
+def creation_props(detail1="Oscar AI", today=None):
+    """What every contact Atlas creates in HubSpot carries: where it came from, no marketing status, and a legal basis for processing. First and latest touch are the same, since Atlas is the first touch."""
+    d = f"Lalu Atlas Import: {(today or datetime.now(timezone.utc)).date().isoformat()}"
+    return {"source_category": "Import", "um_source_detail_1": detail1, "um_source_detail_2": d, "um_lt_source_category": "Import", "um_lt_source_detail_1": detail1, "um_lt_source_detail_2": d,
+            "hs_marketable_status": "false", "hs_legal_basis": "Legitimate interest \u2013 prospect/lead"}
+
+
 def hubspot_contact(hub, c, company_id, status):
     """Find or create the contact in HubSpot by email, record the NeverBounce status, and associate it with its practice's company. Returns (id, created)."""
     email = c["email"].strip().lower()
@@ -72,7 +79,7 @@ def hubspot_contact(hub, c, company_id, status):
         hub.call("PATCH", f"/crm/v3/objects/contacts/{cid}", json={"properties": props})
     else:
         props.update(email=email, firstname=c.get("first_name") or (c.get("full_name") or "").split(" ")[0] or None, lastname=c.get("last_name") or " ".join((c.get("full_name") or "").split(" ")[1:]) or None,
-                     jobtitle=c.get("job_title"), phone=c.get("phone"), job_role_standardised=standard_role(c.get("job_title")))
+                     jobtitle=c.get("job_title"), phone=c.get("phone"), job_role_standardised=standard_role(c.get("job_title")), **creation_props())
         cid, created = str(hub.call("POST", "/crm/v3/objects/contacts", json={"properties": {k: v for k, v in props.items() if v}})["id"]), True
     if company_id:
         hub.call("PUT", f"/crm/v4/objects/contacts/{cid}/associations/default/companies/{company_id}")
