@@ -68,7 +68,7 @@ function ctRow(r) {
 function ctList() {
   const rows = ctAll.filter(ctMatch).sort((a, b) => ctSortKey(a) - ctSortKey(b)), shown = rows.slice(0, ctShown), nF = ["section", "status", "reason", "role", "source", "dq"].filter(k => ctF[k]).length, dqOpts = [...new Set(ctAll.flatMap(r => ctReReasons(r.c)))].sort().map(v => [v, ctDqLabel(v)]);
   const roleOpts = CT_ROLES.map(r => [r[0], r[1]]), reasonOpts = CT_RULES.map(r => [r[0], r[1]]);
-  return `${ctTiles()}<div class="mt-3">${ctModeBar()}</div>
+  return `${ctTiles()}<div class="mt-3 flex flex-wrap items-center justify-between gap-2">${ctModeBar()}${ctMode === "reengage" ? `<button type="button" id="ct-make-aud" class="rounded-lg bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Create audience from ${rows.filter(r => r.ev.status === "eligible").length.toLocaleString()} eligible contacts</button>` : ""}</div>
     <div class="relative mt-3 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[220px] max-w-lg flex-1"><svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
         <input id="ct-q" type="search" value="${esc(ctF.q)}" placeholder="Search name, email, job title, practice, ODS code…" class="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm" aria-label="Search contacts"></div>
@@ -149,6 +149,7 @@ document.addEventListener("click", e => {
   const t = e.target;
   const o = t.closest("a.ct-open"); if (o) { e.preventDefault(); const p = byOds.get(o.dataset.ods); if (p) openDrawer(p); return; }   // opens the profile in the side drawer, so the page and your place stay put
 
+  if (t.closest("#ct-make-aud")) { ctMakeAudience(); return; }
   const md = t.closest(".ct-mode"); if (md) { ctMode = md.dataset.m; ctEvalAll(); renderContacts(); return; }
   const rs = t.closest(".ct-role-set"); if (rs) { ctRules.roles[rs.dataset.id] = rs.dataset.m; ctRulesChanged(); return; }
   if (t.closest("#ct-more-btn")) { ctMoreOpen = !ctMoreOpen; renderContacts(); return; }
@@ -166,3 +167,14 @@ document.addEventListener("click", e => {
     else if (confirm(`Delete the segment “${s.name}”?`)) { ctSegments = ctSegments.filter(x => x.id !== s.id); ctSaveSegments(); renderContacts(); }
   }
 });
+
+// Re-engagement > "Create audience from…": a custom audience (the existing Audiences feature) holding the eligible contacts now in view, so they can be approved and enrolled in a sequence there.
+// The audience keeps the contact ids; its practices are the ones those contacts belong to. Customers and held-back contacts are not included.
+function ctMakeAudience() {
+  const rows = ctAll.filter(ctMatch).filter(r => r.ev.status === "eligible" && r.c.hubspot_contact_id), ids = [...new Set(rows.map(r => String(r.c.hubspot_contact_id)))], ods = [...new Set(rows.map(r => r.c.ods_code).filter(Boolean))];
+  const why = ctF.dq && ctF.dq !== "any" ? ctDqLabel(ctF.dq.replace(/^lost:/, "")) : "all reasons";
+  if (!ids.length) { audModal("Create audience", '<p class="text-sm text-slate-600">No eligible contacts in HubSpot are showing. Clear the filters, or check Settings for which reasons are switched on.</p>', null); return; }
+  audModal("Create audience", `<label class="block text-xs font-semibold text-slate-600">Name<input type="text" id="aud-name" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value="${esc("Re-engagement: " + why + " " + new Date().toISOString().slice(0, 10))}" maxlength="80"></label>
+    <p class="mt-3 text-sm"><b>${ids.length.toLocaleString()}</b> eligible contact${ids.length === 1 ? "" : "s"} at <b>${ods.length.toLocaleString()}</b> practice${ods.length === 1 ? "" : "s"}.</p><p class="mt-1 text-xs text-slate-500">This is a snapshot of who is eligible now. Open it in Audiences to tick, approve and enrol them in a sequence; the usual checks (opt-out, bounce, customer) run again then.</p>`,
+    async () => { const name = $("aud-name").value.trim(); if (!name) throw new Error("Give the audience a name."); const a = await audCreate(name, { criteria: null, pinned: ods, contacts: ids, summary: "Re-engagement: " + why }); audDone(`Saved “${name}” with ${ids.length.toLocaleString()} contacts.`, a); $("aud-open-it").onclick = () => audOpenIt(a); }, "Create");
+}
