@@ -772,7 +772,7 @@ CONTACT_STATE_PROPS = ["lifecyclestage", "hs_sequences_is_enrolled", "hs_email_b
                        "hubspot_owner_id", "neverbounce_status"]   # 621322507 is the Marketing Information subscription
 
 
-def contact_state(props, urn, now):
+def contact_state(props, urn, now, dq=None):
     """One contact's HubSpot state in the columns of public.contacts (see migration 63). Blank means HubSpot has no value."""
     def flag(k):
         v = str(props.get(k) or "").strip().lower()
@@ -784,14 +784,41 @@ def contact_state(props, urn, now):
     return {"contact_urn": urn, "hs_lifecycle": props.get("lifecyclestage") or None, "hs_in_sequence": flag("hs_sequences_is_enrolled"), "hs_bounced": bounces >= 1,
             "hs_bounce_reason": props.get("hs_email_hard_bounce_reason_enum") or None, "hs_last_sent": props.get("hs_email_last_send_date") or None,
             "hs_mkt_optout": flag("hs_email_optout_621322507"), "hs_optout_all": flag("hs_email_optout"), "hs_owner": props.get("hubspot_owner_id") or None,
-            "hs_neverbounce": props.get("neverbounce_status") or None, "hs_state_at": now}
+            "hs_neverbounce": props.get("neverbounce_status") or None, "hs_state_at": now,
+            "hs_dq_reason": (dq or {}).get("reason"), "hs_dq_note": (dq or {}).get("note"), "hs_dq_at": (dq or {}).get("at"), "hs_reengage_date": (dq or {}).get("reengage")}
+
+
+LEAD_DQ_PROPS = ["hs_lead_disqualification_reason", "hs_lead_disqualification_note", "disqualified_lead_reengagement_date", "hs_lastmodifieddate"]
+
+
+def disqualified_leads(hub, contact_ids):
+    """{contact id: {reason, note, at, reengage}} from each contact's most recently changed lead that carries a Disqualification Reason (a Lead property, not a Contact one)."""
+    links = {}
+    for ch in chunks(sorted(set(contact_ids)), 1000):
+        d = hub.call("POST", "/crm/v4/associations/contacts/leads/batch/read", json={"inputs": [{"id": i} for i in ch]})
+        for r in d.get("results", []):
+            links[str(r["from"]["id"])] = [str(t["toObjectId"]) for t in r.get("to", [])]
+    leads = read_objects(hub, "leads", [i for v in links.values() for i in v], LEAD_DQ_PROPS)
+    out = {}
+    for cid, lids in links.items():
+        best = sorted(((leads[i].get("hs_lastmodifieddate") or "", leads[i]) for i in lids if i in leads and leads[i].get("hs_lead_disqualification_reason")), key=lambda x: x[0], reverse=True)
+        if best:
+            at, lead = best[0]
+            out[cid] = {"reason": lead.get("hs_lead_disqualification_reason"), "note": (lead.get("hs_lead_disqualification_note") or "")[:300] or None, "at": at or None,
+                        "reengage": _date(lead.get("disqualified_lead_reengagement_date"))}
+    return out
 
 
 def sync_contact_state(rest, hub, now):
     """Copy what HubSpot knows about each of Atlas's HubSpot-linked contacts (lifecycle, sequence, bounce, unsubscribe, owner, NeverBounce) onto the contact, in batches of 100 reads."""
     mine = [r for r in rest.select_all("contacts", "contact_urn,hubspot_contact_id", order="contact_urn", params={"hubspot_contact_id": "not.is.null"}) if r.get("hubspot_contact_id")]
     props = read_objects(hub, "contacts", [r["hubspot_contact_id"] for r in mine], CONTACT_STATE_PROPS)
-    rows = [contact_state(props[str(r["hubspot_contact_id"])], r["contact_urn"], now) for r in mine if str(r["hubspot_contact_id"]) in props]
+    try:   # disqualified leads for the Re-engagement view; a failure (for example a missing lead scope) must not stop the rest
+        dq = disqualified_leads(hub, [r["hubspot_contact_id"] for r in mine])
+    except Exception as e:  # noqa: BLE001
+        dq = {}
+        print("Disqualified leads skipped:", e)
+    rows = [contact_state(props[str(r["hubspot_contact_id"])], r["contact_urn"], now, dq.get(str(r["hubspot_contact_id"]))) for r in mine if str(r["hubspot_contact_id"]) in props]
     done = 0
     for ch in chunks(rows, 1000):
         done += int(rest.rpc("apply_contact_state", {"items": ch}) or 0)

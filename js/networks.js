@@ -56,24 +56,27 @@ function openNetworkProfile(n) {
       <td class="text-right font-mono">${p.base_price != null ? "£" + rate3(Number(p.base_price)) : "–"}</td>
       <td class="text-right font-mono">${gbpFull(p.est_arr)}</td>
       <td class="text-right font-mono text-slate-500">${gbpFull(p.est_arr_sar)}</td>
-      <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net) : "–"}</td></tr>` +
-      (sitesOf(p).length ? `<tr class="np-sub hidden bg-slate-50" data-sub="${esc(p.ods_code)}"><td colspan="7" class="pl-4 pr-2 pb-1.5"><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 pt-1">Branch sites of ${esc(p.practice_name)} <span class="normal-case font-normal">(list size, price and HubSpot sit on the practice)</span></div>${sitesOf(p).map(siteDetails).join("")}</td></tr>` : ""); }).join("");
-  const hdr = ["Practice", "Patients", "Tier", "£/pt/mo singly", "ARR singly", "SAR-only singly", "ARR in network"].map((h, i) => `<th class="${i === 0 ? "text-left" : i === 2 ? "text-left px-2" : "text-right"} font-medium">${h}</th>`).join("");
+      <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net) : "–"}</td>
+      <td class="text-right font-mono text-emerald-700">${net != null && p.total_patients > 0 ? gbpFull(net / 12) : "–"}</td></tr>` +
+      (sitesOf(p).length ? `<tr class="np-sub hidden bg-slate-50" data-sub="${esc(p.ods_code)}"><td colspan="8" class="pl-4 pr-2 pb-1.5"><div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 pt-1">Branch sites of ${esc(p.practice_name)} <span class="normal-case font-normal">(list size, price and HubSpot sit on the practice)</span></div>${sitesOf(p).map(siteDetails).join("")}</td></tr>` : ""); }).join("");
+  const sized = members.filter(p => p.total_patients > 0), totPts = sized.reduce((t, p) => t + p.total_patients, 0), totArr = base != null ? totPts * base * 12 : null;   // each practice at the network rate on its own list size; the totals are what a group deal covers
+  const totalsRow = `<tfoot><tr class="border-t-2 border-slate-300 font-semibold"><td class="py-1.5 pr-2">Total (${sized.length} practice${sized.length === 1 ? "" : "s"} with a list size)</td><td class="text-right font-mono">${totPts.toLocaleString()}</td><td></td><td></td><td class="text-right font-mono">${gbpFull(sized.reduce((t, p) => t + (Number(p.est_arr) || 0), 0))}</td><td></td><td class="text-right font-mono text-emerald-700">${totArr != null ? gbpFull(totArr) : "–"}</td><td class="text-right font-mono text-emerald-700">${totArr != null ? gbpFull(totArr / 12) : "–"}</td></tr></tfoot>`;
+  const hdr = ["Practice", "Patients", "Tier", "£/pt/mo singly", "ARR singly", "SAR-only singly", "ARR in network", "MRR in network"].map((h, i) => `<th class="${i === 0 ? "text-left" : i === 2 ? "text-left px-2" : "text-right"} font-medium">${h}</th>`).join("");
   const parts = netLinkedParts(n, members), linkedHtml = netLinkedHtml(parts);
   $("dr-body").innerHTML =
     `<div class="grid grid-cols-4 gap-2 text-center">${[["Practices", n.practices, siteCount ? "+" + siteCount.toLocaleString() + " branch site" + (siteCount > 1 ? "s" : "") : ""], ["Patients", Number(n.patients || 0).toLocaleString()], ["Engaged", n.engaged + " of " + n.practices], ["Customers", n.customers]]
       .map(([k, v, small]) => `<div class="rounded-lg bg-slate-50 py-2"><div class="text-base font-bold">${v}</div><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div>${small ? `<div class="text-[11px] text-sky-800">${small}</div>` : ""}</div>`).join("")}</div>` +
     linkedHtml +
     sec("HubSpot", '<div id="dr-hsnet" class="text-sm text-slate-500">Checking HubSpot…</div>') +
-    sec("Pricing: " + KIND + " route", price) +
-    `<details open class="group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Linked practices: price singly vs in the network</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${members.length}</span></summary><div class="overflow-x-auto mt-1"><table class="w-full text-xs"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr>${hdr}</tr></thead><tbody>${rows}</tbody></table></div></details>` +
+    sec("Pricing: " + KIND + " route", price + '<div id="np-dealcheck"></div>') +
+    `<details open class="group border-t border-slate-100 pt-3"><summary class="flex items-center gap-2 cursor-pointer list-none select-none"><svg class="w-3 h-3 text-slate-400 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6z"/></svg><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Linked practices: price singly vs in the network</h4><span class="text-[11px] font-semibold bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">${members.length}</span></summary><div class="overflow-x-auto mt-1"><table class="w-full text-xs"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr>${hdr}</tr></thead><tbody>${rows}</tbody>${totalsRow}</table></div></details>` +
     sec("Signals and hiring", (() => {   // the practice profile's tiles, for every practice in the network
       const codes = new Set(members.map(p => p.ods_code));
       return sigTiles(signals.filter(x => (x.ods_code && codes.has(x.ods_code)) || x.org_id === n.id).slice(0, 8), jobAdverts.filter(j => codes.has(j.ods_code)).sort((a, b) => (b.post_date || "").localeCompare(a.post_date || "")).slice(0, 8));
     })()) +
     `<button id="np-view" class="w-full bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;
-  hsNetworkSection(n, parts);
+  hsNetworkSection(n, parts); netDealCheck(n, totPts, totArr);
   $("dr-body").onclick = ev => { const tg = ev.target.closest(".np-sites"); if (tg) { const sub = $("dr-body").querySelector(`tr.np-sub[data-sub="${tg.dataset.for}"]`), open = sub.classList.toggle("hidden") === false; tg.setAttribute("aria-expanded", open); tg.textContent = (open ? "▾ " : "▸ ") + tg.textContent.slice(2); return; }
     const lk = ev.target.closest(".np-link"); if (lk) { const x = networks.find(y => y.kind === lk.dataset.nk && keyOf(y) === lk.dataset.nkey); if (x) openNetworkProfile(x); return; }
     const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
@@ -178,4 +181,20 @@ function renderRevenue() {
     ...["engaged", "imported", "company", "none"].map(st => [st, HS_LABEL[st], HS_CLS[st], act.filter(p => hsState(p) === st), est, () => "estimated"])];
   $("rev-pipeline").innerHTML = tiles.map(([, label, cls, m, val, subf]) =>
     `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(label, cls)}</div><div class="text-xl font-bold mt-1">${gbp(sum(m, val))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices · ${subf(m)}</div></div>`).join("");
+}
+
+// A group, federation or PCN deal in HubSpot against what Atlas works out: practices priced at the network rate on their own list sizes, added up. Contracted size and MRR should match the deal.
+async function netDealCheck(n, totPts, totArr) {
+  const box = $("np-dealcheck"); if (!box || totArr == null) return;
+  try {
+    const { data: dl } = await db.from("hubspot_network_deals").select("deal_id,deal_name,company_id").eq("org_id", n.id).order("created_at", { ascending: false }).limit(1);
+    if (!dl || !dl[0] || !dl[0].company_id) { box.innerHTML = ""; return; }
+    const r = await hsCall({ action: "read", companyId: String(dl[0].company_id), dealId: String(dl[0].deal_id) }), d = r.deal || {}, size = Number(d.contracted_patient_list_size) || null, mrr = Number(d.amount) / 12 || null, rate = Number(d.actual_value_per_patient_calculated) || null;
+    if (!document.body.contains(box)) return;
+    const near = (a, b, tol = 0.01) => a != null && b != null && Math.abs(a - b) <= Math.max(1, Math.abs(b) * tol), row = (label, hsV, atV, ok) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${label}</td><td class="px-2 text-right font-mono">${hsV}</td><td class="px-2 text-right font-mono">${atV}</td><td class="pl-2">${ok == null ? "" : ok ? '<span class="text-emerald-700">matches</span>' : '<span class="font-semibold text-amber-700">differs</span>'}</td></tr>`;
+    box.innerHTML = `<div class="mt-3 rounded-lg border border-slate-200 p-3 text-sm"><div class="font-semibold">Deal in HubSpot: ${hsLink("0-3", dl[0].deal_id, esc(d.dealname || dl[0].deal_name || "open deal"))}</div>
+      <table class="mt-1 w-full text-xs"><thead class="text-slate-500"><tr><th class="text-left font-medium">Figure</th><th class="px-2 text-right font-medium">HubSpot</th><th class="px-2 text-right font-medium">Atlas</th><th></th></tr></thead><tbody>
+      ${row("Contracted list size", size ? size.toLocaleString() : "not set", totPts.toLocaleString(), size ? near(size, totPts, 0.005) : false)}${row("MRR", mrr ? gbpFull(mrr) : "no amount", gbpFull(totArr / 12), mrr ? near(mrr, totArr / 12) : false)}${row("Net price per patient", rate ? "£" + rate3(rate) : "not calculated", totPts ? "£" + rate3(totArr / 12 / totPts) : "–", rate && totPts ? near(rate, totArr / 12 / totPts, 0.02) : null)}</tbody></table>
+      <p class="mt-1 text-xs text-slate-500">Atlas prices each practice at the network rate on its own list size and adds them up, so the deal's contracted size and MRR should equal the totals in the practice table below.</p></div>`;
+  } catch (e) { box.innerHTML = ""; }
 }

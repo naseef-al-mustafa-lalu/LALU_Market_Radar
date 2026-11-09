@@ -633,5 +633,11 @@ with sync_playwright() as p:
     pg.click("#bk-close")
     nd = pg.evaluate("""(() => { const was = hsNetDeals; for (const p of practices) { if (!p.pcn_code) continue; const n = networks.find(x => x.kind === 'pcn' && keyOf(x) === p.pcn_code); if (!n) continue; hsNetDeals = [{ org_id: n.id, deal_id: '9', deal_name: 'PCN deal' }]; const r = hsNetworkDeal(p); hsNetDeals = was; return r && [r.deal_id, r.network === n.name]; } return 'no pcn'; })()""")
     assert nd == ["9", True] or nd == "no pcn", nd      # a practice in a network that has a deal says it is covered, instead of "no deal linked"
+    pg.evaluate("showTab('networks'); openNetworkProfile(networks.find(n => n.network_tier && n.practices > 1) || networks[0])"); pg.wait_for_selector("#dr-body tfoot"); gt = pg.inner_text("#dr-body")
+    assert "MRR in network" in gt.replace("\n", " ") or "MRR IN NETWORK" in gt, gt[:200]; assert "Total (" in gt      # a network's practices are priced at the network rate on their own list sizes, with totals that a group deal should equal
+    pg.keyboard.press("Escape")
+    pg.evaluate("showTab('contacts'); setCtSub('contacts'); ctMode = 'reengage'; ctRows[0].hs_dq_reason = 'Bad timing'; ctRows[0].hs_dq_note = 'Ask again in Q1'; ctEvalAll(); renderContacts()"); pg.wait_for_function("document.querySelector('#ct-body').innerText.toLowerCase().includes('disqualified because')")
+    assert "Bad timing" in pg.inner_text("#ct-body") and "Ask again in Q1" in pg.inner_text("#ct-body")      # the Re-engagement view shows why a lead was disqualified (the Lead property Disqualification Reason)
+    pg.evaluate("ctMode = 'standard'; renderContacts()")
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

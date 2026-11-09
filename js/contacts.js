@@ -1,8 +1,8 @@
 /* Contacts tab: every contact Atlas holds, who may be contacted and why not, saved segments, the HubSpot export import, and the settings that switch job roles and suppression rules on and off.
    The rules live in contact-rules.js. Loaded after contact-rules.js. Contacts are read from public.contacts; their HubSpot state (lifecycle, sequence, bounce...) is kept there by the daily HubSpot sync. */
 let ctAll = [], ctLoaded = false, ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctLocked = new Map(), ctHeld = null, ctSaving = false;
-let ctMoreOpen = false, ctF = { q: "", section: "", status: "", role: "", source: "", reason: "" };
-const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,held_reason,nb_state,nb_result,nb_checked_at,nb_approved_by";
+let ctMoreOpen = false, ctF = { dq: "", q: "", section: "", status: "", role: "", source: "", reason: "" };
+const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,held_reason,nb_state,nb_result,nb_checked_at,nb_approved_by,hs_dq_reason,hs_dq_note,hs_dq_at,hs_reengage_date";
 const CT_STATUS = { eligible: ["Eligible", "bg-emerald-100 text-emerald-800"], suppressed: ["Held back", "bg-amber-100 text-amber-800"], excluded: ["Not used", "bg-slate-100 text-slate-600"] };
 const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other", "bg-sky-100 text-sky-800"] };
 
@@ -32,10 +32,10 @@ $("ct-sub").querySelectorAll("button").forEach(b => b.onclick = () => setCtSub(b
 
 const ctMatch = r => {
   const { c, p, ev } = r, f = ctF, q = f.q.trim().toLowerCase();
-  return (!f.section || ev.section === f.section) && (!f.status || ev.status === f.status) && (!f.role || ev.role.id === f.role) && (!f.source || (c.source || "oscar") === f.source) && (!f.reason || ev.reasons.includes(f.reason))
+  return (!f.section || ev.section === f.section) && (!f.status || ev.status === f.status) && (!f.role || ev.role.id === f.role) && (!f.source || (c.source || "oscar") === f.source) && (!f.reason || ev.reasons.includes(f.reason)) && (!f.dq || (f.dq === "any" ? !!c.hs_dq_reason : c.hs_dq_reason === f.dq))
     && (!q || [ev.name, c.email, c.job_title, c.title, c.ods_code, p && p.practice_name, p && p.postcode].some(v => (v || "").toLowerCase().includes(q)));
 };
-const ctSortKey = r => (r.ev.status === "eligible" ? 0 : r.ev.status === "suppressed" ? 1 : 2) + (r.ev.section === "main" ? 0 : 0.5);
+const ctSortKey = r => (ctMode === "reengage" && r.c.hs_dq_reason ? -1 : 0) + (r.ev.status === "eligible" ? 0 : r.ev.status === "suppressed" ? 1 : 2) + (r.ev.section === "main" ? 0 : 0.5);
 const ctChip = ([l, cls], tip = "") => chip(l, cls, tip);
 const ctOptions = (items, cur, all) => `<option value="">${all}</option>` + items.map(([v, l]) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(l)}</option>`).join("");
 
@@ -57,10 +57,10 @@ function ctRow(r) {
     <td class="px-2">${p ? `<a href="#" class="ct-open text-lalu-teal-700 hover:underline" data-ods="${esc(p.ods_code)}">${esc(p.practice_name)}</a>` : esc(c.ods_code || "")}<div class="font-mono text-xs text-slate-500">${esc(c.ods_code || "")}</div></td>
     <td class="px-2">${sec ? ctChip(sec) : '<span class="text-slate-300">–</span>'}</td>
     <td class="px-2">${ctChip(st, why)} ${ctBadges(c)}${why ? `<div class="mt-0.5 max-w-[16rem] text-xs text-slate-500">${esc(why)}</div>` : ""}</td>
-    <td class="px-2 text-xs text-slate-600">${c.hs_lifecycle ? esc(CT_LIFECYCLE[c.hs_lifecycle] || c.hs_lifecycle) : '<span class="text-slate-300">not in HubSpot</span>'}</td></tr>`;
+    <td class="px-2 text-xs text-slate-600">${c.hs_lifecycle ? esc(CT_LIFECYCLE[c.hs_lifecycle] || c.hs_lifecycle) : '<span class="text-slate-300">not in HubSpot</span>'}</td>${ctMode === "reengage" ? `<td class="px-2 text-xs">${c.hs_dq_reason ? `${chip(c.hs_dq_reason, "bg-rose-100 text-rose-800", c.hs_dq_note || "")}${c.hs_reengage_date ? `<div class="mt-0.5 text-slate-500">asked to hear again ${esc(fmtDate(c.hs_reengage_date))}</div>` : ""}${c.hs_dq_note ? `<div class="mt-0.5 max-w-[14rem] text-slate-500">${esc(c.hs_dq_note)}</div>` : ""}` : '<span class="text-slate-300">–</span>'}</td>` : ""}</tr>`;
 }
 function ctList() {
-  const rows = ctAll.filter(ctMatch).sort((a, b) => ctSortKey(a) - ctSortKey(b)), shown = rows.slice(0, ctShown), nF = ["section", "status", "reason", "role", "source"].filter(k => ctF[k]).length;
+  const rows = ctAll.filter(ctMatch).sort((a, b) => ctSortKey(a) - ctSortKey(b)), shown = rows.slice(0, ctShown), nF = ["section", "status", "reason", "role", "source", "dq"].filter(k => ctF[k]).length, dqOpts = [...new Set(ctAll.map(r => r.c.hs_dq_reason).filter(Boolean))].sort().map(v => [v, v]);
   const roleOpts = CT_ROLES.map(r => [r[0], r[1]]), reasonOpts = CT_RULES.map(r => [r[0], r[1]]);
   return `${ctTiles()}<div class="mt-3">${ctModeBar()}</div>
     <div class="relative mt-3 flex flex-wrap items-center gap-2">
@@ -70,9 +70,9 @@ function ctList() {
       <span class="ml-auto flex items-center gap-3"><span id="ct-count" class="text-sm text-slate-500">${rows.length.toLocaleString()} contact${rows.length === 1 ? "" : "s"} · ${rows.filter(r => r.ev.status === "eligible").length.toLocaleString()} eligible</span>
         <button id="ct-seg-save" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50">Save as segment</button><button id="ct-csv" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Export eligible</button></span>
       <div id="ct-more" class="${ctMoreOpen ? "" : "hidden"} absolute left-0 top-full z-20 mt-2 w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-4 shadow-xl" role="region" aria-label="Filters"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        ${[["ct-section", "Section", ctOptions([["main", "Main"], ["other", "Other"]], ctF.section, "Any section")], ["ct-status", "Status", ctOptions([["eligible", "Eligible"], ["suppressed", "Held back"], ["excluded", "Not used"]], ctF.status, "Any status")], ["ct-reason", "Held back by", ctOptions(reasonOpts, ctF.reason, "Any rule")], ["ct-role", "Job role", ctOptions(roleOpts, ctF.role, "Any job role")], ["ct-source", "Source", ctOptions([["oscar", "Oscar"], ["hubspot", "HubSpot"]], ctF.source, "Any source")]].map(([id, l, o]) => `<label class="block text-xs font-semibold text-slate-600">${l}<span class="mt-1 block"><select id="${id}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm">${o}</select></span></label>`).join("")}</div>
+        ${[["ct-section", "Section", ctOptions([["main", "Main"], ["other", "Other"]], ctF.section, "Any section")], ["ct-status", "Status", ctOptions([["eligible", "Eligible"], ["suppressed", "Held back"], ["excluded", "Not used"]], ctF.status, "Any status")], ["ct-reason", "Held back by", ctOptions(reasonOpts, ctF.reason, "Any rule")], ["ct-role", "Job role", ctOptions(roleOpts, ctF.role, "Any job role")], ["ct-source", "Source", ctOptions([["oscar", "Oscar"], ["hubspot", "HubSpot"]], ctF.source, "Any source")], ...(ctMode === "reengage" ? [["ct-dq", "Disqualification reason", ctOptions([["any", "Any disqualified lead"], ...dqOpts], ctF.dq, "Any contact")]] : [])].map(([id, l, o]) => `<label class="block text-xs font-semibold text-slate-600">${l}<span class="mt-1 block"><select id="${id}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm">${o}</select></span></label>`).join("")}</div>
         <div class="mt-3 text-right"><button id="ct-clear" type="button" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Clear filters</button></div></div></div>
-    <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-2 py-2">Contact</th><th class="px-2">Job title</th><th class="px-2">Practice</th><th class="px-2">Section</th><th class="px-2">Status</th><th class="px-2">Lifecycle</th></tr></thead>
+    <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-2 py-2">Contact</th><th class="px-2">Job title</th><th class="px-2">Practice</th><th class="px-2">Section</th><th class="px-2">Status</th><th class="px-2">Lifecycle</th>${ctMode === "reengage" ? '<th class="px-2">Disqualified because</th>' : ""}</tr></thead>
       <tbody>${shown.map(ctRow).join("") || '<tr><td colspan="6" class="p-6 text-center text-sm italic text-slate-500">No contact matches.</td></tr>'}</tbody></table></div>
     ${rows.length > shown.length ? `<div class="pt-3 text-center"><button class="ct-more rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(rows.length - shown.length).toLocaleString()} more)</button></div>` : ""}`;
 }
@@ -131,7 +131,7 @@ function ctCsv(rows, name) {
 }
 document.addEventListener("input", e => { if (e.target.id === "ct-q") { ctF.q = e.target.value; ctRefilter(); } });
 document.addEventListener("change", e => {
-  const id = e.target.id, m = { "ct-section": "section", "ct-status": "status", "ct-reason": "reason", "ct-role": "role", "ct-source": "source" }[id];
+  const id = e.target.id, m = { "ct-section": "section", "ct-status": "status", "ct-reason": "reason", "ct-role": "role", "ct-source": "source", "ct-dq": "dq" }[id];
   if (m) { ctF[m] = e.target.value; ctRefilter(); return; }
   if (e.target.id === "ct-owners") { ctRules.owners = e.target.value.split(/[\s,;]+/).filter(Boolean); ctRulesChanged(); return; }
   if (e.target.classList.contains("ct-rule-set")) { const k = e.target.dataset.id; if (k === "likely") ctRules.likely = e.target.checked; else if (k === "strictValid") ctRules.strictValid = e.target.checked; else ctRules.suppression[k] = e.target.checked; ctRulesChanged(); }
@@ -143,7 +143,7 @@ document.addEventListener("click", e => {
   const md = t.closest(".ct-mode"); if (md) { ctMode = md.dataset.m; ctEvalAll(); renderContacts(); return; }
   const rs = t.closest(".ct-role-set"); if (rs) { ctRules.roles[rs.dataset.id] = rs.dataset.m; ctRulesChanged(); return; }
   if (t.closest("#ct-more-btn")) { ctMoreOpen = !ctMoreOpen; renderContacts(); return; }
-  if (t.closest("#ct-clear")) { ctF = { ...ctF, section: "", status: "", reason: "", role: "", source: "" }; renderContacts(); return; }
+  if (t.closest("#ct-clear")) { ctF = { ...ctF, section: "", status: "", reason: "", role: "", source: "", dq: "" }; renderContacts(); return; }
   if (ctMoreOpen && !t.closest("#ct-more")) { ctMoreOpen = false; renderContacts(); }
   if (t.closest("#ct-save")) { ctSave(); return; }
   if (t.closest("#ct-reset")) { if (confirm("Reset job roles and suppression rules to the defaults?")) { ctSetRules(null); ctRulesChanged(); } return; }

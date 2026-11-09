@@ -1123,3 +1123,20 @@ def test_hubspot_contacts_missing_from_atlas_are_stored_with_graded_addresses():
     assert hsy.import_hubspot_contacts(r, by_ods, to_contacts, contacts, {"3"}) == 2 and {x["hubspot_contact_id"] for x in r.rows} == {"1", "2"}      # known ids and empty records are skipped
     sam = [x for x in r.rows if x["hubspot_contact_id"] == "1"][0]
     assert sam["source"] == "hubspot" and sam["ods_code"] == "A1" and sam["email"] == "sam.hoes@nhs.net" and sam["email_quality"] == "direct" and sam["role_tier"] == "A" and sam["hubspot_status"] == "Imported"
+
+
+def test_disqualified_leads_give_each_contact_its_latest_reason():
+    from src import hubspot_sync as hsy
+
+    class Hub:
+        def call(self, method, path, **kw):
+            if path.endswith("/contacts/leads/batch/read"): return {"results": [{"from": {"id": "1"}, "to": [{"toObjectId": "10"}, {"toObjectId": "11"}]}, {"from": {"id": "2"}, "to": [{"toObjectId": "12"}]}]}
+            if path.endswith("/leads/batch/read"):
+                return {"results": [{"id": "10", "properties": {"hs_lead_disqualification_reason": "Bad timing", "hs_lastmodifieddate": "2026-10-01T00:00:00Z", "disqualified_lead_reengagement_date": "2027-01-15"}},
+                                    {"id": "11", "properties": {"hs_lead_disqualification_reason": "No budget", "hs_lead_disqualification_note": "Next year", "hs_lastmodifieddate": "2026-11-01T00:00:00Z"}},
+                                    {"id": "12", "properties": {"hs_lastmodifieddate": "2026-11-02T00:00:00Z"}}]}
+            raise AssertionError(path)
+    dq = hsy.disqualified_leads(Hub(), ["1", "2"])
+    assert dq == {"1": {"reason": "No budget", "note": "Next year", "at": "2026-11-01T00:00:00Z", "reengage": None}}      # the newest disqualified lead wins; a contact whose lead has no reason is left out
+    st = hsy.contact_state({"lifecyclestage": "lead"}, 5, "now", dq["1"])
+    assert st["hs_dq_reason"] == "No budget" and st["hs_dq_note"] == "Next year" and hsy.contact_state({}, 6, "now")["hs_dq_reason"] is None
