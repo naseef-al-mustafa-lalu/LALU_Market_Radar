@@ -65,13 +65,15 @@ function mergeSection(p) {
     if (s) card = `<div class="rounded-xl border border-amber-200 bg-amber-50 p-3"><div class="font-semibold text-amber-900">Probably merged into <a href="#" data-open="${esc(s.into_code)}" class="underline">${esc(s.into_name)}</a></div>
         <p class="text-xs text-amber-900/80 mt-0.5">Same postcode, ${Number(s.into_patients).toLocaleString()} patients. ${chip(CONF[s.confidence][0], CONF[s.confidence][1])} ${ev}</p>
         ${s.n_candidates > 1 || p.cqc_status === "Deregistered" ? '<p class="text-xs text-amber-900/80 mt-1">It could also simply have closed: a shared building does not prove a merger.</p>' : ""}
-        <div class="mt-2 flex flex-wrap gap-2">${mgBtn("confirm", p.ods_code, "Confirm merger", BTN_PRIMARY, `data-into="${esc(s.into_code)}"`)}${mgBtn("close", p.ods_code, "It closed", BTN_DARK)}${mgBtn("dismiss", p.ods_code, "Neither", BTN_GHOST)}</div></div>`;
+        <div class="mt-2 flex flex-wrap gap-2">${mgBtn("confirm", p.ods_code, "Confirm merger", BTN_PRIMARY, `data-into="${esc(s.into_code)}"`)}${mgBtn("reverse", p.ods_code, "Other way round", BTN_GHOST, `data-into="${esc(s.into_code)}" title="${esc(s.into_name)} merged into this practice instead"`)}${mgBtn("close", p.ods_code, "It closed", BTN_DARK)}${mgBtn("dismiss", p.ods_code, "Neither", BTN_GHOST)}</div></div>`;
     else if (cand) card = `<div class="rounded-xl border border-rose-200 bg-rose-50 p-3"><div class="font-semibold text-rose-900">Probably closed</div>
         <p class="text-xs text-rose-900/80 mt-0.5">${ev} No NHS list size, and nothing at its postcode looks like it absorbed it.</p>
         <div class="mt-2 flex flex-wrap gap-2">${mgBtn("close", p.ods_code, "Confirm closed", BTN_DARK)}${mgBtn("dismiss", p.ods_code, "Not closed", BTN_GHOST)}</div></div>`;
     else card = `<div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">${esc(noSizeReason(p))}${p.merge_dismissed ? `<div class="mt-1 text-xs text-slate-500">You reviewed this and chose neither. ${mgBtn("restore", p.ods_code, "Review again", "text-lalu-teal-700 hover:underline px-0")}</div>` : ""}
         <div class="mt-2">${mgBtn("close", p.ods_code, "Mark as closed", BTN_GHOST)}</div></div>`;
     card += mergePicker(p);
+  } else if (p.status === "Active" && !isClosed(p)) {
+    card = mergePicker(p);   // a practice with a list can still have merged into another (or have absorbed one): record it from here
   }
   return card ? sec("Status", card + '<p id="mg-msg" class="text-xs text-rose-600 mt-1 min-h-[1rem]" role="status"></p>') : "";
 }
@@ -92,6 +94,7 @@ $("dr-body").addEventListener("input", e => {
 async function decide(act, ods, btn) {
   if (act === "confirm") return setMerge(ods, btn.dataset.into, null);
   if (act === "pick-save") { const det = btn.closest("details"); return setMerge(ods, det.dataset.into, det.querySelector("[data-mg-note]").value); }
+  if (act === "reverse") return setMerge(btn.dataset.into, ods, "Recorded the other way round: " + ods + " is the surviving practice");   // the suggestion had the direction wrong
   if (act === "undo") return setMerge(ods, null, null);
   if (act === "close") return setClosed(ods, true, null);
   if (act === "unclose") return setClosed(ods, false, null);
