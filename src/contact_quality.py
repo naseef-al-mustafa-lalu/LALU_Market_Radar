@@ -28,7 +28,9 @@ def email_quality(email, first="", last=""):
     f, l, ll = _letters(first), _letters(last), _letters(re.sub(r"\d+", "", loc))
     if ll == "test":
         return "reject", "test address"
-    f_in, l_in = bool(f) and len(f) > 1 and f in ll, bool(l) and len(l) > 2 and l in ll
+    parts = [_letters(x) for x in re.split(r"[\s\-]+", last or "")]
+    f_in = bool(f) and len(f) > 1 and (f in ll or (len(f) >= 4 and len(ll) >= 3 and ll[:3] == f[:3]))      # a short form counts: sam@ for Samantha
+    l_in = bool(l) and any(len(x) > 2 and x in ll for x in parts + [l])                                      # any part of a double-barrelled surname: hoes@ for Hoes-Mole
     if (f_in and l_in) or (f and l and ll.startswith(f[0]) and l in ll):
         return "direct", "name in address"
     if ODS_IN_ADDRESS.search(loc) or GEN_START.match(loc) or GEN_ANY.search(re.sub(r"\d+", "", loc)):

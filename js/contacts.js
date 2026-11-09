@@ -2,7 +2,7 @@
    The rules live in contact-rules.js. Loaded after contact-rules.js. Contacts are read from public.contacts; their HubSpot state (lifecycle, sequence, bounce...) is kept there by the daily HubSpot sync. */
 let ctAll = [], ctLoaded = false, ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctLocked = new Map(), ctHeld = null, ctSaving = false;
 let ctMoreOpen = false, ctF = { q: "", section: "", status: "", role: "", source: "", reason: "" };
-const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,held_reason";
+const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,held_reason,nb_state,nb_result,nb_checked_at,nb_approved_by";
 const CT_STATUS = { eligible: ["Eligible", "bg-emerald-100 text-emerald-800"], suppressed: ["Held back", "bg-amber-100 text-amber-800"], excluded: ["Not used", "bg-slate-100 text-slate-600"] };
 const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other", "bg-sky-100 text-sky-800"] };
 
@@ -17,7 +17,7 @@ async function loadContacts(force) {
     const names = new Map((au.data || []).map(a => [a.id, a.name]));
     ctLocked = new Map((am.data || []).filter(m => AUD_LOCKS.includes(m.state) && m.contact_id).map(m => [String(m.contact_id), names.get(m.audience_id) || "an audience"]));
     ctHeld = ((run.data || [])[0] || {}).stats || null;
-    ctRows = rows; ctLoaded = true; ctDirty = false; ctEvalAll(); renderContacts();
+    await ctLoadExtra(); ctRows = rows; ctLoaded = true; ctDirty = false; ctEvalAll(); renderContacts();
   } catch (e) { $("ct-body").innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load contacts: ${esc(e.message || e)}</p>`; }
 }
 let ctRows = [];
@@ -77,18 +77,6 @@ function ctList() {
     ${rows.length > shown.length ? `<div class="pt-3 text-center"><button class="ct-more rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(rows.length - shown.length).toLocaleString()} more)</button></div>` : ""}`;
 }
 
-/* ---------- Review: what a person could still decide ---------- */
-function ctReview() {
-  const bucket = (title, note, rows) => `<div class="rounded-xl border border-slate-200 bg-white p-4"><div class="flex items-baseline justify-between gap-3"><h3 class="font-bold">${title}</h3><span class="text-sm text-slate-500">${rows.length.toLocaleString()}</span></div><p class="mt-0.5 text-xs text-slate-500">${note}</p>
-    <div class="mt-2 divide-y divide-slate-100 text-sm">${rows.slice(0, 15).map(r => `<div class="flex flex-wrap items-baseline justify-between gap-2 py-1.5"><div><span class="font-medium">${esc(r.ev.name || "(no name)")}</span> <span class="text-xs text-slate-500">${esc(r.c.job_title || r.c.title || "no job title")} · ${esc(r.c.email || "")}</span></div>
-      <a href="#" class="ct-open text-xs text-lalu-teal-700 hover:underline" data-ods="${esc(r.c.ods_code)}">${esc((r.p && r.p.practice_name) || r.c.ods_code)}</a></div>`).join("") || '<p class="py-2 text-xs italic text-slate-500">Nothing to look at.</p>'}</div>${rows.length > 15 ? `<p class="mt-1 text-xs text-slate-500">…and ${(rows.length - 15).toLocaleString()} more. Use the filters on All contacts to see them all.</p>` : ""}</div>`;
-  const partial = ctAll.filter(r => r.ev.excluded.startsWith("address only partly")), unclear = ctAll.filter(r => r.ev.excluded.startsWith("address does not clearly")), other = ctAll.filter(r => r.ev.status === "eligible" && r.ev.role.id === "other");
-  const held = ctHeld ? `<div class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Oscar supplied ${Number(ctHeld.oscar_contacts || 0).toLocaleString()} contacts on the last daily run; those whose address is not a direct one (shared mailboxes, partial or unclear matches) were held back and are not stored, so they cannot be listed here yet.</div>` : "";
-  return `<div class="space-y-3"><p class="text-sm text-slate-600">People whose status depends on a judgement the rules cannot make. To bring a group in, change the matching setting; there is nothing to approve one by one.</p>${held}
-    <div class="grid gap-3 lg:grid-cols-2">${bucket("Address only partly matches the name", "Switch on <b>Accept likely-direct addresses</b> in Settings to treat these as direct.", partial)}${bucket("Address not clearly theirs", "Personal-style addresses whose name differs, or unclear ones. Left out until NeverBounce or a person confirms.", unclear)}
-    ${bucket("Titles the role groups do not recognise", "Eligible as <b>Other</b>. If a title belongs in a group, tell me and it will be added to the role list.", other)}</div></div>`;
-}
-
 /* ---------- Segments: saved filter sets ---------- */
 function ctSegmentsPanel() {
   const cards = ctSegments.map(s => { const saved = ctF, tmp = s.filters; ctF = { ...ctF, ...tmp }; const m = ctAll.filter(ctMatch); ctF = saved;
@@ -125,7 +113,7 @@ function renderContacts() {
   if (!ctLoaded) return;
   $("ct-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.c === ctSub ? "bg-white shadow-sm" : "text-slate-500"));
   if (ctSub === "import") { if (!$("contact-import")) { box.innerHTML = '<div id="contact-import"></div>'; renderContactImport(); } return; }
-  box.innerHTML = ctSub === "review" ? ctReview() : ctSub === "segments" ? ctSegmentsPanel() : ctSub === "settings" ? ctSettings() : ctList();
+  box.innerHTML = ctSub === "review" ? ctReview() : ctSub === "segments" ? ctSegmentsHub() : ctSub === "neverbounce" ? ctNeverbounce() : ctSub === "settings" ? ctSettings() : ctList();
   }
 const ctRefilter = () => { ctShown = 100; const q = $("ct-q"), pos = q && document.activeElement === q ? q.selectionStart : null; renderContacts(); if (pos != null) { const n = $("ct-q"); n.focus(); n.setSelectionRange(pos, pos); } };
 const ctRulesChanged = () => { ctDirty = true; ctEvalAll(); renderContacts(); };

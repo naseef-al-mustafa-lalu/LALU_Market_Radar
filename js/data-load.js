@@ -128,7 +128,7 @@ function stateFromUrl() {
     netKind = ["pcn", "group", "federation", "icb"].includes(u.get("nk")) ? u.get("nk") : "pcn";
     currentTab = TABS.includes(u.get("tab")) ? u.get("tab") : "practices";
     setDataSub(["overview", "sources", "audit", "branches", "signals", "pricing"].includes(u.get("ds")) ? u.get("ds") : "overview");
-    ctSub = ["contacts", "review", "segments", "import", "settings"].includes(u.get("cs")) ? u.get("cs") : "contacts";
+    ctSub = ["contacts", "review", "segments", "neverbounce", "import", "settings"].includes(u.get("cs")) ? u.get("cs") : "contacts";
     setSigSub(["feed", "mergers", "jobs"].includes(u.get("ss")) ? u.get("ss") : "feed");
   } finally { restoringUrl = false; }
   return u.get("open");

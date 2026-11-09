@@ -15,7 +15,7 @@ function cqEmailQuality(email, first = "", last = "") {
   const e = (email || "").trim().toLowerCase(); if (!e) return ["no_email", "no email"]; if (!CQ.mail.test(e)) return ["invalid", "bad syntax"];
   const loc = e.split("@")[0], f = cqLetters(first), l = cqLetters(last), plain = loc.replace(/\d+/g, ""), ll = cqLetters(plain);
   if (ll === "test") return ["reject", "test address"];
-  const fIn = !!f && f.length > 1 && ll.includes(f), lIn = !!l && l.length > 2 && ll.includes(l);
+  const parts = String(last || "").split(/[\s-]+/).map(cqLetters), fIn = !!f && f.length > 1 && (ll.includes(f) || (f.length >= 4 && ll.length >= 3 && ll.slice(0, 3) === f.slice(0, 3))), lIn = !!l && [...parts, l].some(x => x.length > 2 && ll.includes(x));
   if ((fIn && lIn) || (f && l && ll.startsWith(f[0]) && ll.includes(l))) return ["direct", "name in address"];
   if (CQ.odsIn.test(loc) || CQ.genStart.test(loc) || CQ.genAny.test(plain)) return ["shared", "generic or shared mailbox pattern"];
   if (fIn || lIn) return ["likely_direct", "part of the name is in the address"];

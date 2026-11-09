@@ -301,6 +301,10 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
             keep.append(c)
         elif mine:
             c.update(hubspot_status="Imported", hubspot_contact_id=mine.get("hubspot_contact_id"), hubspot_imported_at=mine.get("hubspot_imported_at"))
+            if mine.get("first_name") or mine.get("last_name") or mine.get("full_name"):   # HubSpot's person is the one kept up to date: Oscar may hold an older name against the same address
+                c.update(first_name=mine.get("first_name"), last_name=mine.get("last_name"), full_name=mine.get("full_name"))
+                quality, _ = contact_quality.email_quality(c.get("email"), c.get("first_name"), c.get("last_name"))
+                c["email_quality"] = quality if quality in ("direct", "likely_direct", "check", "shared") else None
             adopted.append(mine["contact_urn"]); keep.append(c)
         elif quality == "direct":
             keep.append(c)

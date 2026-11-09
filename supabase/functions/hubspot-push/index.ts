@@ -716,6 +716,24 @@ Deno.serve(async (req) => {
         summary: `Created lead ${name} on ${co.properties?.name ?? companyId}${open.length ? " (contact already had an open lead)" : ""}`, detail: { companyId, contactId, properties: props, companyLinked, existing: open } });
       return reply({ ok: true, leadId: String(l.id), companyLinked, warnings: leadWarn });
     }
+    if (b.action === "segment_set_criteria") {   // edit a tracked segment's criteria: kept in Atlas for the weekly run, and pushed to HubSpot's own filters when the list is an active (dynamic) one
+      const listId = idOf(b.listId), crit: Record<string, string[]> = {};
+      for (const k of ["lifecycle", "neverbounce", "roles"]) { const v = (b.criteria ?? {})[k]; if (Array.isArray(v) && v.length) crit[k] = v.slice(0, 30).map((x: unknown) => String(x).slice(0, 80)); }
+      const { data: row } = await admin.from("hubspot_segments").select("list_id,tracked,name").eq("list_id", listId).maybeSingle();
+      if (!row?.tracked) throw new Fail("Atlas only edits the segments it tracks");
+      const list = (await hs(`/crm/v3/lists/${listId}?includeFilters=true`))?.list;
+      if (!list) throw new Fail("That list was not found in HubSpot");
+      let pushed = false;
+      if (list.processingType === "DYNAMIC" && list.filterBranch) {
+        const map: Record<string, string> = { lifecycle: "lifecyclestage", neverbounce: "neverbounce_status", roles: "job_role_standardised" };
+        const edit = (br: any) => { for (const f of br.filters ?? []) if (f.filterType === "PROPERTY") for (const [k, prop] of Object.entries(map)) if (f.property === prop && crit[k]) { f.operation = { ...f.operation, values: crit[k] }; pushed = true; } for (const c of br.filterBranches ?? []) edit(c); };
+        edit(list.filterBranch);
+        if (pushed) await hs(`/crm/v3/lists/${listId}/update-list-filters`, { method: "PUT", body: JSON.stringify({ filterBranch: list.filterBranch }) });
+      }
+      await admin.from("hubspot_segments").update({ criteria: crit }).eq("list_id", listId);
+      await log({ actor: who, kind: "segment_criteria", target: String(row.name ?? listId), hubspot_type: "list", hubspot_id: listId, summary: `Set criteria on ${row.name ?? listId}${pushed ? " and in HubSpot" : ""}`, detail: { listId, criteria: crit, hubspotUpdated: pushed } });
+      return reply({ ok: true, hubspotUpdated: pushed });
+    }
     if (b.action === "log_check") {          // the dashboard reports whether HubSpot's recalculated fields matched the tool after a push
       const ods = String(b.ods ?? "").trim().toUpperCase();
       if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
