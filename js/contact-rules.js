@@ -46,11 +46,11 @@ const CT_RULES = [
 const CT_NOT_EVALUATED = [["disqualified", "Disqualified lead, or closed-lost deal while New / Engaged", "HubSpot's exclusion list holds these; Atlas does not read lead or deal outcomes yet, so they stay excluded in HubSpot only."]];
 const CT_LIFECYCLE = { lead: "New", "2207373534": "Engaged", marketingqualifiedlead: "MQL", "5640141025": "Prospecting", salesqualifiedlead: "SQL", opportunity: "Opportunity", customer: "Customer", "4726262995": "Past customer", evangelist: "Evangelist", other: "Other", "4025181418": "Client services" };
 const CT_BAD_BOUNCE = new Set(["UNKNOWN_USER", "OTHER", "POLICY", "Unknown user", "Other", "Policy"]);
-const CT_DEFAULTS = () => ({ roles: {}, titles: {}, suppression: {}, likely: false, strictValid: false, owners: ["78343211", "34750167", "34750166", "9112363"] });
+const CT_DEFAULTS = () => ({ roles: {}, titles: {}, dq: {}, suppression: {}, likely: false, strictValid: false, owners: ["78343211", "34750167", "34750166", "9112363"] });
 let ctRules = CT_DEFAULTS(), ctMode = "standard";   // ctMode: standard campaigns, or re-engagement (lifts the lifecycle rule)
 const ctRoleMode = id => (ctRules.roles[id] === "main" || ctRules.roles[id] === "other" || ctRules.roles[id] === "off") ? ctRules.roles[id] : CT_ROLE[id].def;
 const ctRuleOn = id => ctRules.suppression[id] === undefined ? (CT_RULES.find(r => r[0] === id) || [])[3] !== false : !!ctRules.suppression[id];
-function ctSetRules(v) { const d = CT_DEFAULTS(); ctRules = { ...d, ...(v || {}), roles: { ...(v || {}).roles }, titles: { ...(v || {}).titles }, suppression: { ...(v || {}).suppression }, owners: Array.isArray((v || {}).owners) ? v.owners.map(String) : d.owners }; }
+function ctSetRules(v) { const d = CT_DEFAULTS(); ctRules = { ...d, ...(v || {}), roles: { ...(v || {}).roles }, titles: { ...(v || {}).titles }, dq: { ...(v || {}).dq }, suppression: { ...(v || {}).suppression }, owners: Array.isArray((v || {}).owners) ? v.owners.map(String) : d.owners }; }
 
 // Everything about one contact: its role group, which section it belongs in (or why it does not), and the suppression rules that hold it back.
 // c: a row of public.contacts; p: its practice; locked: Map of hubspot contact id -> audience name (approved elsewhere).
@@ -92,4 +92,11 @@ function ctBadges(c) {
 }
 // Why Atlas's suppression rules hold a contact back (blank when nothing does): the single answer used to disable ticking in Audiences and Signals.
 const ctSuppressedWhy = (c, p) => { const e = ctEvaluate(c, p, new Map()); return e.status === "suppressed" ? e.reasons.map(ctRuleLabel).join("; ") : ""; };
+// Re-engagement: the Lead property Disqualification Reason (internal values as HubSpot stores them). These reasons are not worth re-contacting by default; every reason can be switched in Settings.
+const CT_DQ = { BAD_TIMING: "Bad Timing", BUDGET_CONSTRAINTS: "Budget Constraints", NO_DECISION_MAKING_POWER: "No Decision-making Power", COMPETITOR_PREFERENCE: "Competitor Preference", NOT_A_GOOD_FIT: "Not a Good Fit", NO_INTEREST: "No Interest",
+  PRIOR_NEGATIVE_EXPERIENCE: "Prior Negative Experience", TECHNICAL_LIMITATIONS: "Technical Limitations", Other: "Other", "Stale Contact": "Stale Contact", "No Response / Ghosted": "No Response / Ghosted", "No Email": "No Email",
+  "Engaged With Another Contact at Practice": "Engaged With Another Contact at Practice", Unsubscribed: "Unsubscribed" };
+const CT_DQ_OFF = new Set(["Unsubscribed", "PRIOR_NEGATIVE_EXPERIENCE", "No Email", "NOT_A_GOOD_FIT"]);
+const ctDqLabel = v => CT_DQ[v] || v;
+const ctDqOn = v => ctRules.dq && ctRules.dq[v] !== undefined ? !!ctRules.dq[v] : !CT_DQ_OFF.has(v);
 const ctRuleLabel = id => (CT_RULES.find(r => r[0] === id) || [id, id])[1];
