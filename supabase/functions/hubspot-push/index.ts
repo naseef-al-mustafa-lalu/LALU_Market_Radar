@@ -44,8 +44,6 @@ const LINE_TO_DEAL = 20;   // HubSpot-defined association type: line item -> dea
 
 // Pipelines and owners change rarely: keep them for five minutes inside a warm function instance.
 const memo = new Map<string, { at: number; v: unknown }>();
-// Every contact Atlas creates in HubSpot carries its source, no marketing status and a legal basis for processing (mirrors creation_props in src/neverbounce.py).
-const creationProps = () => { const d = `Lalu Atlas Import: ${new Date().toISOString().slice(0, 10)}`; return { source_category: "Import", um_source_detail_1: "Lalu Atlas", um_source_detail_2: d, um_lt_source_category: "Import", um_lt_source_detail_1: "Lalu Atlas", um_lt_source_detail_2: d, hs_marketable_status: "false", hs_legal_basis: "Legitimate interest \u2013 prospect/lead" }; };
 async function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < 300000) return hit.v as T;
@@ -148,7 +146,7 @@ async function importContacts(admin: any, companyId: string, ods: string, list: 
         filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }] }) }))?.results ?? [];
       const [first, ...rest] = String(c.name ?? "").trim().split(/\s+/);
       const cid = found[0]?.id ?? String((await hs(`/crm/v3/objects/contacts`, { method: "POST", body: JSON.stringify({ properties: { email, firstname: first || undefined, lastname: rest.join(" ") || undefined,
-        phone: c.phone || undefined, jobtitle: c.jobtitle || undefined, ...creationProps() } }) })).id);
+        phone: c.phone || undefined, jobtitle: c.jobtitle || undefined } }) })).id);
       await hs(`/crm/v4/objects/contacts/${cid}/associations/default/companies/${companyId}`, { method: "PUT" });
       out.push({ email, id: cid, existed: !!found[0], name: String(c.name ?? "").trim() });
       await noteOn("contacts", cid, noteBody(who, found[0] ? `linked to ${companyName || "the practice company"} from the practice profile` : `created from the practice profile and linked to ${companyName || "the practice company"}`,
