@@ -19,6 +19,7 @@ async function hsNetDealOpen(n, parts) {
         e.target.disabled = true; e.target.textContent = "Creating…";
         try {
           const r = await hsCall({ action: "create_company_for_network", name: n.name, kind: n.kind }), memberCompanyIds = members.map(p => p.hubspot_company_id).filter(Boolean);
+          if (r.ok === false) throw new Error("A HubSpot company called " + n.name + " already exists: choose it from the list above.");
           if (memberCompanyIds.length && (n.kind === "federation" || n.kind === "group")) {   // its practices join it with the account's association labels (Federation / Member Practice, Operating Provider / Operated Practice)
             try { await hsCall({ action: "link_network_members", companyId: r.companyId, kind: n.kind, memberCompanyIds }); } catch (le) { $("hs-newmsg").innerHTML = `<span class="text-amber-700">Company created, but its practices were not linked: ${esc(le.message)}</span>`; }
           }

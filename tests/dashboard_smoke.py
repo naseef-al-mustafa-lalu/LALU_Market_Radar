@@ -65,6 +65,7 @@ window.supabase = { createClient: () => {
       if (b.action === 'create_deal' && window.__openDeal && !b.allowAnother) return { data: { ok: false, existing: [{ id: '55', dealname: 'Open deal X', dealstage: 'appointmentscheduled', amount: '9000' }] } };
       if (b.action === 'create_deal') return { data: { ok: true, dealId: '88', linked: (b.networkObjects || []).length, warnings: [] } };
       if (b.action === 'create_company_for_network') return { data: { ok: true, companyId: '901', warnings: [] } };
+      if (b.action === 'link_network_members') return { data: { ok: true, linked: (b.memberCompanyIds || []).length, labelled: true, warnings: [] } };
       if (b.action === 'create_lead') return { data: window.__leadExisting && !b.force ? { ok: false, existing: [{ id: '9', name: 'Old lead' }] } : { ok: true, leadId: '99', companyLinked: true } };
       if (b.action === 'create_company' || b.action === 'link_company') return { data: { ok: true, companyId: '900', contacts: (b.contacts || []).map((c, i) => ({ id: 'n' + (i + 1), email: c.email })), networks: [], warnings: [] } };
       return { data: {} }; } } };
@@ -612,5 +613,11 @@ with sync_playwright() as p:
     pg.evaluate("showTab('data'); setDataSub('pricing')"); pg.wait_for_selector("#d-rules h3"); dr = pg.inner_text("#d-rules"); assert "Size discount" in dr and "Term discount" in dr and "Speed discount" in dr and "Referral group discount" in dr and "ends at renewal" in dr and "90 days" in dr, dr      # the rate card page explains each discount
     assert pg.evaluate("showTab('audiences'), document.getElementById('tab-signals').className.includes('bg-white') && document.getElementById('tab-audiences').className === 'hidden' && document.querySelector('#sig-sub button[data-s=audiences]').className.includes('bg-white') && !document.getElementById('subnav').classList.contains('hidden')")      # Audiences is the second Signals sub page: the Signals tab and its strip stay lit
     pg.evaluate("showTab('data'); setDataSub('overview')"); pg.wait_for_function("document.querySelector('#d-runs').innerText.includes('HubSpot sync')")      # HubSpot sync runs appear in the Recent daily runs log beside the daily market radar
+    pg.evaluate("showTab('networks')"); pg.click("#n-new"); pg.wait_for_selector("#nm-name"); assert pg.is_disabled("#nm-go")      # create a group or federation from the tool: name it, pick practices, Atlas creates the HubSpot company and links them
+    pg.fill("#nm-name", "Test Alliance"); pg.fill("#nm-q", "A10001"); pg.click(".nm-add"); pg.wait_for_selector(".nm-rm"); pg.click(".nm-kind[data-k=federation]"); assert pg.input_value("#nm-name") == "Test Alliance"
+    pg.click("#nm-go"); pg.wait_for_function("document.querySelector('#hs-body').innerText.includes('was created in HubSpot')")
+    nc = pg.evaluate("window.__rpc.filter(c => c[0] === 'fn:hubspot-push' && ['create_company_for_network', 'link_network_members'].includes(c[1].action)).slice(-2).map(c => c[1])")
+    assert nc[0]["name"] == "Test Alliance" and nc[0]["kind"] == "federation" and nc[1]["kind"] == "federation" and nc[1]["companyId"] == "901" and nc[1]["memberCompanyIds"], nc
+    pg.click("#hs-cancel")
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

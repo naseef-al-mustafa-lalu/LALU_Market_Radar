@@ -12,8 +12,8 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.bare{background:transparent;padding:0}.atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}.atlas-chip.bare,.atlas-chip.lg.bare{background:transparent;padding:0}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261109h"></script>
-<link rel="stylesheet" href="assets/tailwind.css?v=20261109h">
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261109i"></script>
+<link rel="stylesheet" href="assets/tailwind.css?v=20261109i">
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
 <body class="bg-lalu-mist text-lalu-navy antialiased">
@@ -133,7 +133,7 @@
           <input id="n-search" placeholder="Search networks…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[200px] max-w-sm">
           <select id="n-sort" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="open">Most unengaged practices</option><option value="arr">Highest est. ARR</option><option value="practices">Most practices</option><option value="patients">Most patients</option></select>
           <label class="flex items-center gap-2 text-sm"><input id="n-multi" type="checkbox" checked> 3+ practices only</label>
-          <span id="n-count" class="text-sm text-slate-500"></span><button id="n-export" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 text-sm font-semibold ml-auto">Export CSV</button>
+          <span id="n-count" class="text-sm text-slate-500"></span><button id="n-new" class="ml-auto border border-slate-300 bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 text-sm font-semibold" title="Create a provider group or federation in HubSpot and link its practices">+ New group / federation</button><button id="n-export" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 text-sm font-semibold">Export CSV</button>
         </div>
       </div>
       <div class="overflow-x-auto max-h-[80vh]">
@@ -296,31 +296,32 @@
     <div id="hs-body" class="flex-1 overflow-y-auto px-5 pb-5 pt-4 text-sm"></div>
   </div>
 </div>
-<script src="js/core.js?v=20261109h"></script>
-<script src="js/data-load.js?v=20261109h"></script>
-<script src="js/practices.js?v=20261109h"></script>
-<script src="js/referral.js?v=20261109h"></script>
-<script src="js/networks.js?v=20261109h"></script>
-<script src="js/revenue-pum.js?v=20261109h"></script>
-<script src="js/signals.js?v=20261109h"></script>
-<script src="js/mergers.js?v=20261109h"></script>
-<script src="js/audiences.js?v=20261109h"></script>
-<script src="js/audience-tests.js?v=20261109h"></script>
-<script src="js/hubspot-align.js?v=20261109h"></script>
-<script src="js/data-tab.js?v=20261109h"></script>
-<script src="js/data-connections.js?v=20261109h"></script>
-<script src="js/data-uploads.js?v=20261109h"></script>
-<script src="js/contact-import.js?v=20261109h"></script>
-<script src="js/contact-rules.js?v=20261109h"></script>
-<script src="js/contacts.js?v=20261109h"></script>
-<script src="js/data-audit.js?v=20261109h"></script>
-<script src="js/data-branches.js?v=20261109h"></script>
-<script src="js/hubspot.js?v=20261109h"></script>
-<script src="js/hubspot-company.js?v=20261109h"></script>
-<script src="js/hubspot-admin.js?v=20261109h"></script>
-<script src="js/hubspot-group.js?v=20261109h"></script>
-<script src="js/hubspot-network.js?v=20261109h"></script>
-<script src="js/export.js?v=20261109h"></script>
-<script src="js/main.js?v=20261109h"></script>
+<script src="js/core.js?v=20261109i"></script>
+<script src="js/data-load.js?v=20261109i"></script>
+<script src="js/practices.js?v=20261109i"></script>
+<script src="js/referral.js?v=20261109i"></script>
+<script src="js/networks.js?v=20261109i"></script>
+<script src="js/revenue-pum.js?v=20261109i"></script>
+<script src="js/signals.js?v=20261109i"></script>
+<script src="js/mergers.js?v=20261109i"></script>
+<script src="js/audiences.js?v=20261109i"></script>
+<script src="js/audience-tests.js?v=20261109i"></script>
+<script src="js/hubspot-align.js?v=20261109i"></script>
+<script src="js/data-tab.js?v=20261109i"></script>
+<script src="js/data-connections.js?v=20261109i"></script>
+<script src="js/data-uploads.js?v=20261109i"></script>
+<script src="js/contact-import.js?v=20261109i"></script>
+<script src="js/contact-rules.js?v=20261109i"></script>
+<script src="js/contacts.js?v=20261109i"></script>
+<script src="js/data-audit.js?v=20261109i"></script>
+<script src="js/data-branches.js?v=20261109i"></script>
+<script src="js/hubspot.js?v=20261109i"></script>
+<script src="js/hubspot-company.js?v=20261109i"></script>
+<script src="js/hubspot-admin.js?v=20261109i"></script>
+<script src="js/hubspot-group.js?v=20261109i"></script>
+<script src="js/hubspot-network.js?v=20261109i"></script>
+<script src="js/network-admin.js?v=20261109i"></script>
+<script src="js/export.js?v=20261109i"></script>
+<script src="js/main.js?v=20261109i"></script>
 </body>
 </html>

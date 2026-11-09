@@ -593,9 +593,19 @@ Deno.serve(async (req) => {
       const name = String(b.name ?? "").trim().slice(0, 200), kind = String(b.kind ?? "");
       if (!name) throw new Fail("A name is required");
       if (!["federation", "group", "pcn", "icb"].includes(kind)) throw new Fail("Unknown network");
+      const orgType = kind === "federation" ? "federation" : kind === "group" ? "Group" : null;   // the Org Types the HubSpot sync looks for
+      if (b.companyId) {   // an existing company chosen from the search: give it the Org Type the sync needs when it has none
+        const id = idOf(b.companyId), cur = await hs(`/crm/v3/objects/companies/${id}?properties=name,org_type`), w: string[] = [];
+        if (orgType && !cur.properties?.org_type) {
+          await hs(`/crm/v3/objects/companies/${id}`, { method: "PATCH", body: JSON.stringify({ properties: { org_type: orgType } }) });
+          await noteOn("companies", id, noteBody(who, `Org Type set from Atlas for the ${kind} ${name}`, changes({}, { org_type: orgType })), w);
+          await log({ actor: who, kind: "create_company", target: name, hubspot_type: "company", hubspot_id: id, summary: `Set Org Type ${orgType} on ${cur.properties?.name ?? id}`, detail: { orgType } });
+        }
+        return reply({ ok: true, companyId: id, existing: true, warnings: w });
+      }
       const same = ((await hs(`/crm/v3/objects/companies/search`, { method: "POST", body: JSON.stringify({ properties: ["name"], limit: 10, query: name }) }))?.results ?? []).find((c: any) => String(c.properties?.name ?? "").trim().toLowerCase() === name.toLowerCase());
-      if (same) throw new Fail(`A HubSpot company called ${same.properties?.name} already exists: choose it from the search results.`);
-      const props: Record<string, unknown> = { name, company_status: "Prospective Customer", ...(kind === "federation" ? { org_type: "federation" } : {}) };
+      if (same) return reply({ ok: false, existing: [{ id: String(same.id), name: same.properties?.name }] });   // the caller chooses to use it
+      const props: Record<string, unknown> = { name, company_status: "Prospective Customer", ...(orgType ? { org_type: orgType } : {}) };
       const id = String((await hs(`/crm/v3/objects/companies`, { method: "POST", body: JSON.stringify({ properties: props }) })).id), warnings: string[] = [];
       await noteOn("companies", id, noteBody(who, `company created for the ${kind} ${name} from its Atlas network profile`, changes({}, props)), warnings);
       await log({ actor: who, kind: "create_company", target: name, hubspot_type: "company", hubspot_id: id, summary: `Created company ${name} for the ${kind}`, detail: { properties: props, warnings } });
