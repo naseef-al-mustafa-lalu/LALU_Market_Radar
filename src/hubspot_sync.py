@@ -1030,6 +1030,22 @@ def audit_rows(raw, practices, now):
     return rows
 
 
+def lifecycle_audit(ods, name, cs, service_ids, services, churned, now):
+    """A practice company whose Lifecycle Stage disagrees with its Services. Past Customer is right only when no Service is live and a Service carries a churn date;
+    a Past Customer with a live Service is wrong the other way. Report only: Atlas writes nothing to HubSpot for this."""
+    primary = sorted(cs, key=lambda c: (c.get("createdate") or "", str(c.get("id"))))[0]
+    stage = primary.get("lifecyclestage")
+    live = [services[i] for i in service_ids if services.get(i, {}).get("hs_pipeline_stage") in LIVE_SERVICE_STAGES]
+    issue = detail = None
+    if stage == PAST_CUSTOMER and live:
+        issue, detail = "lifecycle_past_but_live", f"Lifecycle Stage is Past Customer but {len(live)} Service{'s are' if len(live) > 1 else ' is'} still live ({', '.join(sv.get('hs_name') or 'unnamed' for sv in live[:3])})"
+    elif stage not in (PAST_CUSTOMER, MERGED_CLOSED) and primary.get("company_status") != "Ex-Customer" and not live and churned:
+        issue, detail = "lifecycle_should_be_past", f"No live Service and churned {churned}, but Lifecycle Stage is {LIFECYCLE.get(stage or '', stage or 'blank')}. Past Customer is probably right: check the Services and the churn date, then change it in HubSpot"
+    if not issue:
+        return None
+    return {"id": f"{issue}-{primary['id']}", "issue": issue, "company_id": str(primary["id"]), "company_name": primary.get("name"), "ods_code": ods, "nhs_name": name, "nhs_status": None, "detail": detail, "found_at": now, "object_type": "company"}
+
+
 def norm_name(name):
     return " ".join(sorted(name_tokens(name)))
 
@@ -1135,7 +1151,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     except Exception as e:  # noqa: BLE001
         role_links = None
         print("Role links skipped:", e)
-    rows, flags = [], {"customers": 0, "engaged": 0}
+    rows, flags, life_audit = [], {"customers": 0, "engaged": 0}, []
     hs_contacts = {}   # ods -> {email: (contact id, createdate)}
     for ods, cs in by_ods.items():
         cset = [str(c["id"]) for c in cs]
@@ -1145,6 +1161,9 @@ def sync(rest, hub, now=None, actor="daily sync"):
         flags["customers"] += f["hubspot_customer"]; flags["engaged"] += f["hubspot_engaged"]
         service_ids = sorted({i for c in cset for i in to_services.get(c, [])})
         rows.append({"ods_code": ods, "practice_name": practices[ods]["practice_name"], **f, **revenue_fields(deal_ids, deals, service_ids, services, f["hubspot_customer"], f["hubspot_commercial_model"], line_qty), **lifecycle_fields(cs, deal_ids, deals, service_ids, services, line_qty, list_size(cs, f.get("hubspot_company_id"))), "hubspot_list_size": list_size(cs, f.get("hubspot_company_id")), **linked_properties(cs, f.get("hubspot_company_id")), **(role_columns(role_links, f.get("hubspot_company_id")) if role_links is not None else {}), "hubspot_synced_at": now})
+        la = lifecycle_audit(ods, practices[ods]["practice_name"], cs, service_ids, services, rows[-1].get("hubspot_churned_date"), now) if to_services else None
+        if la:
+            life_audit.append(la)
         hs_contacts[ods] = {(contacts[i].get("email") or "").strip().lower(): (i, contacts[i].get("createdate")) for i in contact_ids if contacts.get(i, {}).get("email")}
     for ods, p in practices.items():   # a practice that had a company before but no longer does: clear the link and flags
         if ods not in by_ods and p.get("hubspot_company_id"):
@@ -1183,7 +1202,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
                        "detail": {"changes": written[:300], "error": err, "cases": cases}}], actor)
     elif flag2.get("enabled") is True and len(todo) > ALIGN_MAX:
         sizes["alignment_held"] = len(todo)   # the Data panel offers "approve this run"
-    audit_all = audit_rows(raw, practices, now)
+    audit_all = audit_rows(raw, practices, now) + life_audit
     conflicts = []
 
     ours = rest.select_all("contacts", "contact_urn,ods_code,email,hubspot_status,hubspot_contact_id", order="contact_urn")

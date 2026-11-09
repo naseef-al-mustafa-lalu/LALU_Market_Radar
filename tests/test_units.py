@@ -1159,6 +1159,20 @@ def test_a_customer_with_only_a_signed_deal_is_linked_to_it():
     assert hsy.link_open_deals(r, by_ods, {"5": ["d1", "d2", "d3"]}, deals) == 1 and r.up[0]["deal_id"] == "d2"      # no open deal: the latest signed one, never a lost one
 
 
+def test_lifecycle_audit_compares_stage_with_services_and_churn():
+    from src import hubspot_sync as hsy
+    live = {"s1": {"hs_pipeline_stage": "2551571664", "hs_name": "Svc A"}}
+    gone = {"s2": {"hs_pipeline_stage": "999", "hs_name": "Old"}}
+    co = lambda stage, **k: [{"id": 1, "name": "P", "lifecyclestage": stage, **k}]
+    r = hsy.lifecycle_audit("A1", "P", co("customer"), ["s2"], gone, "2026-05-01", "now")
+    assert r["issue"] == "lifecycle_should_be_past" and "2026-05-01" in r["detail"]      # no live Service, churned, still Customer
+    assert hsy.lifecycle_audit("A1", "P", co("customer"), ["s1"], live, "2026-05-01", "now") is None      # a live Service: not flagged
+    assert hsy.lifecycle_audit("A1", "P", co("customer"), ["s2"], gone, None, "now") is None      # no churn date: not flagged
+    assert hsy.lifecycle_audit("A1", "P", co(hsy.PAST_CUSTOMER), ["s2"], gone, "2026-05-01", "now") is None      # already right
+    assert hsy.lifecycle_audit("A1", "P", co(hsy.PAST_CUSTOMER), ["s1"], live, None, "now")["issue"] == "lifecycle_past_but_live"
+    assert hsy.lifecycle_audit("A1", "P", co(hsy.MERGED_CLOSED), ["s2"], gone, "2026-05-01", "now") is None
+
+
 def test_lost_deals_give_each_contact_its_latest_closed_lost_reason():
     from src import hubspot_sync as hsy
 

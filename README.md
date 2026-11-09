@@ -408,3 +408,7 @@ Contacts > Campaign type > Re-engagement lists only disqualified contacts (HubSp
 Re-engagement also includes contacts on a **closed-lost deal**: the daily HubSpot sync reads each contact's latest closed-lost deal (skipping contacts with a deal still open) and stores its UM Closed Lost Reasons, the date, the deal name and what they were (new business = a lead, renewals = a customer, conversion = a freemium user). The table shows "Deal lost (was a customer): <reason>" next to any disqualification reason, the reason filter covers both, and Contacts > Settings has a switch per lost reason (Poor Fit / Missing Requirements is off by default). Customers' own practices stay out of the list.
 
 Re-engagement > **Create audience from N eligible contacts** saves the eligible contacts in view as a custom audience (the existing Audiences feature): its practices are theirs, and the audience lists only those contacts, to tick, approve and enrol in a sequence. Filter by reason first to make one audience per reason.
+
+### Lifecycle stage audit
+
+Data > HubSpot audit has two lifecycle checks, rebuilt by every HubSpot sync and report-only (Atlas never changes the stage). **Should be Past Customer**: no Service is live (In Contract, Renewal Period, Renewed, close to cancellation) and a Service carries a churn date, but the company's Lifecycle Stage is something else (Past Customer, Merged/Closed and Ex-Customer companies are skipped). **Past Customer with a live Service**: the stage says Past Customer but a Service is still live.
