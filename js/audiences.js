@@ -23,9 +23,11 @@ const audNewSignalSince = (a, ods, at) => a.kind === "signal" && signals.some(s 
 const audMember = (a, id) => audMembers.find(m => m.audience_id === a.id && m.contact_id === id);
 const audLock = (a, id) => { const m = audMembers.find(x => x.contact_id === id && x.audience_id !== a.id && AUD_LOCKS.includes(x.state)); return m ? (audiences.find(x => x.id === m.audience_id) || {}).name || "another audience" : null; };
 const audApproved = a => audMembers.filter(m => m.audience_id === a.id && AUD_LOCKS.includes(m.state)).length;
+let audSlackChannels = [];   // channels the Atlas bot is in, refreshed by the daily HubSpot sync
 async function loadAudiences() {
   const [a, m] = await Promise.all([db.from("audiences").select("*").eq("archived", false).order("created_at"), db.from("audience_members").select("*"), audLoadTests()]);
   audiences = a.data || []; audMembers = m.data || [];
+  try { audSlackChannels = (await db.from("slack_channels").select("id,name,is_private").order("name")).data || []; } catch (e) { audSlackChannels = []; }
   const missing = [...new Set(signals.map(s => s.trigger_type))].filter(t => t && !audiences.some(x => x.signal_type === t));
   if (missing.length) {   // a signal type that appeared after the audiences were created
     const labels = new Map(sigSettings.map(t => [t.trigger_type, t.label]));
@@ -91,7 +93,8 @@ function audienceDetail(a) {
   const crit = custom ? ((a.filters && a.filters.summary) || "") : "";
   return `<div class="mb-3 flex flex-wrap items-center gap-3"><button type="button" class="aud-back text-sm font-semibold text-lalu-teal-700 hover:underline">← All audiences</button><h3 class="text-lg font-bold">${esc(a.name)}</h3>
       <span class="text-sm text-slate-500">${all.length.toLocaleString()} practice${all.length === 1 ? "" : "s"} · ${audApproved(a)} contact${audApproved(a) === 1 ? "" : "s"} approved</span>
-      ${a.kind === "signal" ? `<label class="ml-auto flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600" title="Post a short note to #lalu_atlas when a new practice drops into this audience"><span class="relative"><input type="checkbox" class="aud-slack peer sr-only" ${a.slack_alert ? "checked" : ""}><span class="block h-5 w-9 rounded-full bg-slate-300 transition peer-checked:bg-lalu-teal-700 peer-focus-visible:ring-2 peer-focus-visible:ring-lalu-teal-700"></span><span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4"></span></span>Slack alert</label>` : ""}
+      ${a.kind === "signal" ? `<span class="ml-auto flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600"><label class="flex cursor-pointer items-center gap-2" title="Post a short note to Slack when a new practice drops into this audience"><span class="relative"><input type="checkbox" class="aud-slack peer sr-only" ${a.slack_alert ? "checked" : ""}><span class="block h-5 w-9 rounded-full bg-slate-300 transition peer-checked:bg-lalu-teal-700 peer-focus-visible:ring-2 peer-focus-visible:ring-lalu-teal-700"></span><span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4"></span></span>Slack alert</label>
+        <select class="aud-slack-ch rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-normal ${a.slack_alert ? "" : "opacity-50"}" ${a.slack_alert ? "" : "disabled"} aria-label="Slack channel for alerts"><option value="">#lalu_atlas (default)</option>${audSlackChannels.map(c => `<option value="${esc(c.id)}" ${a.slack_channel === c.id ? "selected" : ""}>${c.is_private ? "🔒 " : "#"}${esc(c.name)}</option>`).join("")}</select>${audSlackChannels.length ? "" : '<span class="font-normal text-slate-400" title="The picker lists the channels the Atlas bot has been added to. It fills after the next HubSpot sync once the bot token has the channels:read scope.">no channels yet</span>'}</span>` : ""}
       ${custom ? '<span class="ml-auto flex gap-2"><button type="button" class="aud-rename rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold hover:bg-slate-50">Rename</button><button type="button" class="aud-delete rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">Delete</button></span>' : ""}</div>
     ${custom ? `<p class="mb-3 text-xs text-slate-500">${crit ? "Live filter: " + esc(crit) : "Hand-picked practices"}${crit && audPinned(a).length ? ` plus ${audPinned(a).length} hand-picked` : ""}. Practices that start matching appear here automatically.</p>` : ""}
     ${audLeftOut(a) ? `<p class="mb-3 text-xs text-slate-500">${audLeftOut(a).toLocaleString()} customer${audLeftOut(a) === 1 ? " is" : "s are"} left out: customers are never added to an audience.</p>` : ""}
@@ -319,9 +322,10 @@ document.addEventListener("click", e => {
   if (t.closest(".aud-stats-refresh")) { audLoadStats(); return; }
 });
 document.addEventListener("change", async e => {
-  const sl = e.target.closest(".aud-slack"); if (!sl) return;
+  const sl = e.target.closest(".aud-slack"), ch = e.target.closest(".aud-slack-ch"); if (!sl && !ch) return;
   const a = audiences.find(x => x.id === audOpen); if (!a) return;
-  const { error } = await db.from("audiences").update({ slack_alert: sl.checked }).eq("id", a.id);
-  if (error) { sl.checked = !sl.checked; alert("Could not save: " + (error.message || error)); } else a.slack_alert = sl.checked;
+  const patch = sl ? { slack_alert: sl.checked } : { slack_channel: ch.value || null };
+  const { error } = await db.from("audiences").update(patch).eq("id", a.id);
+  if (error) { alert("Could not save: " + (error.message || error)); renderAudiences(); } else { Object.assign(a, patch); if (sl) renderAudiences(); }
 });
 document.addEventListener("change", e => { const c = e.target.closest(".aud-chk"); if (c) { c.checked ? audTicked.add(c.dataset.id) : audTicked.delete(c.dataset.id); const a = audiences.find(x => x.id === audOpen); if (a) renderAudiences(); } });

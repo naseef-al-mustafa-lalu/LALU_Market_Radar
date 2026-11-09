@@ -144,3 +144,26 @@ document.addEventListener("click", e => {
   if (b) { e.stopPropagation(); pop.classList.toggle("hidden"); b.setAttribute("aria-expanded", String(!pop.classList.contains("hidden"))); }
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".info-pop").forEach(x => { x.classList.add("hidden"); x.previousElementSibling.setAttribute("aria-expanded", "false"); }); });
+
+// Filters in one style everywhere: a search box, a Filters button with a count, and a panel holding the other controls (as on the Practices page). The controls keep their ids, so the page code is unchanged.
+function panelizeFilters(searchId, fields) {
+  const search = $(searchId); if (!search || search.dataset.panelized) return; search.dataset.panelized = "1";
+  const row = search.parentElement; row.classList.add("relative");
+  const btn = document.createElement("button"); btn.type = "button"; btn.setAttribute("aria-expanded", "false");
+  btn.className = "inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50";
+  btn.innerHTML = '<svg class="h-4 w-4 text-slate-500" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h14M6 10h8M9 15h2"/></svg>Filters <span class="pf-badge hidden rounded-full bg-lalu-teal-700 px-1.5 text-[11px] font-bold leading-5 text-white"></span>';
+  const panel = document.createElement("div"); panel.className = "hidden absolute left-0 top-full z-20 mt-2 grid w-full max-w-xl gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xl sm:grid-cols-2"; panel.setAttribute("role", "region"); panel.setAttribute("aria-label", "Filters");
+  const els = [];
+  for (const [id, label] of fields) {
+    const el = $(id); if (!el) continue; const box = el.type === "checkbox";
+    const wrap = document.createElement("label"); wrap.className = "block text-xs font-semibold text-slate-600";
+    if (box) { const l = el.closest("label"); wrap.className = "flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2"; wrap.appendChild(el); wrap.append(document.createTextNode(label)); if (l && l !== wrap) l.remove(); }
+    else { el.className = "w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm"; wrap.append(document.createTextNode(label)); const sp = document.createElement("span"); sp.className = "mt-1 block"; sp.appendChild(el); wrap.appendChild(sp); }
+    panel.appendChild(wrap); els.push({ el, box, def: box ? el.checked : el.value });
+  }
+  const badge = btn.querySelector(".pf-badge"), count = () => { const n = els.filter(x => x.box ? x.el.checked !== x.def : x.el.value !== (x.el.options && x.el.options.length && x.def === "" ? "" : x.def)).length; badge.textContent = n; badge.classList.toggle("hidden", !n); };
+  panel.addEventListener("change", count); panel.addEventListener("input", count); setTimeout(count, 0);
+  btn.onclick = () => { const open = panel.classList.contains("hidden"); panel.classList.toggle("hidden", !open); btn.setAttribute("aria-expanded", String(open)); };
+  document.addEventListener("click", e => { if (!panel.classList.contains("hidden") && !panel.contains(e.target) && !btn.contains(e.target)) { panel.classList.add("hidden"); btn.setAttribute("aria-expanded", "false"); } });
+  search.after(btn); row.appendChild(panel);
+}

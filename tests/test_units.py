@@ -1140,3 +1140,27 @@ def test_disqualified_leads_give_each_contact_its_latest_reason():
     assert dq == {"1": {"reason": "No budget", "note": "Next year", "at": "2026-11-01T00:00:00Z", "reengage": None}}      # the newest disqualified lead wins; a contact whose lead has no reason is left out
     st = hsy.contact_state({"lifecyclestage": "lead"}, 5, "now", dq["1"])
     assert st["hs_dq_reason"] == "No budget" and st["hs_dq_note"] == "Next year" and hsy.contact_state({}, 6, "now")["hs_dq_reason"] is None
+
+
+def test_slack_channels_are_the_ones_the_bot_is_in_and_follow_changes():
+    from src import slack
+
+    pages = [{"ok": True, "channels": [{"id": "C1", "name": "lalu_atlas", "is_member": True}, {"id": "C2", "name": "random", "is_member": False}], "response_metadata": {"next_cursor": "x"}},
+             {"ok": True, "channels": [{"id": "C3", "name": "sales", "is_member": True, "is_private": True}], "response_metadata": {"next_cursor": ""}}]
+    calls = []
+
+    def get(url, params=None, headers=None, timeout=0):
+        calls.append(params)
+
+        class J:
+            def json(self): return pages[len(calls) - 1]
+        return J()
+    assert slack.list_channels(get, "tok") == [{"id": "C1", "name": "lalu_atlas", "is_private": False}, {"id": "C3", "name": "sales", "is_private": True}] and calls[1]["cursor"] == "x"      # only channels it is a member of
+
+    class Rest:
+        def __init__(self): self.up, self.deleted = None, None
+        def upsert(self, table, rows, on_conflict, batch=500): self.up = rows
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return [{"id": "C1"}, {"id": "C9"}]
+        def delete_in(self, table, column, values, chunk=200, extra=None): self.deleted = values
+    calls.clear(); r = Rest()
+    assert slack.sync_channels(r, get, "tok") == 2 and [x["id"] for x in r.up] == ["C1", "C3"] and r.deleted == ["C9"]      # a channel the bot left disappears from the picker, a new one appears

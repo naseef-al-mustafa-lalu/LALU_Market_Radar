@@ -89,14 +89,18 @@ def audience_alerts(rest, sent, base=""):
     """Audiences with the Slack alert switched on (default off) get a short note in #lalu_atlas when a new signal of their type puts a practice into them."""
     if not slack.atlas_configured():
         return 0
-    auds = [a for a in rest.select_all("audiences", "id,name,signal_type,kind,slack_alert,archived", order="id", params={"slack_alert": "eq.true", "archived": "eq.false"}) if a.get("kind") == "signal"]
+    auds = [a for a in rest.select_all("audiences", "id,name,signal_type,kind,slack_alert,slack_channel,archived", order="id", params={"slack_alert": "eq.true", "archived": "eq.false"}) if a.get("kind") == "signal"]
     n = 0
     for a in auds:
         hits = [t for t in sent if t.get("trigger_type") == a.get("signal_type") and t.get("gp_practices")]
         if not hits:
             continue
         names = ", ".join(slack.link(f"{base}/?open={t['gp_practices']['ods_code']}" if base else "", t["gp_practices"]["practice_name"]) for t in hits[:8]) + (f" and {len(hits) - 8} more" if len(hits) > 8 else "")
-        slack.post_atlas(f":bell: *{slack.mrkdwn(a['name'])}*: {len(hits)} new practice{'s' if len(hits) != 1 else ''} in this audience: {names}. Open Atlas > Signals > Audiences to review their contacts.")
+        text = f":bell: *{slack.mrkdwn(a['name'])}*: {len(hits)} new practice{'s' if len(hits) != 1 else ''} in this audience: {names}. Open Atlas > Signals > Audiences to review their contacts."
+        if a.get("slack_channel") and os.environ.get("SLACK_BOT_TOKEN"):   # the channel chosen on the audience (a channel id the bot is in); otherwise #lalu_atlas
+            slack.post(text, None, channel=a["slack_channel"])
+        else:
+            slack.post_atlas(text)
         n += 1
     return n
 

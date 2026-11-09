@@ -1158,6 +1158,11 @@ def sync(rest, hub, now=None, actor="daily sync"):
         contact_stats = sync_contact_state(rest, hub, now)
     except Exception as e:  # noqa: BLE001
         contact_stats = {"contact_state_error": str(e)[:300]}
+    try:   # the channels Atlas's Slack bot is in, for the audience alert channel picker (needs a bot token; without one the picker offers only the default)
+        if os.environ.get("SLACK_BOT_TOKEN"):
+            contact_stats["slack_channels"] = slack.sync_channels(rest)
+    except Exception as e:  # noqa: BLE001
+        contact_stats["slack_channels_error"] = str(e)[:200]
     try:   # HubSpot's contact segments and the members of the ones Atlas tracks (after the contact state, so a failure never blocks it)
         contact_stats.update(segments.sync(rest, hub))
     except Exception as e:  # noqa: BLE001

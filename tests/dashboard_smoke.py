@@ -360,8 +360,8 @@ with sync_playwright() as p:
     pg.click("#tab-networks"); pg.wait_for_selector("#net-rows tr")
     assert "West PCN" in pg.inner_text("#net-rows"), pg.inner_text("#net-rows")
     pg.click("#net-kinds button[data-k=group]"); assert "Modality Test" in pg.inner_text("#net-rows")
-    pg.uncheck("#n-multi"); pg.click("#net-kinds button[data-k=federation]"); assert "Fed One" in pg.inner_text("#net-rows")
-    pg.check("#n-multi"); pg.click("#net-kinds button[data-k=pcn]")
+    pg.evaluate('document.getElementById("n-multi").closest("div.absolute").classList.remove("hidden")'); pg.uncheck("#n-multi"); pg.click("#net-kinds button[data-k=federation]"); assert "Fed One" in pg.inner_text("#net-rows")
+    pg.evaluate('document.getElementById("n-multi").closest("div.absolute").classList.remove("hidden")'); pg.check("#n-multi"); pg.click("#net-kinds button[data-k=pcn]")
     noflow("#view-networks .overflow-x-auto", "networks"); pg.screenshot(path=SHOTS + "/networks.png")
     pg.click("#net-kinds button[data-k=group]")
     pg.click("#net-rows tr:first-child")   # row opens the network profile
@@ -535,11 +535,11 @@ with sync_playwright() as p:
     # signals: status workflow
     pg.click("#tab-signals"); n0 = pg.locator("#s-rows tr").count(); assert n0 == 2, n0
     pg.select_option("#s-rows tr:has-text('Little Common') .sg-status", "done"); pg.wait_for_function("document.querySelectorAll('#s-rows tr').length === 1")
-    pg.select_option("#s-status", "all"); assert pg.locator("#s-rows tr").count() == 2
-    pg.select_option("#s-status", "done"); assert "Little Common" in pg.inner_text("#s-rows")
+    pg.evaluate('document.getElementById("s-status").closest("div.absolute").classList.remove("hidden")'); pg.select_option("#s-status", "all"); assert pg.locator("#s-rows tr").count() == 2
+    pg.evaluate('document.getElementById("s-status").closest("div.absolute").classList.remove("hidden")'); pg.select_option("#s-status", "done"); assert "Little Common" in pg.inner_text("#s-rows")
     with pg.expect_download() as dl: pg.click("#s-export")
     csv = open(dl.value.path(), encoding="utf-8-sig").read(); assert csv.startswith('"Detected"') and "Little Common" in csv and "Done" in csv, csv[:200]
-    pg.select_option("#s-status", "open")
+    pg.evaluate('document.getElementById("s-status").closest("div.absolute").classList.remove("hidden")'); pg.select_option("#s-status", "open")
     pg.click("#tab-networks"); pg.wait_for_selector("#net-rows tr")
     with pg.expect_download() as dl2: pg.click("#n-export")
     assert "Linked practices" in open(dl2.value.path(), encoding="utf-8-sig").read()
@@ -567,9 +567,9 @@ with sync_playwright() as p:
     pg.click('#mg-rows tr[data-ods=A10010] [data-mg="dismiss"]'); pg.wait_for_function("window.__rpc.some(c => c[0] === 'dismiss_merge_suggestion' && c[1].p_ods === 'A10010' && c[1].p_dismissed === true)")
     pg.click('#mg-rows tr[data-ods=A10011] [data-mg="close"]'); pg.wait_for_function("window.__rpc.some(c => c[0] === 'set_practice_closed' && c[1].p_ods === 'A10011' && c[1].p_closed === true)")
     assert "Nothing to review" in pg.inner_text("#mg-rows") and pg.is_hidden("#merge-badge")
-    pg.select_option("#mg-status", "closed"); assert "Test Closed Candidate" in pg.inner_text("#mg-rows")
-    pg.select_option("#mg-status", "merged"); assert "Test Annex A" in pg.inner_text("#mg-rows") and "Test Surgery 3" in pg.inner_text("#mg-rows")
-    pg.select_option("#mg-status", "dismissed"); assert "Test Annex B" in pg.inner_text("#mg-rows")
+    pg.evaluate('document.getElementById("mg-status").closest("div.absolute").classList.remove("hidden")'); pg.select_option("#mg-status", "closed"); assert "Test Closed Candidate" in pg.inner_text("#mg-rows")
+    pg.evaluate('document.getElementById("mg-status").closest("div.absolute").classList.remove("hidden")'); pg.select_option("#mg-status", "merged"); assert "Test Annex A" in pg.inner_text("#mg-rows") and "Test Surgery 3" in pg.inner_text("#mg-rows")
+    pg.evaluate('document.getElementById("mg-status").closest("div.absolute").classList.remove("hidden")'); pg.select_option("#mg-status", "dismissed"); assert "Test Annex B" in pg.inner_text("#mg-rows")
     pg.click("#tab-practices"); assert "Test Closed Candidate" not in pg.inner_text("#rows")   # confirmed closures leave the main list
     # a failed load must not leave the spinner up forever: it explains and offers Try again
     pg.goto("about:blank"); pg.add_init_script("window.__fail = true"); pg.goto(INDEX)

@@ -67,3 +67,32 @@ def alert(title, body):
         post(f":warning: *{mrkdwn(title)}*\n```{mrkdwn(body)[:2500]}```")
     except Exception as e:  # noqa: BLE001
         print(f"Slack alert failed: {e}", file=sys.stderr)
+
+
+def list_channels(get=requests.get, token=None):
+    """The channels the bot is a member of (it can post there): [{id, name, is_private}]. Needs the channels:read and groups:read scopes; raises with Slack's reason when it cannot list."""
+    token = token or os.environ.get("SLACK_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("SLACK_BOT_TOKEN is not set: channels can only be listed with a bot token")
+    out, cursor = [], None
+    while True:
+        d = get("https://slack.com/api/conversations.list", params={"types": "public_channel,private_channel", "exclude_archived": "true", "limit": 200, **({"cursor": cursor} if cursor else {})},
+                headers={"Authorization": f"Bearer {token}"}, timeout=30).json()
+        if not d.get("ok"):
+            raise RuntimeError(f"Slack could not list channels: {d.get('error')}")
+        out += [{"id": c["id"], "name": c["name"], "is_private": bool(c.get("is_private"))} for c in d.get("channels", []) if c.get("is_member")]
+        cursor = (d.get("response_metadata") or {}).get("next_cursor")
+        if not cursor:
+            return out
+
+
+def sync_channels(rest, get=requests.get, token=None):
+    """Keep public.slack_channels equal to the channels the bot is in now (new connections appear, removed ones go). Returns the count."""
+    rows = list_channels(get, token)
+    if rows:
+        rest.upsert("slack_channels", rows, "id")
+    have = {r["id"] for r in rest.select_all("slack_channels", "id", order="id")}
+    stale = sorted(have - {r["id"] for r in rows})
+    if stale:
+        rest.delete_in("slack_channels", "id", stale)
+    return len(rows)

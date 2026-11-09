@@ -12,8 +12,8 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.bare{background:transparent;padding:0}.atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}.atlas-chip.bare,.atlas-chip.lg.bare{background:transparent;padding:0}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261109s"></script>
-<link rel="stylesheet" href="assets/tailwind.css?v=20261109s">
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261109t"></script>
+<link rel="stylesheet" href="assets/tailwind.css?v=20261109t">
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
 <body class="bg-lalu-mist text-lalu-navy antialiased">
@@ -264,7 +264,7 @@
         <div id="d-rules" class="mb-4"></div>
         <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
           <h2 class="font-bold">Update rates from the pricing spreadsheet</h2>
-          <p class="text-sm text-slate-500 mt-1">In the spreadsheet, open the <b>Pricing-Discount-Model</b> tab, then File &gt; Download &gt; Comma-separated values (.csv). For the 2 and 3-year term discounts and the price floor, do the same for the <b>Multi-Year-Matrix</b> tab. SAR-only rates sync from cells labelled &ldquo;SAR Only Annual List Price&rdquo; and &ldquo;SAR Only Monthly List Price&rdquo;. Choose one or both files here: you see what would change before anything is saved.</p>
+          <p class="text-sm text-slate-500 mt-1">In the spreadsheet, open the <b>Pricing-Discount-Model</b> tab, then File &gt; Download &gt; Comma-separated values (.csv).<span class="relative inline-block align-middle"><button type="button" class="info-btn ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold leading-none text-slate-500 hover:border-lalu-teal-700 hover:text-lalu-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lalu-teal-700" aria-label="More information" aria-expanded="false">i</button><span role="note" class="info-pop absolute left-0 top-full z-30 mt-1 hidden w-80 max-w-[80vw] rounded-lg border border-slate-200 bg-white p-2.5 text-left text-xs font-normal leading-snug text-slate-700 shadow-lg">For the 2 and 3-year term discounts and the price floor, do the same for the <b>Multi-Year-Matrix</b> tab. SAR-only rates sync from cells labelled &ldquo;SAR Only Annual List Price&rdquo; and &ldquo;SAR Only Monthly List Price&rdquo;. Choose one or both files here: you see what would change before anything is saved.</span></span></p>
           <div class="mt-2 flex flex-wrap items-center gap-3"><input id="ps-file" type="file" accept=".csv,text/csv" multiple class="text-sm" aria-label="Pricing spreadsheet CSV files"><button id="ps-apply" class="hidden bg-lalu-teal-700 text-white rounded px-3 py-1.5 text-sm font-semibold">Apply</button></div>
           <p id="ps-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]" aria-live="polite"></p><div id="ps-preview"></div>
         </div>
@@ -296,33 +296,33 @@
     <div id="hs-body" class="flex-1 overflow-y-auto px-5 pb-5 pt-4 text-sm"></div>
   </div>
 </div>
-<script src="js/core.js?v=20261109s"></script>
-<script src="js/data-load.js?v=20261109s"></script>
-<script src="js/practices.js?v=20261109s"></script>
-<script src="js/referral.js?v=20261109s"></script>
-<script src="js/networks.js?v=20261109s"></script>
-<script src="js/revenue-pum.js?v=20261109s"></script>
-<script src="js/signals.js?v=20261109s"></script>
-<script src="js/mergers.js?v=20261109s"></script>
-<script src="js/audiences.js?v=20261109s"></script>
-<script src="js/audience-tests.js?v=20261109s"></script>
-<script src="js/hubspot-align.js?v=20261109s"></script>
-<script src="js/data-tab.js?v=20261109s"></script>
-<script src="js/data-connections.js?v=20261109s"></script>
-<script src="js/data-uploads.js?v=20261109s"></script>
-<script src="js/contact-import.js?v=20261109s"></script>
-<script src="js/contact-rules.js?v=20261109s"></script>
-<script src="js/contacts.js?v=20261109s"></script>
-<script src="js/contacts-nb.js?v=20261109s"></script>
-<script src="js/data-audit.js?v=20261109s"></script>
-<script src="js/data-branches.js?v=20261109s"></script>
-<script src="js/hubspot.js?v=20261109s"></script>
-<script src="js/hubspot-company.js?v=20261109s"></script>
-<script src="js/hubspot-admin.js?v=20261109s"></script>
-<script src="js/hubspot-group.js?v=20261109s"></script>
-<script src="js/hubspot-network.js?v=20261109s"></script>
-<script src="js/network-admin.js?v=20261109s"></script>
-<script src="js/export.js?v=20261109s"></script>
-<script src="js/main.js?v=20261109s"></script>
+<script src="js/core.js?v=20261109t"></script>
+<script src="js/data-load.js?v=20261109t"></script>
+<script src="js/practices.js?v=20261109t"></script>
+<script src="js/referral.js?v=20261109t"></script>
+<script src="js/networks.js?v=20261109t"></script>
+<script src="js/revenue-pum.js?v=20261109t"></script>
+<script src="js/signals.js?v=20261109t"></script>
+<script src="js/mergers.js?v=20261109t"></script>
+<script src="js/audiences.js?v=20261109t"></script>
+<script src="js/audience-tests.js?v=20261109t"></script>
+<script src="js/hubspot-align.js?v=20261109t"></script>
+<script src="js/data-tab.js?v=20261109t"></script>
+<script src="js/data-connections.js?v=20261109t"></script>
+<script src="js/data-uploads.js?v=20261109t"></script>
+<script src="js/contact-import.js?v=20261109t"></script>
+<script src="js/contact-rules.js?v=20261109t"></script>
+<script src="js/contacts.js?v=20261109t"></script>
+<script src="js/contacts-nb.js?v=20261109t"></script>
+<script src="js/data-audit.js?v=20261109t"></script>
+<script src="js/data-branches.js?v=20261109t"></script>
+<script src="js/hubspot.js?v=20261109t"></script>
+<script src="js/hubspot-company.js?v=20261109t"></script>
+<script src="js/hubspot-admin.js?v=20261109t"></script>
+<script src="js/hubspot-group.js?v=20261109t"></script>
+<script src="js/hubspot-network.js?v=20261109t"></script>
+<script src="js/network-admin.js?v=20261109t"></script>
+<script src="js/export.js?v=20261109t"></script>
+<script src="js/main.js?v=20261109t"></script>
 </body>
 </html>

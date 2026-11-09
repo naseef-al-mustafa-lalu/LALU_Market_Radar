@@ -392,7 +392,7 @@ async function openDrawer(p) {
   if (drawerCode !== p.ods_code) return;   // user moved on
   hsSetLink(p, hl && hl[0]);
   const dealBox = $("dr-hsdeal"); if (dealBox && hl && hl[0]) dealBox.outerHTML = kv("Linked deal", hsLink("0-3", hl[0].deal_id, hl[0].deal_name || "Open deal"));
-  $("dr-contacts").outerHTML = contactsSection(cs || [], (gen && gen[0]) || null);
+  $("dr-contacts").outerHTML = contactsSection((cs || []).filter(c => !c.held_reason), (gen && gen[0]) || null);   // contacts held back at import (shared or unclear addresses) are only in the Contacts tab
   $("dr-signals").outerHTML = sec("Signals and hiring", sigTiles(sg || [], jobs));
 }
 
