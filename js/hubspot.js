@@ -61,6 +61,7 @@ function hsSection(p, st) {
     + kv("Company status", p.hubspot_company_status ? (p.hubspot_company_status === "Ex-Customer" ? chip(p.hubspot_company_status, "bg-rose-100 text-rose-800") : esc(p.hubspot_company_status)) : "")
     + kv("Service started", p.hubspot_first_start ? esc(fmtDate(p.hubspot_first_start)) : "") + kv("Churned", p.hubspot_churned_date ? `<span class="text-rose-700">${esc(fmtDate(p.hubspot_churned_date))}</span>` : "")
     + kv("Lifecycle stage", esc(p.hubspot_stage))
+    + (linked ? kv("Org type (HubSpot)", p.hubspot_org_type ? esc(HS_ORG_LABEL[p.hubspot_org_type] || p.hubspot_org_type) + (p.hubspot_org_type !== atlasOrgType(p) ? " " + chip("Needs updating", "bg-amber-100 text-amber-800") : "") : '<span class="text-slate-500">blank</span>') + kv("Operating status (HubSpot)", p.hubspot_operating_status ? esc(HS_OPSTATUS_LABEL[p.hubspot_operating_status] || p.hubspot_operating_status) + (p.hubspot_operating_status !== atlasOpStatus(p) ? " " + chip("Needs updating", "bg-amber-100 text-amber-800") : "") : '<span class="text-slate-500">blank</span>') + kv("Website (HubSpot)", p.hubspot_website ? esc(p.hubspot_website) : "") : "")
     + kv("Contacts in HubSpot", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + (when ? `<div class="mt-1 text-xs text-slate-500">${esc(when)}</div>` : ""));
 }
 
