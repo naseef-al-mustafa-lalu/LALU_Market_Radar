@@ -961,6 +961,20 @@ def plan_hubspot_orgs(orgs, links, company_ods):
     return out
 
 
+def link_network_deals(rest, hub, org_company_ids):
+    """Deals made in HubSpot for a whole federation or group (associated with its company) are recorded against the organisation, so its practices' profiles say "covered by the group's deal" instead of "no deal linked".
+    Only live deals (open or won) are kept; deals the tool created are already there and never changed."""
+    to_deals = associations(hub, "deals", list(org_company_ids))
+    deals = read_objects(hub, "deals", [d for v in to_deals.values() for d in v], ["dealname", "hs_is_closed", "hs_is_closed_won", "hs_is_closed_lost"])
+    org_of = {str(r["company_id"]): r["org_id"] for r in rest.select_all("hubspot_org_companies", "org_id,company_id", order="company_id")}
+    have = {r["deal_id"] for r in rest.select_all("hubspot_network_deals", "deal_id", order="deal_id")}
+    rows = [{"deal_id": d, "org_id": org_of[c], "company_id": c, "deal_name": (deals[d].get("dealname") or "")[:200] or None, "created_by": "HubSpot sync"}
+            for c, ds in to_deals.items() if c in org_of for d in ds if d in deals and d not in have and deals[d].get("hs_is_closed_lost") != "true"]
+    if rows:
+        rest.upsert("hubspot_network_deals", rows, "deal_id")
+    return len(rows)
+
+
 def sync_hubspot_orgs(rest, hub, by_ods):
     """Bring HubSpot's federations and operating groups, and their practices, into the organisation graph."""
     company_ods = {str(c["id"]): ods for ods, cs in by_ods.items() for c in cs}
@@ -969,7 +983,12 @@ def sync_hubspot_orgs(rest, hub, by_ods):
     empty = {i["name"]: i["seen"] for i in items if not i["practices"] and i["seen"]}   # linked to practices in HubSpot, but none by a label that counts
     payload = [{k: v for k, v in i.items() if k != "seen"} for i in items]
     res = rest.rpc("apply_hubspot_orgs", {"items": payload})
-    return {"hubspot_orgs": len(items), "hubspot_org_links": sum(len(i["practices"]) for i in items), "hubspot_orgs_created": (res or {}).get("created", 0),
+    try:
+        deals_linked = link_network_deals(rest, hub, [o["id"] for o in orgs])
+    except Exception as e:  # noqa: BLE001  deals are a convenience; the organisations are already saved
+        deals_linked = 0
+        print("Network deals skipped:", e)
+    return {"hubspot_network_deals": deals_linked, "hubspot_orgs": len(items), "hubspot_org_links": sum(len(i["practices"]) for i in items), "hubspot_orgs_created": (res or {}).get("created", 0),
             **({"hubspot_orgs_no_counting_label": empty} if empty else {})}
 
 

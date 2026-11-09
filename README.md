@@ -414,3 +414,5 @@ Re-engagement > **Create audience from N eligible contacts** saves the eligible 
 Data > HubSpot audit has two lifecycle checks, rebuilt by every HubSpot sync and report-only (Atlas never changes the stage). **Should be Past Customer**: no Service is live (In Contract, Renewal Period, Renewed, close to cancellation) and a Service carries a churn date, but the company's Lifecycle Stage is something else (Past Customer, Merged/Closed and Ex-Customer companies are skipped). **Past Customer with a live Service**: the stage says Past Customer but a Service is still live.
 
 HubSpot contacts are stored in Atlas only when a person made them in HubSpot (any lead source) and Atlas does not already hold them (by HubSpot id or email address). Contacts Atlas created in HubSpot itself (source detail Oscar AI or Lalu Atlas Import) are never stored again, so the two sides mirror each other without duplicates.
+
+Deals made in HubSpot for a federation or group (associated with its company, any lost deals left out) are recorded against that organisation by the daily sync, so a practice covered by a group deal says so instead of "no deal linked".

@@ -822,7 +822,7 @@ def test_sync_hubspot_orgs_sends_the_plan():
             calls.append((name, args)); return {"created": 1}
 
     out = hsy.sync_hubspot_orgs(R(), H(), {"A1": [{"id": 11}]})
-    assert out == {"hubspot_orgs": 1, "hubspot_org_links": 1, "hubspot_orgs_created": 1}
+    assert out == {"hubspot_network_deals": 0, "hubspot_orgs": 1, "hubspot_org_links": 1, "hubspot_orgs_created": 1}
     assert calls[-1][0] == "apply_hubspot_orgs" and calls[-1][1]["items"][0]["practices"] == ["A1"]
 
 
@@ -1157,6 +1157,24 @@ def test_hubspot_contacts_stored_only_when_a_person_made_them_and_atlas_lacks_th
     r = R()
     n = hsy.import_hubspot_contacts(r, {"A1": [{"id": 10}]}, {"10": ["1", "2", "3", "4"]}, contacts, set(), known_emails={"held@nhs.net"})
     assert n == 1 and r.rows[0]["hubspot_contact_id"] == "1"      # not Atlas-made contacts, not an address Atlas already holds
+
+
+def test_deals_made_in_hubspot_for_a_group_are_recorded_against_it():
+    from src import hubspot_sync as hsy
+
+    class Hub:
+        def call(self, method, path, **kw):
+            if "/companies/deals/batch/read" in path: return {"results": [{"from": {"id": "9"}, "to": [{"toObjectId": 1}, {"toObjectId": 2}, {"toObjectId": 3}]}]}
+            if "/deals/batch/read" in path:
+                return {"results": [{"id": "1", "properties": {"dealname": "Henmore Health", "hs_is_closed": "false"}}, {"id": "2", "properties": {"dealname": "Lost", "hs_is_closed_lost": "true"}}, {"id": "3", "properties": {"dealname": "Known"}}]}
+            raise AssertionError(path)
+
+    class R:
+        def __init__(self): self.up = []
+        def select_all(self, table, *a, **k): return {"hubspot_org_companies": [{"org_id": "o1", "company_id": "9"}], "hubspot_network_deals": [{"deal_id": "3"}]}[table]
+        def upsert(self, table, rows, key): self.up += rows
+    r = R()
+    assert hsy.link_network_deals(r, Hub(), ["9"]) == 1 and r.up[0]["deal_id"] == "1" and r.up[0]["org_id"] == "o1"      # a lost deal and one already recorded are skipped
 
 
 def test_a_customer_with_only_a_signed_deal_is_linked_to_it():
