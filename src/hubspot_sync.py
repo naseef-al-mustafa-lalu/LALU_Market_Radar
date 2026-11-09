@@ -18,7 +18,7 @@ from . import oscar, segments, slack, sources
 from .common import Rest, need_env, norm_ods, send_alert, title_case
 
 BASE = "https://api.hubapi.com"
-LIFECYCLE = {"lead": "New", "2207373534": "Engaged", "marketingqualifiedlead": "Marketing Qualified Lead", "5640141025": "Prospecting",
+LIFECYCLE = {"6366279924": "Merged/Closed", "lead": "New", "2207373534": "Engaged", "marketingqualifiedlead": "Marketing Qualified Lead", "5640141025": "Prospecting",
              "salesqualifiedlead": "Sales Qualified Lead", "opportunity": "Opportunity", "customer": "Customer", "4726262995": "Past Customer",
              "evangelist": "Evangelist", "other": "Other", "4025181418": "Client Services"}
 # Engaged = the COMPANY is past New / Prospecting in HubSpot (and is not a Customer, which is its own status): Engaged, MQL, SQL, Opportunity, Evangelist, Client Services.
@@ -84,11 +84,12 @@ def read_objects(hub, obj, ids, props):
 
 
 PAST_CUSTOMER = "4726262995"   # Lifecycle Stage: Past Customer
+MERGED_CLOSED = "6366279924"   # Lifecycle Stage: Merged/Closed (a practice that merged into another or closed): not a customer
 
 
 def ended(c):
     """A company that is no longer a customer: Company Status Ex-Customer, or Lifecycle Stage Past Customer."""
-    return c.get("company_status") == "Ex-Customer" or c.get("lifecyclestage") == PAST_CUSTOMER
+    return c.get("company_status") == "Ex-Customer" or c.get("lifecyclestage") in (PAST_CUSTOMER, MERGED_CLOSED)
 
 
 def classify(companies, contact_ids, contacts, deal_ids, deals):
