@@ -87,6 +87,7 @@ function ctBadges(c) {
   if (c.hs_mkt_optout) out.push(chip("No marketing consent", "bg-rose-100 text-rose-800", "Opted out of Marketing Information"));
   if (c.hs_bounced) out.push(chip("Bounced", "bg-rose-100 text-rose-800", c.hs_bounce_reason || "Email bounced"));
   if (c.hs_in_sequence) out.push(chip("In sequence", "bg-purple-100 text-purple-800", "Enrolled in a HubSpot sequence"));
+  else if (c.hs_seq_exit) out.push(chip("Left sequence: " + c.hs_seq_exit, "bg-slate-100 text-slate-700", "HubSpot took them out of the sequence" + (c.hs_seq_ended_at ? " on " + String(c.hs_seq_ended_at).slice(0, 10) : "")));   // HubSpot unenrols by its own rules; Atlas records the reason
   return out.join(" ");
 }
 // Why Atlas's suppression rules hold a contact back (blank when nothing does): the single answer used to disable ticking in Audiences and Signals.

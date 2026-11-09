@@ -43,6 +43,7 @@ async function hsNetDealForm(company) {
   const { net: n, parts } = hs, box = $("hs-results") || $("hs-body"); hsRender(hsSkeleton(3)); hsTitle("Create deal");
   try {
     const [pre, hub, objs] = await Promise.all([hsCall({ action: "deal_prefill", companyId: company.id, noContacts: true }), hsCall({ action: "hub", companyId: company.id }), hsNetObjects(n, parts)]);
+    hs.warnNet = await hsContactWarn((hub.contacts || []).map(c => c.id));
     const pipes = pre.pipelines, def = pipes.find(x => x.id === "default") || pipes[0], stageNew = def.stages.find(s => s.id === "appointmentscheduled") || def.stages[0];
     const annual = Math.round(Number(n.arr_network != null ? n.arr_network : n.arr_single) || 0), close = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10), inp = hsInp, field = hsField, opts = hsOpts;
     const KIND = { pcn: "PCN", icb: "ICB", group: "provider group", federation: "federation" }[n.kind];
@@ -58,7 +59,7 @@ async function hsNetDealForm(company) {
       ${field("Product / service", `<select id="nd-prod" class="${inp}">${opts([["eMR+", "ReportSure - Managed Service"], ["eMR", "ReportSure - Self Service"]], "eMR+")}</select>`)}
       ${field("Deal owner", pre.owners ? `<select id="nd-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
       ${field("Close date", `<input id="nd-close" type="date" class="${inp}" value="${close}">`)}${field("Amount (£, per year)", `<input id="nd-amount" type="number" min="0" step="0.01" class="${inp}" value="${annual}">`)}</div>
-      ${hsContactBlock(hub.contacts)}
+      ${hsContactBlock(hub.contacts, hs.warnNet || new Map())}
       <label class="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" id="nd-link" class="mt-1" ${objs.length ? "checked" : "disabled"}><span>Link the deal to its HubSpot ${objs.length ? `records: <b>${nPcn}</b> PCN${nPcn === 1 ? "" : "s"}${nIcb ? ` and <b>${nIcb}</b> ICB` : ""}` : "PCN and ICB records (none found in HubSpot)"}
         ${objs.length ? `<details class="text-xs text-slate-500"><summary class="cursor-pointer">Show them</summary>${esc(objs.map(o => o.name).sort().join(", "))}</details>` : ""}</span></label>
       ${(pre.warnings || []).map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}

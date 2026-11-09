@@ -1164,3 +1164,17 @@ def test_slack_channels_are_the_ones_the_bot_is_in_and_follow_changes():
         def delete_in(self, table, column, values, chunk=200, extra=None): self.deleted = values
     calls.clear(); r = Rest()
     assert slack.sync_channels(r, get, "tok") == 2 and [x["id"] for x in r.up] == ["C1", "C3"] and r.deleted == ["C9"]      # a channel the bot left disappears from the picker, a new one appears
+
+
+def test_sequence_exit_reason_is_recorded_from_what_hubspot_holds():
+    from src import hubspot_sync as hsy
+
+    base = {"hs_latest_sequence_enrolled_date": "2026-11-01T09:00:00Z", "hs_latest_sequence_ended_date": "2026-11-03T10:00:00Z", "hs_sequences_is_enrolled": "false"}
+    assert hsy.sequence_exit({**base, "hs_sequences_is_enrolled": "true"}) is None and hsy.sequence_exit({"hs_sequences_is_enrolled": "false"}) is None      # still in it, or never in one
+    assert hsy.sequence_exit({**base, "hs_sales_email_last_replied": "2026-11-02T08:00:00Z"}) == "replied"
+    assert hsy.sequence_exit({**base, "engagements_last_meeting_booked": str(int(1793000000000))}) in ("booked a meeting", "completed")
+    assert hsy.sequence_exit({**base, "engagements_last_meeting_booked": "2026-11-02T11:00:00Z"}) == "booked a meeting"
+    assert hsy.sequence_exit({**base, "hs_sales_email_last_replied": "2026-10-01T00:00:00Z"}) == "completed"      # a reply from before this sequence does not count
+    assert hsy.sequence_exit({**base, "hs_email_optout": "true", "hs_sales_email_last_replied": "2026-11-02T08:00:00Z"}) == "unsubscribed" and hsy.sequence_exit({**base, "hs_email_bounce": "1"}) == "bounced"
+    st = hsy.contact_state({**base, "hs_latest_sequence_enrolled": "88", "hs_sales_email_last_replied": "2026-11-02T08:00:00Z"}, 1, "now")
+    assert st["hs_seq_exit"] == "replied" and st["hs_seq_id"] == "88" and st["hs_seq_ended_at"].startswith("2026-11-03")

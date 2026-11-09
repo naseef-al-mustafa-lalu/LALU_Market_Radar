@@ -643,5 +643,9 @@ with sync_playwright() as p:
       hsAdoptLine(p, { deal: { size_tier: 'Tier 3', size_discount: '0.05', speed_discount: '0.05', term_length_years: '2' } }); const r = [discountsOn, speedOn, termYrs]; pricingTouched = true; hsAdoptLine(p, { deal: { size_tier: 'Tier 1', size_discount: '0', speed_discount: '0', term_length_years: '1' } }); return r.concat([discountsOn, termYrs]); })()""")
     assert ad == [True, True, 2, True, 2], ad      # a deal's own size, speed and term set the switches (HubSpot to calculator), unless you have already chosen
     pg.keyboard.press("Escape")
+    wb = pg.evaluate("hs = { picked: null }, hsContactBlock([{ id: 'c1', firstname: 'Lena', lastname: 'A' }, { id: 'c2', firstname: 'Opt', lastname: 'B' }], new Map([['c2', 'Already in a sequence']]))")
+    assert "Opt B ⚠" in wb and "Lena A ⚠" not in wb and "Already in a sequence" in wb and "disabled" not in wb.split("nd-primary")[1].split("</select>")[0], wb[:300]      # a contact Atlas would hold back is flagged in the deal picker, not blocked
+    nk = pg.evaluate("['GP Led Dermatology Service', 'I.C.B. (Oxford City)', 'Litherland Primary Care Walk-in Service', 'Liverpool Women\\'s NHS Foundation Trust', 'Cgl Aspire', 'Fiveways PCN Ea Hub', 'Something Else'].map(nonGpKind)")
+    assert nk == ["GP-led specialist service", "ICB / commissioning", "Walk-in / urgent care", "Hospital trust", "Community service", "PCN / network hub", "Other non-GP service"], nk      # non-GP services get a plain label from their name
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

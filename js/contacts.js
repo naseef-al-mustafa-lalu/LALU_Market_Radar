@@ -2,7 +2,7 @@
    The rules live in contact-rules.js. Loaded after contact-rules.js. Contacts are read from public.contacts; their HubSpot state (lifecycle, sequence, bounce...) is kept there by the daily HubSpot sync. */
 let ctAll = [], ctLoaded = false, ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctLocked = new Map(), ctHeld = null, ctSaving = false;
 let ctMoreOpen = false, ctF = { dq: "", q: "", section: "", status: "", role: "", source: "", reason: "" };
-const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,held_reason,nb_state,nb_result,nb_checked_at,nb_approved_by,hs_dq_reason,hs_dq_note,hs_dq_at,hs_reengage_date";
+const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,held_reason,nb_state,nb_result,nb_checked_at,nb_approved_by,hs_dq_reason,hs_dq_note,hs_dq_at,hs_reengage_date,hs_seq_exit,hs_seq_ended_at";
 const CT_STATUS = { eligible: ["Eligible", "bg-emerald-100 text-emerald-800"], suppressed: ["Held back", "bg-amber-100 text-amber-800"], excluded: ["Not used", "bg-slate-100 text-slate-600"] };
 const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other", "bg-sky-100 text-sky-800"] };
 

@@ -56,14 +56,24 @@ function hsOpenDealNotice(company, existing, again) {
   $("od-back").onclick = () => hsCompanyPage(company.id); $("od-another").onclick = again;
 }
 // The deal needs one contact carrying the "Primary contact" label (HubSpot's own form requires it): picked here, others are optional.
-function hsContactBlock(contacts) {
+// Contacts Atlas would hold back (unsubscribed, bounced, in a sequence, failed NeverBounce...) are flagged in the pickers: a warning, never a block, since a deal or lead can still be about them.
+async function hsContactWarn(ids) {
+  if (!ids.length || typeof ctSuppressedWhy !== "function") return new Map();
+  try {
+    const { data } = await db.from("contacts").select("hubspot_contact_id,ods_code,first_name,last_name,full_name,job_title,email,email_opt_out,email_quality,role_tier,held_reason,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce").in("hubspot_contact_id", ids.map(String));
+    return new Map((data || []).map(c => [String(c.hubspot_contact_id), ctSuppressedWhy(c, byOds.get(c.ods_code))]).filter(([, w]) => w));
+  } catch (e) { return new Map(); }
+}
+function hsContactBlock(contacts, warn = new Map()) {
   if (!contacts.length) return '<div class="mt-3 rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-800">A deal needs a primary contact and this company has no contacts yet. <button id="nd-addfirst" type="button" class="font-semibold underline">Add contacts first</button></div>';
   const first = (hs.picked && contacts.find(c => hs.picked.includes(c.id)) || contacts[0]).id;
-  return `<div class="mt-3 grid gap-2 sm:grid-cols-2">${hsField("Primary contact (required)", `<select id="nd-primary" class="${hsInp}">${hsOpts(contacts.map(c => [c.id, hsNameOf(c) + (c.jobtitle ? " · " + c.jobtitle : "")]), first)}</select>`)}</div>
+  return `<div class="mt-3 grid gap-2 sm:grid-cols-2">${hsField("Primary contact (required)", `<select id="nd-primary" class="${hsInp}">${hsOpts(contacts.map(c => [c.id, hsNameOf(c) + (c.jobtitle ? " · " + c.jobtitle : "") + (warn.has(String(c.id)) ? " ⚠" : "")]), first)}</select>`)}</div>
+    <p id="nd-warn" class="mt-1 min-h-[1rem] text-xs text-amber-800" role="status" data-warn='${esc(JSON.stringify(Object.fromEntries(warn)))}'></p>
     ${contacts.length > 1 ? `<div class="mt-2"><div class="mb-1 text-xs font-semibold text-slate-600">Also associate</div>${contacts.slice(0, 10).map(c => `<label class="nd-also flex items-center gap-2 py-0.5 ${c.id === first ? "hidden" : ""}" data-c="${esc(c.id)}"><input type="checkbox" data-nd-contact="${esc(c.id)}" ${hs.picked && hs.picked.includes(c.id) ? "checked" : ""}><span>${esc(hsNameOf(c))} <span class="text-xs text-slate-500">${esc(c.jobtitle || "")} ${esc(c.email || "")}</span></span></label>`).join("")}</div>` : ""}`;
 }
 function hsContactWire(onAdd) {
-  const pr = $("nd-primary"); if (pr) pr.onchange = () => document.querySelectorAll(".nd-also").forEach(l => l.classList.toggle("hidden", l.dataset.c === pr.value));
+  const pr = $("nd-primary"), wn = $("nd-warn"), showWarn = () => { if (!pr || !wn) return; try { const w = JSON.parse(wn.dataset.warn || "{}")[pr.value]; wn.textContent = w ? "Heads up: Atlas would hold this contact back from campaigns (" + w + "). You can still use them here." : ""; } catch (e) { wn.textContent = ""; } };
+  if (pr) { pr.onchange = () => { document.querySelectorAll(".nd-also").forEach(l => l.classList.toggle("hidden", l.dataset.c === pr.value)); showWarn(); }; showWarn(); }
   const af = $("nd-addfirst"); if (af) af.onclick = onAdd;
 }
 const hsContactIds = () => ({ primaryContactId: $("nd-primary")?.value || "", contactIds: [...document.querySelectorAll("[data-nd-contact]:checked")].map(x => x.dataset.ndContact).filter(x => x !== $("nd-primary")?.value) });
@@ -140,7 +150,7 @@ async function hsDealForm(company) {
   const box = $("hs-results");
   try {
     hsTitle("Create deal"); if (!hs.pre) box.innerHTML = hsSkeleton(3); const pre = await hsPrefill(company.id), p = hs.p, want = hs.want || hsDesired(p), contacts = (hs.hub && hs.hub.contacts) || pre.contacts;
-    const lead = contacts[0] ? hsNameOf(contacts[0]) : (p.manager_name || "");
+    const warn = await hsContactWarn(contacts.map(c => c.id)), lead = contacts[0] ? hsNameOf(contacts[0]) : (p.manager_name || "");
     const pipes = pre.pipelines, def = pipes.find(x => x.id === "default") || pipes[0], stageNew = def.stages.find(s => s.id === "appointmentscheduled") || def.stages[0];
     const close = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10), amount = Math.round(p.total_patients * want.rate * 12 * 100) / 100;
     const field = hsField, inp = hsInp;
@@ -162,7 +172,7 @@ async function hsDealForm(company) {
         ${field("Deal owner", pre.owners ? `<select id="nd-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
         ${field("Close date", `<input id="nd-close" type="date" class="${inp}" value="${close}">`)}
         ${field("Amount (£, per year)", `<input id="nd-amount" type="number" min="0" step="0.01" class="${inp}" value="${amount}">`)}</div>
-      ${hsContactBlock(contacts)}
+      ${hsContactBlock(contacts, warn)}
       ${pre.warnings.map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
       <p class="mt-2 text-xs text-slate-500">The Amount starts at the annual revenue above. The pricing above (discounts, size tier, value per patient, commercial model and line item) is written to the deal straight after it is created, and checked against HubSpot on the same page.</p>
       <div id="nd-msg" class="mt-2" role="status"></div>

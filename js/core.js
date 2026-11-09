@@ -167,3 +167,11 @@ function panelizeFilters(searchId, fields) {
   document.addEventListener("click", e => { if (!panel.classList.contains("hidden") && !panel.contains(e.target) && !btn.contains(e.target)) { panel.classList.add("hidden"); btn.setAttribute("aria-expanded", "false"); } });
   search.after(btn); row.appendChild(panel);
 }
+
+// What kind of non-GP service a Y-code record is, from its name (these are not sales targets, so a label is enough; ODS role codes would not tell a dermatology service from any other community service).
+function nonGpKind(name) {
+  const n = String(name || "").toLowerCase();
+  return /walk[- ]?in|urgent|\bu[tc]c\b/.test(n) ? "Walk-in / urgent care" : /\bicb\b|i\.c\.b|\bccg\b|commission|integrated care board/.test(n) ? "ICB / commissioning" : /foundation trust|nhs trust|hospital/.test(n) ? "Hospital trust"
+    : /\bpcn\b|primary care network|\bhub\b/.test(n) ? "PCN / network hub" : /dermatolog|gynaecolog|ophthalm|musculoskeletal|\bmsk\b|cardio|diabet|mental|physio|vasectom|larc|contracept|sexual health|minor surg/.test(n) ? "GP-led specialist service"
+    : /clinic|service|aspire|drug|alcohol|substance|recovery|cgl/.test(n) ? "Community service" : "Other non-GP service";
+}

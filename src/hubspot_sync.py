@@ -769,7 +769,38 @@ def role_columns(role_links, company_id):
 
 
 CONTACT_STATE_PROPS = ["lifecyclestage", "hs_sequences_is_enrolled", "hs_email_bounce", "hs_email_hard_bounce_reason_enum", "hs_email_last_send_date", "hs_email_optout", "hs_email_optout_621322507",
-                       "hubspot_owner_id", "neverbounce_status"]   # 621322507 is the Marketing Information subscription
+                       "hubspot_owner_id", "neverbounce_status", "hs_latest_sequence_enrolled", "hs_latest_sequence_enrolled_date", "hs_latest_sequence_ended_date", "hs_sales_email_last_replied",
+                       "engagements_last_meeting_booked"]   # 621322507 is the Marketing Information subscription
+
+
+def _ts(v):
+    """A datetime from a HubSpot date-time value (ISO text, or epoch milliseconds); None when absent or unreadable."""
+    v = str(v or "").strip()
+    try:
+        if v.isdigit():
+            return datetime.fromtimestamp(int(v) / 1000, timezone.utc)
+        return datetime.fromisoformat(v.replace("Z", "+00:00")) if v else None
+    except ValueError:
+        return None
+
+
+def sequence_exit(props):
+    """Why a contact is no longer in a HubSpot sequence, from what HubSpot holds: unsubscribed, bounced, replied, booked a meeting, else completed. None while enrolled or if never enrolled.
+    HubSpot unenrols by its own rules (a reply, a booked call, a bounce, an unsubscribe); Atlas only records the reason."""
+    if str(props.get("hs_sequences_is_enrolled") or "").lower() == "true":
+        return None
+    ended, started = _ts(props.get("hs_latest_sequence_ended_date")), _ts(props.get("hs_latest_sequence_enrolled_date"))
+    if not ended:
+        return None
+    since = lambda k: (lambda t: bool(t and (not started or t >= started)))(_ts(props.get(k)))
+    if str(props.get("hs_email_optout") or "").lower() == "true":
+        return "unsubscribed"
+    try:
+        if float(props.get("hs_email_bounce") or 0) >= 1:
+            return "bounced"
+    except ValueError:
+        pass
+    return "replied" if since("hs_sales_email_last_replied") else "booked a meeting" if since("engagements_last_meeting_booked") else "completed"
 
 
 def contact_state(props, urn, now, dq=None):
@@ -785,6 +816,8 @@ def contact_state(props, urn, now, dq=None):
             "hs_bounce_reason": props.get("hs_email_hard_bounce_reason_enum") or None, "hs_last_sent": props.get("hs_email_last_send_date") or None,
             "hs_mkt_optout": flag("hs_email_optout_621322507"), "hs_optout_all": flag("hs_email_optout"), "hs_owner": props.get("hubspot_owner_id") or None,
             "hs_neverbounce": props.get("neverbounce_status") or None, "hs_state_at": now,
+            "hs_seq_id": props.get("hs_latest_sequence_enrolled") or None, "hs_seq_enrolled_at": (_ts(props.get("hs_latest_sequence_enrolled_date")) or None) and _ts(props.get("hs_latest_sequence_enrolled_date")).isoformat(),
+            "hs_seq_ended_at": (_ts(props.get("hs_latest_sequence_ended_date")) or None) and _ts(props.get("hs_latest_sequence_ended_date")).isoformat(), "hs_seq_exit": sequence_exit(props),
             "hs_dq_reason": (dq or {}).get("reason"), "hs_dq_note": (dq or {}).get("note"), "hs_dq_at": (dq or {}).get("at"), "hs_reengage_date": (dq or {}).get("reengage")}
 
 
@@ -822,7 +855,17 @@ def sync_contact_state(rest, hub, now):
     done = 0
     for ch in chunks(rows, 1000):
         done += int(rest.rpc("apply_contact_state", {"items": ch}) or 0)
-    return {"contact_states": done, "contact_states_missing": len(mine) - len(rows)}
+    exits = 0
+    try:   # an audience member enrolled in a sequence who has since left it: record when and why on the member
+        by_hs = {str(r["hubspot_contact_id"]): row for r, row in zip(mine, rows) if row.get("hs_seq_exit") and row.get("hs_seq_ended_at")}
+        for m in rest.select_all("audience_members", "audience_id,contact_id,state,enrolled_at,exit_reason", order="audience_id", params={"state": "eq.enrolled"}):
+            row = by_hs.get(str(m.get("contact_id")))
+            if row and not m.get("exit_reason") and (not m.get("enrolled_at") or row["hs_seq_ended_at"] >= m["enrolled_at"]):
+                rest.patch("audience_members", {"audience_id": f"eq.{m['audience_id']}", "contact_id": f"eq.{m['contact_id']}"}, {"exit_reason": row["hs_seq_exit"], "exited_at": row["hs_seq_ended_at"]})
+                exits += 1
+    except Exception as e:  # noqa: BLE001
+        print("Sequence exits skipped:", e)
+    return {"contact_states": done, "contact_states_missing": len(mine) - len(rows), "sequence_exits_recorded": exits}
 
 
 FED_LABELS = {"federation", "member practice"}                  # practice -> federation / federation -> practice
