@@ -225,7 +225,7 @@ function priceCard(args) {
   const id = "pc" + priceCards.size; priceCards.set(id, args);
   return `<div class="price-card" data-pc="${id}">${priceCardBody(args, id)}</div>`;
 }
-function repaintPriceCards() { const live = new Set([...document.querySelectorAll(".price-card")].map(el => el.dataset.pc)); for (const k of priceCards.keys()) if (!live.has(k)) priceCards.delete(k); document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc), el.dataset.pc); }); document.querySelectorAll(".route-cmp").forEach(el => { el.innerHTML = routeCmpPractice ? routeComparisonBody(routeCmpPractice) : ""; }); if (typeof hsRefreshBars === "function") hsRefreshBars(); }
+function repaintPriceCards() { if (typeof netDealRender === "function") netDealRender(); const live = new Set([...document.querySelectorAll(".price-card")].map(el => el.dataset.pc)); for (const k of priceCards.keys()) if (!live.has(k)) priceCards.delete(k); document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc), el.dataset.pc); }); document.querySelectorAll(".route-cmp").forEach(el => { el.innerHTML = routeCmpPractice ? routeComparisonBody(routeCmpPractice) : ""; }); if (typeof hsRefreshBars === "function") hsRefreshBars(); }
 document.addEventListener("click", e => {
   const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt"), pr = e.target.closest(".prod-opt"), dc = e.target.closest(".disc-toggle");
   if (dc) { pricingTouched = true; discountsOn = !discountsOn; document.querySelectorAll(".net-disc").forEach(el => el.classList.toggle("hidden", !discountsOn)); repaintPriceCards(); document.querySelector(".disc-toggle")?.focus({ preventScroll: true }); }
