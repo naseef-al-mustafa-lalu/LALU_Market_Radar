@@ -85,6 +85,22 @@ def messages(send, others, tiers, dashboard_url=""):
     return out
 
 
+def audience_alerts(rest, sent, base=""):
+    """Audiences with the Slack alert switched on (default off) get a short note in #lalu_atlas when a new signal of their type puts a practice into them."""
+    if not slack.atlas_configured():
+        return 0
+    auds = [a for a in rest.select_all("audiences", "id,name,signal_type,kind,slack_alert,archived", order="id", params={"slack_alert": "eq.true", "archived": "eq.false"}) if a.get("kind") == "signal"]
+    n = 0
+    for a in auds:
+        hits = [t for t in sent if t.get("trigger_type") == a.get("signal_type") and t.get("gp_practices")]
+        if not hits:
+            continue
+        names = ", ".join(slack.link(f"{base}/?open={t['gp_practices']['ods_code']}" if base else "", t["gp_practices"]["practice_name"]) for t in hits[:8]) + (f" and {len(hits) - 8} more" if len(hits) > 8 else "")
+        slack.post_atlas(f":bell: *{slack.mrkdwn(a['name'])}*: {len(hits)} new practice{'s' if len(hits) != 1 else ''} in this audience: {names}. Open Atlas > Signals > Audiences to review their contacts.")
+        n += 1
+    return n
+
+
 def main():
     need_env("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
     if os.environ.get("SLACK_MODE", "ON") == "DISABLED":
@@ -104,6 +120,10 @@ def main():
     send, skip = select([t for t in triggers if t.get("gp_practices")], min_tier, tiers)
     for text, blocks in messages(send, others, tiers, os.environ.get("DASHBOARD_URL", "")):
         slack.post(text, blocks)    # raises on failure: nothing is marked sent, so the next run tries again
+    try:
+        audience_alerts(rest, send + skip, os.environ.get("DASHBOARD_URL", ""))
+    except Exception as e:  # noqa: BLE001  an extra alert never blocks the signal post
+        print(f"Audience alert skipped: {e}")
     done = [t["id"] for t in send + skip + others]
     for i in range(0, len(done), 100):
         rest.patch("sales_triggers", {"id": f"in.({','.join(done[i:i + 100])})"}, {"email_dispatched": True})

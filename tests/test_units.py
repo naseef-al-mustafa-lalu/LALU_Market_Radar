@@ -1051,3 +1051,18 @@ def test_segments_sync_tracks_two_campaign_lists_and_reads_their_criteria():
     assert out == {"segments": 2, "segments_tracked": 1, "segment_members": 2}      # the company list is ignored; only UM (a default) is tracked
     um = [x for x in r.up["hubspot_segments"] if x["list_id"] == "2675"][0]
     assert um["tracked"] and um["criteria"]["neverbounce"] == ["Valid"] and [m["contact_id"] for m in r.up["hubspot_segment_members"]] == ["1", "2"] and r.deleted == [("hubspot_segment_members", ["9"], {"list_id": "eq.2675"})]
+
+
+def test_audience_alerts_only_for_audiences_with_the_switch_on(monkeypatch):
+    from src import notify, slack
+
+    posted = []
+    monkeypatch.setattr(slack, "atlas_configured", lambda: True)
+    monkeypatch.setattr(slack, "post_atlas", lambda text, blocks=None: posted.append(text))
+
+    class R:
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            assert params == {"slack_alert": "eq.true", "archived": "eq.false"}
+            return [dict(id="a1", name="Job report role", signal_type="JOB_REPORT_ROLE", kind="signal", slack_alert=True, archived=False), dict(id="a2", name="Other", signal_type="NEW_PRACTICE", kind="signal", slack_alert=True, archived=False)]
+    sent = [dict(trigger_type="JOB_REPORT_ROLE", gp_practices=dict(ods_code="A1", practice_name="Test Surgery")), dict(trigger_type="CQC_PROVIDER_CHANGE", gp_practices=dict(ods_code="A2", practice_name="Nope"))]
+    assert notify.audience_alerts(R(), sent, "https://x") == 1 and len(posted) == 1 and "Job report role" in posted[0] and "Test Surgery" in posted[0] and "Nope" not in posted[0]
