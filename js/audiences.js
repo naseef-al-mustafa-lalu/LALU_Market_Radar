@@ -109,11 +109,11 @@ function audContactsHtml(a, ods) {
   if (!c.list.length) return '<p class="py-2 text-sm text-slate-600">No approved contacts for this practice yet.</p>' + more;
   const shown = c.list.filter(k => audRole === "all" || audRoleOf(k.title) === audRole), hidden = c.list.length - shown.length;
   const line = k => {
-    const m = audMember(a, k.id), lock = audLock(a, k.id), done = m && (m.state === "approved" || m.state === "enrolled"), fresh = m && m.state === "skipped" && audNewSignalSince(a, ods, m.state_at), skipped = m && m.state === "skipped" && !fresh, why = !k.email ? "No email address" : k.noHs ? "Not in HubSpot yet" : k.optout ? "Opted out of email" : k.bad ? "Email address is invalid" : null;
+    const m = audMember(a, k.id), lock = audLock(a, k.id), done = m && (m.state === "approved" || m.state === "enrolled"), fresh = m && m.state === "skipped" && audNewSignalSince(a, ods, m.state_at), skipped = m && m.state === "skipped" && !fresh, why = !k.email ? "No email address" : k.noHs ? "Not in HubSpot yet" : k.optout ? "Opted out of email" : k.bad ? "Email address is invalid" : k.sup ? "Held back: " + k.sup : null;
     const state = lock ? `<span class="text-xs font-semibold text-amber-700">Locked: ${esc(lock)}</span>` : why ? `<span class="text-xs font-semibold text-slate-500">${why}</span>` : done ? `<span class="text-xs font-bold text-emerald-700">${m.state === "enrolled" ? "Enrolled" : "Approved"}</span>` : fresh ? '<span class="text-xs font-semibold text-purple-700">New signal since you skipped</span>' : skipped ? '<span class="text-xs font-semibold text-slate-500">Skipped</span>' : "";
     const off = lock || why || done;
     return `<label class="flex items-center gap-3 border-t border-slate-200 py-2 first:border-0 ${off ? "opacity-70" : "cursor-pointer"}"><input type="checkbox" class="aud-chk h-4 w-4 accent-lalu-teal-700" data-id="${esc(k.id)}" ${off ? "disabled" : ""} ${audTicked.has(k.id) && !off ? "checked" : ""}>
-      <span class="min-w-0 flex-1"><span class="block text-sm font-semibold leading-tight">${esc(k.name || k.email || "Unnamed contact")}</span><span class="block truncate text-xs text-slate-500">${esc(k.title || "No job title")}${k.email ? " · " + esc(k.email) : ""}</span></span>${state}</label>`;
+      <span class="min-w-0 flex-1"><span class="block text-sm font-semibold leading-tight">${esc(k.name || k.email || "Unnamed contact")}</span><span class="block truncate text-xs text-slate-500">${esc(k.title || "No job title")}${k.email ? " · " + esc(k.email) : ""}</span>${k.badges ? `<span class="mt-0.5 flex flex-wrap gap-1">${k.badges}</span>` : ""}</span>${state}</label>`;
   };
   return `${shown.map(line).join("") || '<p class="py-2 text-sm text-slate-600">No contact here matches this role.</p>'}${hidden ? `<p class="pt-1 text-[11px] text-slate-400">${hidden} hidden by the role filter</p>` : ""}${more}`;
 }
@@ -124,9 +124,9 @@ async function audLoadContacts(ods) {
   const p = byOds.get(ods); if (!p || !p.hubspot_company_id || (audContacts.has(ods) && !audContacts.get(ods).error)) return;
   audContacts.set(ods, { loading: true }); renderAudiences();
   try {
-    const { data, error } = await db.from("contacts").select("contact_urn,hubspot_contact_id,full_name,job_title,email,email_opt_out,role_tier,held_reason").eq("ods_code", ods); if (error) throw error;
+    const { data, error } = await db.from("contacts").select("contact_urn,ods_code,first_name,last_name,hubspot_contact_id,full_name,job_title,email,email_opt_out,role_tier,held_reason,email_quality,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce").eq("ods_code", ods); if (error) throw error;
     const tier = { A: 0, B: 1, "?": 2 };
-    audContacts.set(ods, { list: (data || []).filter(k => !k.held_reason).sort((x, y) => ((tier[x.role_tier] ?? 3) - (tier[y.role_tier] ?? 3)) || String(x.full_name).localeCompare(String(y.full_name))).map(k => ({ id: k.hubspot_contact_id ? String(k.hubspot_contact_id) : "u" + k.contact_urn, name: k.full_name || "", title: k.job_title || "", email: k.email || "", optout: !!k.email_opt_out, bad: false, noHs: !k.hubspot_contact_id })), all: false });
+    audContacts.set(ods, { list: (data || []).filter(k => !k.held_reason).sort((x, y) => ((tier[x.role_tier] ?? 3) - (tier[y.role_tier] ?? 3)) || String(x.full_name).localeCompare(String(y.full_name))).map(k => ({ id: k.hubspot_contact_id ? String(k.hubspot_contact_id) : "u" + k.contact_urn, name: k.full_name || "", title: k.job_title || "", email: k.email || "", optout: !!k.email_opt_out, bad: false, noHs: !k.hubspot_contact_id, sup: ctSuppressedWhy(k, byOds.get(ods)), badges: ctBadges(k) })), all: false });
   } catch (e) { audContacts.set(ods, { error: e.message }); }
   renderAudiences();
 }
@@ -162,7 +162,7 @@ async function audLiveCheck(ids) {
 function audTickRole() {
   audTicked.clear(); if (audRole === "all") return;
   const a = audiences.find(x => x.id === audOpen); if (!a) return;
-  for (const [ods, c] of audContacts) for (const k of c.list || []) if (audRoleOf(k.title) === audRole && k.email && !k.noHs && !k.optout && !k.bad && !audLock(a, k.id) && !audMember(a, k.id)) audTicked.add(k.id);
+  for (const [ods, c] of audContacts) for (const k of c.list || []) if (audRoleOf(k.title) === audRole && k.email && !k.noHs && !k.optout && !k.bad && !k.sup && !audLock(a, k.id) && !audMember(a, k.id)) audTicked.add(k.id);
 }
 async function audDecideIds(a, ids, state) {
   const me = (await db.auth.getSession()).data.session?.user?.email || "unknown", now = new Date().toISOString(), rows = [];

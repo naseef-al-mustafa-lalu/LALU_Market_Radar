@@ -56,7 +56,7 @@ function ctRow(r) {
     <td class="px-2"><div class="text-sm">${esc(c.job_title || c.title || "")}</div><div class="text-xs text-slate-500">${esc(ev.role.label)}</div></td>
     <td class="px-2">${p ? `<a href="#" class="ct-open text-lalu-teal-700 hover:underline" data-ods="${esc(p.ods_code)}">${esc(p.practice_name)}</a>` : esc(c.ods_code || "")}<div class="font-mono text-xs text-slate-500">${esc(c.ods_code || "")}</div></td>
     <td class="px-2">${sec ? ctChip(sec) : '<span class="text-slate-300">–</span>'}</td>
-    <td class="px-2">${ctChip(st, why)}${why ? `<div class="mt-0.5 max-w-[16rem] text-xs text-slate-500">${esc(why)}</div>` : ""}</td>
+    <td class="px-2">${ctChip(st, why)} ${ctBadges(c)}${why ? `<div class="mt-0.5 max-w-[16rem] text-xs text-slate-500">${esc(why)}</div>` : ""}</td>
     <td class="px-2 text-xs text-slate-600">${c.hs_lifecycle ? esc(CT_LIFECYCLE[c.hs_lifecycle] || c.hs_lifecycle) : '<span class="text-slate-300">not in HubSpot</span>'}</td></tr>`;
 }
 function ctList() {

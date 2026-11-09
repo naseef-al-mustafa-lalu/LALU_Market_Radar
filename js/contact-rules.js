@@ -79,4 +79,16 @@ function ctEvaluate(c, p, locked = new Map()) {
   out.reasons = why; out.status = why.length ? "suppressed" : "eligible";
   return out;
 }
+// One set of status badges everywhere a contact appears (Contacts, Audiences, Signals): NeverBounce result, unsubscribes, marketing consent, bounce and HubSpot sequence membership.
+function ctBadges(c) {
+  const out = [], nb = c.hs_neverbounce || c.nb_result;
+  if (nb) out.push(chip("NB: " + nb.replace(" (Unverifiable)", ""), { Valid: "bg-emerald-100 text-emerald-800", "Accept All (Unverifiable)": "bg-teal-100 text-teal-800", Unknown: "bg-amber-100 text-amber-800" }[nb] || "bg-rose-100 text-rose-800", "NeverBounce: " + nb));
+  if (c.email_opt_out || c.hs_optout_all) out.push(chip("Unsubscribed", "bg-rose-100 text-rose-800", "Opted out of all email"));
+  if (c.hs_mkt_optout) out.push(chip("No marketing consent", "bg-rose-100 text-rose-800", "Opted out of Marketing Information"));
+  if (c.hs_bounced) out.push(chip("Bounced", "bg-rose-100 text-rose-800", c.hs_bounce_reason || "Email bounced"));
+  if (c.hs_in_sequence) out.push(chip("In sequence", "bg-purple-100 text-purple-800", "Enrolled in a HubSpot sequence"));
+  return out.join(" ");
+}
+// Why Atlas's suppression rules hold a contact back (blank when nothing does): the single answer used to disable ticking in Audiences and Signals.
+const ctSuppressedWhy = (c, p) => { const e = ctEvaluate(c, p, new Map()); return e.status === "suppressed" ? e.reasons.map(ctRuleLabel).join("; ") : ""; };
 const ctRuleLabel = id => (CT_RULES.find(r => r[0] === id) || [id, id])[1];

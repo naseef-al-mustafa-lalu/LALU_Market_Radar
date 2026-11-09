@@ -597,6 +597,8 @@ with sync_playwright() as p:
       return [a.section + a.status, b.reasons.join(), r.status, d.reasons.join(), e.status, f.section + f.status, g.status]; })()""")
     assert ev == ["maineligible", "lifecycle", "eligible", "sequence", "excluded", "othereligible", "excluded"], ev
     pg.goto("about:blank"); pg.add_init_script("window.__fail = false"); pg.goto(INDEX); pg.wait_for_selector("#app:not(.hidden)"); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
+    sb = pg.evaluate("""(() => { const c = { email: 'jane.smith@nhs.net', first_name: 'Jane', last_name: 'Smith', job_title: 'Practice Manager', hs_in_sequence: true, hs_neverbounce: 'Valid', email_opt_out: true }; return [ctSuppressedWhy(c, null), ctBadges(c), ctSuppressedWhy({ ...c, hs_in_sequence: false, email_opt_out: false }, null)]; })()""")
+    assert "sequence" in sb[0].lower() and "In sequence" in sb[1] and "NB: Valid" in sb[1] and "Unsubscribed" in sb[1] and sb[2] == "", sb      # one suppression answer and one set of badges for every list that shows a contact
     pg.click("#tab-contacts"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Eligible') && document.querySelector('#ct-body').innerText.includes('Lena Contact')")
     pg.click("#ct-sub button[data-c=settings]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Suppression rules') && document.querySelector('#ct-body').innerText.includes('Job roles')")
     assert "not evaluated yet" in pg.inner_text("#ct-body") and pg.is_disabled("#ct-save")
