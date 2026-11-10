@@ -78,7 +78,7 @@ with sync_playwright() as p:
     exe = os.environ.get("CHROMIUM_PATH") or next(iter(glob.glob("/opt/pw-browsers/chromium_headless_shell-*/chrome-linux/headless_shell")), None)
     b = p.chromium.launch(executable_path=exe) if exe else p.chromium.launch()
     pg = b.new_page(viewport={"width": 1440, "height": 900})
-    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("pageerror", lambda e: errors.append(str(e) + " | " + str(getattr(e, "stack", ""))[:400]))
     pg.on("console", lambda m: errors.append(m.text) if m.type == "error" and "ERR_" not in m.text and "Failed to load resource" not in m.text else None)
     pg.route("**/*", lambda r: r.fulfill(body=FAKE, content_type="text/javascript") if "supabase-js" in r.request.url else r.continue_())
     pg.add_init_script("window.__slow = 700")
@@ -373,10 +373,15 @@ with sync_playwright() as p:
     fold = pg.locator("#dr-body details:has(h4:text-matches('Linked PCNs', 'i'))").first; assert fold.get_attribute("open") is not None      # folds like Linked practices
     fold.locator("summary").click(); assert fold.get_attribute("open") is None and pg.locator("#dr-body .np-link").first.is_hidden(); fold.locator("summary").click()      # a group's PCNs and ICB, and the way to make its deal
     pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#nd-create")
-    nd = pg.inner_text("#hs-body"); assert "new deal on" in nd.lower() and "already has 1 deal" in nd and "Link the deal to its HubSpot" in nd, nd      # existing deals are shown before another is made
-    pg.click("#nd-create"); pg.wait_for_function("document.querySelector('#hs-body').innerText.includes('Deal created')")
-    cd = pg.evaluate("window.__hsCalls.filter(c => c.action === 'create_deal').pop()"); assert cd["network"] == {"kind": "group", "name": "Modality Test", "orgId": "2"} and "ods" not in cd and cd["deal"]["dealname"] == "Modality Test", cd
-    pg.click("#nd-done"); pg.wait_for_selector("#hs-modal.hidden", state="attached")
+    nd = pg.inner_text("#hs-body"); assert "new deal on" in nd.lower() and "pricing to be sent with this deal" in nd.lower() and "Practices on this deal" in nd and "Link the deal to its HubSpot" in nd, nd      # a network deal uses the practice deal form, with the practices it covers
+    pg.click("#nd-create"); pg.wait_for_function("document.querySelector('#hs-msg') && document.querySelector('#hs-msg').innerText.includes('matches the tool')")
+    cd = pg.evaluate("window.__hsCalls.filter(c => c.action === 'create_deal').pop()"); assert cd["network"]["kind"] == "group" and cd["network"]["name"] == "Modality Test" and cd["network"]["orgId"] == "2" and "ods" not in cd and cd["deal"]["dealname"] == "Modality Test", cd
+    wr = pg.evaluate("window.__hsCalls.filter(c => c.action === 'write').pop()"); assert wr["network"]["orgId"] == "2" and "ods" not in wr and wr["deal"]["size_tier"].startswith("Tier") and wr["lineItem"]["quantity"] > 0, wr      # the same push as a practice, with no company list size and no referral group
+    pg.click("#hs-cancel"); pg.wait_for_selector("#hs-modal.hidden", state="attached")
+    pg.evaluate("""(() => { const n = networks.find(x => x.id === '2') || networks[0], mem = practices.filter(p => p.status === 'Active').slice(0, 3); netDealState = { n, deals: [{ dl: { deal_id: 'D1', company_id: 'C1', covers: [] }, d: { dealname: 'Open group deal' } }], members: mem, tierRow: cfgTiers.find(t => t.route === n.kind) }; netDealRender(); })()""")
+    pg.click(".net-push"); pg.wait_for_function("document.querySelector('#hs-write') && !document.querySelector('#hs-write').disabled")      # Push pricing on a network deal opens the practice preview
+    assert "deal pricing fields" in pg.inner_text("#hs-body").lower() and "company list size" not in pg.inner_text("#hs-body").lower(), pg.inner_text("#hs-body")[:300]
+    pg.click("#hs-cancel"); pg.wait_for_selector("#hs-modal.hidden", state="attached")
     pg.wait_for_timeout(500); pg.screenshot(path=SHOTS + "/netprofile.png")
     lp = pg.locator("#dr-body details:has-text('Linked practices')").first; assert lp.get_attribute("open") is not None and lp.locator("summary").inner_text().strip().endswith("3") and "Customer" in lp.inner_text()      # collapsible, customers tagged
     lp.locator("summary").click(); assert lp.get_attribute("open") is None; lp.locator("summary").click()

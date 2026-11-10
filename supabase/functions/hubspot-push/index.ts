@@ -380,7 +380,8 @@ Deno.serve(async (req) => {
     }
     if (b.action === "write") {
       const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), dealId = idOf(b.dealId);
-      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      const net = b.network && typeof b.network === "object" && /^[0-9a-f-]{36}$/i.test(String(b.network.orgId ?? "")) ? b.network : null;   // a group, federation, PCN or ICB deal is pushed the same way, with no practice code
+      if (!net && !/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
       const dealProps: Record<string, unknown> = {}, companyProps: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(b.deal ?? {})) { if (!DEAL_WRITE.has(k)) throw new Fail(`Not allowed to write deal property ${k}`); dealProps[k] = v; }
       for (const [k, v] of Object.entries(b.company ?? {})) { if (!COMPANY_WRITE.has(k)) throw new Fail(`Not allowed to write company property ${k}`); companyProps[k] = v; }
@@ -436,14 +437,15 @@ Deno.serve(async (req) => {
           .map((l) => l.replace(/^quantity:/, "Patients:").replace(/^price:/, "List price p/patient/month:").replace(/^discount:/, "Unit discount:").replace(/^recurringbillingfrequency:/, "Billing frequency:").replace(/^hs_recurring_billing_terms:/, "Billing terms:").replace(/^hs_recurring_billing_period:/, "Billing period:"))];
       }
       if (dealLines.length || lineLines.length) await noteOn("deals", dealId, noteBody(who, pushed, [...dealLines, ...lineLines]), noteWarn);
-      await admin.from("hubspot_links").upsert({ ods_code: ods, company_id: companyId, company_name: before.company.name ?? null, deal_id: dealId, deal_name: before.deal.dealname ?? null,
+      if (net) await admin.from("hubspot_network_deals").upsert({ deal_id: dealId, org_id: String(net.orgId), company_id: companyId, deal_name: before.deal.dealname ?? null }).then(() => null, () => null);
+      else await admin.from("hubspot_links").upsert({ ods_code: ods, company_id: companyId, company_name: before.company.name ?? null, deal_id: dealId, deal_name: before.deal.dealname ?? null,
         linked_by: who, linked_at: new Date().toISOString(), last_pushed_at: new Date().toISOString() }, { onConflict: "ods_code" });
-      await log({ actor: who, kind: "push", ods_code: ods, target: before.deal.dealname ?? before.company.name ?? null, hubspot_type: "deal", hubspot_id: dealId,
+      await log({ actor: who, kind: "push", ods_code: net ? null : ods, target: before.deal.dealname ?? before.company.name ?? null, hubspot_type: "deal", hubspot_id: dealId,
         summary: `Pushed pricing to ${before.deal.dealname ?? "deal"}: ${Object.keys(dealProps).length} deal field(s)${Object.keys(companyProps).length ? ", company list size" : ""}${lineResult ? `, line item ${lineResult.action}` : ""}`,
         detail: { companyId, dealId, before: { company: before.company, deal: before.deal, lineItems: before.lineItems }, written: { company: companyProps, deal: dealProps, lineItem: li, lineResult } } });
       const warnings: string[] = [...noteWarn];
-      const grouped = b.referral ? [] : await linkIntoGroup(admin, ods, dealId, warnings).catch(() => []);
-      const referral = b.referral ? await referralFollowUp(admin, who, ods, dealId, String(before.deal.dealname ?? "deal"), b.referral, warnings).catch((e) => { warnings.push(`Referral group: ${(e as Error).message}`); return null; }) : null;
+      const grouped = net || b.referral ? [] : await linkIntoGroup(admin, ods, dealId, warnings).catch(() => []);
+      const referral = !net && b.referral ? await referralFollowUp(admin, who, ods, dealId, String(before.deal.dealname ?? "deal"), b.referral, warnings).catch((e) => { warnings.push(`Referral group: ${(e as Error).message}`); return null; }) : null;
       return reply({ ok: true, ...(await readPair(companyId, dealId)), referral, grouped, warnings });
     }
     if (b.action === "create_company" || b.action === "link_company") {
@@ -692,7 +694,13 @@ Deno.serve(async (req) => {
         [...changes({}, props), ...(net ? [`Network: blank → ${label} ${String(net.name).slice(0, 120)}`, `ICB and PCN records: blank → ${linked.length} linked${linked.length ? " (" + linked.sort().join(", ") + ")" : ""}`] : [])]), warnings);
       await log({ actor: who, kind: "create_deal", ods_code: net ? null : ods, target: String(props.dealname), hubspot_type: "deal", hubspot_id: String(d.id),
         summary: `Created deal ${props.dealname} on ${co.properties?.name ?? companyId} with ${contactIds.length} contact(s), primary ${primaryId}${net ? ` for the ${label} ${net.name}, linked to ${linked.length} ICB / PCN record(s)` : ""}`, detail: { companyId, properties: props, contactIds, primaryContactId: primaryId, network: net ? { kind: net.kind, name: net.name, linked } : null, warnings } });
-      if (net && /^[0-9a-f-]{36}$/i.test(String(net.orgId ?? ""))) await admin.from("hubspot_network_deals").upsert({ deal_id: String(d.id), org_id: String(net.orgId), company_id: companyId, deal_name: String(props.dealname), created_by: who }).then(() => null, () => null);
+      // The practices a network deal covers are associated with it in HubSpot (that is where Atlas reads coverage from) and kept on the record.
+      const coverOds: string[] = net && Array.isArray(net.covers) ? net.covers.map((c: unknown) => String(c).toUpperCase()).filter((c: string) => /^[A-Z0-9]{3,12}$/.test(c)).slice(0, 300) : [];
+      if (coverOds.length) {
+        const { data: cos } = await admin.from("gp_practices").select("ods_code,hubspot_company_id").in("ods_code", coverOds);
+        for (const c of cos ?? []) if (c.hubspot_company_id && String(c.hubspot_company_id) !== companyId) { try { await hs(`/crm/v4/objects/deals/${d.id}/associations/default/companies/${idOf(c.hubspot_company_id)}`, { method: "PUT" }); } catch (e) { warnings.push(`Could not link ${c.ods_code} to the deal: ${(e as Error).message}`); } }
+      }
+      if (net && /^[0-9a-f-]{36}$/i.test(String(net.orgId ?? ""))) await admin.from("hubspot_network_deals").upsert({ deal_id: String(d.id), org_id: String(net.orgId), company_id: companyId, deal_name: String(props.dealname), created_by: who, covers: coverOds }).then(() => null, () => null);
       const grouped = net ? [] : await linkIntoGroup(admin, ods, String(d.id), warnings).catch(() => []);
       return reply({ ok: true, dealId: String(d.id), grouped, linked: linked.length, warnings });
     }
@@ -742,8 +750,8 @@ Deno.serve(async (req) => {
     }
     if (b.action === "log_check") {          // the dashboard reports whether HubSpot's recalculated fields matched the tool after a push
       const ods = String(b.ods ?? "").trim().toUpperCase();
-      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
-      await log({ actor: who, kind: "push_check", ok: b.ok === true, ods_code: ods, target: String(b.dealName ?? "").slice(0, 120), hubspot_type: "deal", hubspot_id: b.dealId ? idOf(b.dealId) : null,
+      if (b.network !== true && !/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      await log({ actor: who, kind: "push_check", ok: b.ok === true, ods_code: b.network === true ? null : ods, target: String(b.dealName ?? "").slice(0, 120), hubspot_type: "deal", hubspot_id: b.dealId ? idOf(b.dealId) : null,
         summary: b.ok === true ? "HubSpot's Total Discount % and Actual Value per Patient match the tool" : String(b.note ?? "HubSpot's calculated fields did not match the tool").slice(0, 300),
         detail: { hubspot: b.hubspot ?? null, tool: b.tool ?? null } });
       return reply({ ok: true });

@@ -1,8 +1,14 @@
 // HubSpot, part 4: a deal for a whole network (federation, provider group, PCN or ICB). Find or create the HubSpot company, then create the deal linked to the network's own
 // PCN and ICB records, with a note on the deal saying what was created. Loaded after hubspot-group.js; the practice flow in hubspot-company.js is untouched.
-async function hsNetDealOpen(n, parts) {
+// A network (or the part of it a deal covers) as the entity the practice flow prices: its patients, the tier its patients reach on its own route.
+function hsNetEntity(n, members, covers) {
+  const cov = (covers || []).length ? members.filter(p => covers.includes(p.ods_code)) : members, pts = cov.reduce((t, p) => t + (p.total_patients > 0 ? p.total_patients : 0), 0);
+  const tier = cfgTiers.filter(t => t.route === n.kind).sort((a, b) => b.threshold - a.threshold).find(t => pts >= t.threshold);
+  return { practice_name: n.name, ods_code: "", total_patients: pts, price_tier: tier ? tier.tier : n.network_tier, route: n.kind, net: n, covers: (covers || []).slice() };
+}
+async function hsNetDealOpen(n, parts, covers) {
   const key = keyOf(n), members = practices.filter(p => p.status === "Active" && netMatch(p, { kind: n.kind, key }));
-  hs = { p: { practice_name: n.name, ods_code: "", total_patients: Number(n.patients) || 0 }, net: n, parts, members };
+  hs = { p: hsNetEntity(n, members, covers), net: n, parts, members }; hs.want = hsDesired(hs.p);
   $("hs-modal").classList.remove("hidden"); hsTitle("Create deal");
   const known = hsOrgCo.get(n.id); if (known) return hsNetDealForm({ id: known.company_id, name: n.name });   // the daily sync already matched this network to its HubSpot company
   hsRender(`<p class="text-slate-600">Find the HubSpot company for <b>${esc(n.name)}</b>, or create it, then make its deal.</p>
@@ -39,54 +45,9 @@ async function hsNetObjects(n, parts) {
   const name = new Map(orgs.map(o => [o.id, o.name]));
   return (data || []).map(l => ({ type: l.object_type, id: l.object_id, name: name.get(l.org_id) || "" }));
 }
-async function hsNetDealForm(company) {
-  const { net: n, parts } = hs, box = $("hs-results") || $("hs-body"); hsRender(hsSkeleton(3)); hsTitle("Create deal");
-  try {
-    const [pre, hub, objs] = await Promise.all([hsCall({ action: "deal_prefill", companyId: company.id, noContacts: true }), hsCall({ action: "hub", companyId: company.id }), hsNetObjects(n, parts)]);
-    hs.warnNet = await hsContactWarn((hub.contacts || []).map(c => c.id));
-    const pipes = pre.pipelines, def = pipes.find(x => x.id === "default") || pipes[0], stageNew = def.stages.find(s => s.id === "appointmentscheduled") || def.stages[0];
-    const annual = Math.round(Number(n.arr_network != null ? n.arr_network : n.arr_single) || 0), close = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10), inp = hsInp, field = hsField, opts = hsOpts;
-    const KIND = { pcn: "PCN", icb: "ICB", group: "provider group", federation: "federation" }[n.kind];
-    const existing = hub.deals.length ? `<div class="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900"><b>${esc(company.name)} already has ${hub.deals.length} deal${hub.deals.length > 1 ? "s" : ""}:</b> ${hub.deals.map(d => `${esc(d.dealname)} (${d.amount ? "£" + Number(d.amount).toLocaleString() : "no amount"}) ${hsLink("0-3", d.id, "open")}`).join(" · ")}. Create another only if this is a separate deal.</div>` : "";
-    const pt = (k, v, sub = "") => `<div class="rounded-lg bg-white px-2.5 py-1.5"><div class="text-[11px] uppercase tracking-wider text-slate-500">${k}</div><div class="font-mono font-semibold">${v}</div>${sub ? `<div class="text-[11px] text-slate-500">${sub}</div>` : ""}</div>`;
-    const price = n.network_tier ? `<div class="mb-3 rounded-xl bg-slate-50 p-3"><div class="mb-2 flex items-center justify-between"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Network price from Atlas</h4><span class="text-xs text-slate-500">${esc(KIND)} route · Tier ${n.network_tier}</span></div>
-      <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Practices", Number(n.practices).toLocaleString(), Number(n.patients).toLocaleString() + " patients")}${pt("MRR", gbpFull(annual / 12), "network price")}${pt("ARR", gbpFull(annual), "becomes the deal Amount")}${pt("Signed separately", gbpFull(n.arr_single), "ARR, for comparison")}</div></div>` : "";
-    const nPcn = objs.filter(o => o.type === "p145802630_pcns").length, nIcb = objs.filter(o => o.type === "p145802630_icbs").length;
-    hsRender(`${existing}${price}<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New deal on ${esc(company.name)}</h4><div class="grid gap-2 sm:grid-cols-2">
-      <div class="sm:col-span-2">${field("Deal name", `<input id="nd-name" class="${inp}" value="${esc(n.name)}">`)}</div>
-      ${field("Pipeline", `<select id="nd-pipe" class="${inp}">${opts(pipes.map(x => [x.id, x.label]), def.id)}</select>`)}${field("Stage", `<select id="nd-stage" class="${inp}">${opts(def.stages.map(s => [s.id, s.label]), stageNew.id)}</select>`)}
-      ${field("Deal type", `<select id="nd-type" class="${inp}">${opts([["newbusiness", "New Business"], ["New Business GP eMR", "New Business GP eMR"], ["Existing Business - SAR Only", "Existing Business - SAR Only"], ["Existing Business - GP eMR", "Existing Business - GP eMR"], ["Renewal", "Renewal"]], "newbusiness")}</select>`)}
-      ${field("Product / service", `<select id="nd-prod" class="${inp}">${opts([["eMR+", "ReportSure - Managed Service"], ["eMR", "ReportSure - Self Service"]], "eMR+")}</select>`)}
-      ${field("Deal owner", pre.owners ? `<select id="nd-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
-      ${field("Close date", `<input id="nd-close" type="date" class="${inp}" value="${close}">`)}${field("Amount (£, per year)", `<input id="nd-amount" type="number" min="0" step="0.01" class="${inp}" value="${annual}">`)}</div>
-      ${hsContactBlock(hub.contacts, hs.warnNet || new Map())}
-      <label class="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" id="nd-link" class="mt-1" ${objs.length ? "checked" : "disabled"}><span>Link the deal to its HubSpot ${objs.length ? `records: <b>${nPcn}</b> PCN${nPcn === 1 ? "" : "s"}${nIcb ? ` and <b>${nIcb}</b> ICB` : ""}` : "PCN and ICB records (none found in HubSpot)"}
-        ${objs.length ? `<details class="text-xs text-slate-500"><summary class="cursor-pointer">Show them</summary>${esc(objs.map(o => o.name).sort().join(", "))}</details>` : ""}</span></label>
-      ${(pre.warnings || []).map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
-      <p class="mt-2 text-xs text-slate-500">The deal is created in HubSpot with a note saying where it came from. Pricing for individual practices is not pushed: the Amount is the network price above.</p>
-      <div id="nd-msg" class="mt-2" role="status"></div>
-      <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Cancel</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal</button></div></div>`);
-    $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value); $("nd-stage").innerHTML = opts(pp.stages.map(s => [s.id, s.label]), pp.stages[0].id); };
-    $("nd-cancel").onclick = hsClose;
-    hsContactWire(() => hsHubRender()); if (!hub.contacts.length) $("nd-create").disabled = true;
-    $("nd-create").onclick = async () => {
-      const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
-      try {
-        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", network: { kind: n.kind, name: n.name, orgId: n.id }, companyId: company.id, allowAnother: hs.anotherDeal === true, ...hsContactIds(),
-          networkObjects: $("nd-link").checked ? objs : [], deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
-            hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
-        if (r.ok === false && r.existing) {
-          msg.innerHTML = `<div class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900"><b>${esc(company.name)} already has an open deal</b>, so no second one was created: ${r.existing.map(d => `${esc(d.dealname)} ${hsLink("0-3", d.id, "open in HubSpot")}`).join(", ")}. Update that deal in HubSpot, or <button type="button" id="nd-another" class="font-semibold underline">create another anyway</button>.</div>`;
-          $("nd-another").onclick = () => { hs.anotherDeal = true; $("nd-create").click(); }; b.disabled = false; b.textContent = "Create deal"; return;
-        }
-        hs.anotherDeal = false;
-        hsRender(`<div class="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-900" role="status">Deal created: ${hsLink("0-3", r.dealId, "open it in HubSpot")}<div class="text-xs">Linked to ${r.linked || 0} PCN / ICB record${r.linked === 1 ? "" : "s"}, with a note on the deal.</div></div>
-          ${(r.warnings || []).map(w => `<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</div>`).join("")}<div class="mt-3 flex justify-end"><button id="nd-done" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Close</button></div>`);
-        $("nd-done").onclick = hsClose;
-      } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; b.disabled = false; b.textContent = "Create deal"; }
-    };
-  } catch (e) { hsRender(`<p class="text-rose-700">${esc(e.message)}</p>`); }
-}
+// The deal form and the push are the practice ones (hsDealForm, hsPreview, hsWrite): a network is priced as an entity of its own route, on the practices a deal covers.
+const hsNetDealForm = company => { hsRender('<div id="hs-results"></div>'); return hsDealForm(company); };
+
 // The strip at the top of a network profile: same shape and place as a practice's (#dr-hs), with the one action on the right.
 let hsNetCur = null;
 function hsNetBar(n, parts, st) {

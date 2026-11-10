@@ -149,7 +149,7 @@ function hsHubRender() {
 async function hsDealForm(company) {
   const box = $("hs-results");
   try {
-    hsTitle("Create deal"); if (!hs.pre) box.innerHTML = hsSkeleton(3); const pre = await hsPrefill(company.id), p = hs.p, want = hs.want || hsDesired(p), contacts = (hs.hub && hs.hub.contacts) || pre.contacts;
+    hsTitle("Create deal"); if (!hs.pre) box.innerHTML = hsSkeleton(3); const pre = await hsPrefill(company.id), p = hs.p, want = hs.want || hsDesired(p), objs = hs.net ? await hsNetObjects(hs.net, hs.parts) : [], netHub = hs.net && !hs.hub ? await hsCall({ action: "hub", companyId: company.id }) : null, contacts = (hs.hub && hs.hub.contacts) || (netHub && netHub.contacts) || pre.contacts;
     const warn = await hsContactWarn(contacts.map(c => c.id)), lead = contacts[0] ? hsNameOf(contacts[0]) : (p.manager_name || "");
     const pipes = pre.pipelines, def = pipes.find(x => x.id === "default") || pipes[0], stageNew = def.stages.find(s => s.id === "appointmentscheduled") || def.stages[0];
     const close = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10), amount = Math.round(p.total_patients * want.rate * 12 * 100) / 100;
@@ -164,7 +164,7 @@ async function hsDealForm(company) {
         ${pt("Unit discount", "£" + rate3(Math.max(0, w.listUnit - w.netUnit)), "off £" + rate3(w.listUnit) + " /mo")}${pt("Contract term", w.term + " month" + (w.term > 1 ? "s" : ""), "the product")}</div></div>`;
     box.innerHTML = `${pricing}<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New deal on ${esc(company.name)}</h4>
       <div class="grid gap-2 sm:grid-cols-2">
-        <div class="sm:col-span-2">${field("Deal name", `<input id="nd-name" class="${inp}" value="${esc(lead ? lead + " - " + company.name : company.name)}">`)}</div>
+        <div class="sm:col-span-2">${field("Deal name", `<input id="nd-name" class="${inp}" value="${esc(hs.net ? hs.net.name : lead ? lead + " - " + company.name : company.name)}">`)}</div>
         ${field("Pipeline", `<select id="nd-pipe" class="${inp}">${opts(pipes.map(x => [x.id, x.label]), def.id)}</select>`)}
         ${field("Stage", `<select id="nd-stage" class="${inp}">${opts(def.stages.map(s => [s.id, s.label]), stageNew.id)}</select>`)}
         ${field("Deal type", `<select id="nd-type" class="${inp}">${opts([["newbusiness", "New Business"], ["New Business GP eMR", "New Business GP eMR"], ["Existing Business - Freemium", "Existing Business - Freemium"], ["Existing Business - PAYG", "Existing Business - PAYG"], ["Existing Business - SAR Only", "Existing Business - SAR Only"], ["Existing Business - GP eMR", "Existing Business - GP eMR"], ["Renewal", "Renewal"]], "newbusiness")}</select>`)}
@@ -173,17 +173,22 @@ async function hsDealForm(company) {
         ${field("Close date", `<input id="nd-close" type="date" class="${inp}" value="${close}">`)}
         ${field("Amount (£, per year)", `<input id="nd-amount" type="number" min="0" step="0.01" class="${inp}" value="${amount}">`)}</div>
       ${hsContactBlock(contacts, warn)}
+      ${hs.net ? `<details class="mt-3 rounded-lg border border-slate-200 p-2 text-sm"${hs.sel && hs.sel.size !== hs.members.filter(x => x.total_patients > 0).length ? " open" : ""}><summary class="cursor-pointer font-semibold">Practices on this deal <span class="font-normal text-slate-500">(${(p.covers || []).length || hs.members.filter(x => x.total_patients > 0).length} of ${hs.members.filter(x => x.total_patients > 0).length}) · priced on ${p.total_patients.toLocaleString()} patients</span></summary>
+        <div class="mt-1 max-h-48 overflow-auto">${hs.members.filter(x => x.total_patients > 0).map(x => `<label class="flex items-center gap-2 py-0.5"><input type="checkbox" class="nd-cov" value="${esc(x.ods_code)}" ${!(p.covers || []).length || p.covers.includes(x.ods_code) ? "checked" : ""}> <span class="min-w-0 flex-1 truncate">${esc(x.practice_name)}</span><span class="font-mono text-xs text-slate-500">${x.total_patients.toLocaleString()}</span></label>`).join("")}</div>
+        <p class="mt-1 text-xs text-slate-500">A network can have several deals, each covering some of its practices. The covered practices are associated with the deal in HubSpot.</p></details>` : ""}
+      ${hs.net ? `<label class="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" id="nd-link" class="mt-1" ${objs.length ? "checked" : "disabled"}><span>Link the deal to its HubSpot ${objs.length ? "PCN and ICB records (" + objs.length + ")" : "PCN and ICB records (none found)"}</span></label>` : ""}
       ${pre.warnings.map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
       <p class="mt-2 text-xs text-slate-500">The Amount starts at the annual revenue above. The pricing above (discounts, size tier, value per patient, commercial model and line item) is written to the deal straight after it is created, and checked against HubSpot on the same page.</p>
       <div id="nd-msg" class="mt-2" role="status"></div>
       <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal and push pricing</button></div></div>`;
     $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value); $("nd-stage").innerHTML = opts(pp.stages.map(s => [s.id, s.label]), pp.stages[0].id); };
-    $("nd-cancel").onclick = () => hsCompanyPage(company.id);
+    $("nd-cancel").onclick = () => hs.net ? hsClose() : hsCompanyPage(company.id);
+    document.querySelectorAll(".nd-cov").forEach(c => c.onchange = () => { hs.sel = new Set([...document.querySelectorAll(".nd-cov:checked")].map(x => x.value)); hs.p = hsNetEntity(hs.net, hs.members, [...hs.sel]); hs.want = hsDesired(hs.p); hsDealForm(company); });   // changing the practices a network deal covers re-prices it
     hsContactWire(() => hsHubRender()); if (!contacts.length) $("nd-create").disabled = true;
     $("nd-create").onclick = async () => {
       const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
-        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ods: p.ods_code, companyId: company.id, allowAnother: hs.anotherDeal === true, ...hsContactIds(),
+        const close = $("nd-close").value, r = await hsCall({ action: "create_deal", ...(hs.net ? { network: { kind: hs.net.kind, name: hs.net.name, orgId: hs.net.id, covers: p.covers || [] }, networkObjects: $("nd-link")?.checked ? objs : [] } : { ods: p.ods_code }), companyId: company.id, allowAnother: hs.anotherDeal === true, ...hsContactIds(),
           deal: { dealname: $("nd-name").value.trim(), pipeline: $("nd-pipe").value, dealstage: $("nd-stage").value, dealtype: $("nd-type").value, product___service: $("nd-prod").value,
             hubspot_owner_id: $("nd-owner")?.value || "", closedate: close ? close + "T00:00:00Z" : "", amount: $("nd-amount").value } });
         if (r.ok === false && r.existing) { hsOpenDealNotice(company, r.existing, () => { hs.anotherDeal = true; hsDealForm(company); }); return; }
@@ -291,7 +296,7 @@ function hsPreview() {
     <div class="sticky bottom-0 mt-4 flex justify-end gap-2 border-t border-slate-200 bg-white pt-3"><button id="hs-cancel" class="rounded-lg border border-slate-300 px-3 py-2 font-semibold">Cancel</button><button id="hs-write" class="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700">Push pricing</button></div>`);
   $("hs-cancel").onclick = hsClose;
   if (g && $("hs-rg-status")) refLinkedSet(g.members).then(set => { const el = $("hs-rg-status"); if (el) el.innerHTML = refStatusLines(g.members, set); }).catch(() => {});
-  const re = $("hs-relink") || $("hs-back"); if (re) re.onclick = () => { hs.linked = false; hsRender(hsFind()); hsBindFind(); };
+  const re = $("hs-relink") || $("hs-back"); if (re) re.onclick = () => { if (p.net) return hsClose(); hs.linked = false; hsRender(hsFind()); hsBindFind(); };
   $("hs-write").onclick = () => hsWrite(checks);
   if (hs.auto) { hs.auto = false; hsWrite(checks); }   // a deal made here already shows its pricing in the form: write it without a second confirmation
 }
@@ -310,13 +315,13 @@ async function hsWrite(checks) {
   if (ticked("cls")) dealProps.contracted_patient_list_size = want.line.quantity;
   $("hs-write").disabled = true; $("hs-write").textContent = "Writing…"; msg.innerHTML = "";
   try {
-    const w = want.line, wr = await hsCall({ action: "write", ods: p.ods_code, companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps, referral,
+    const w = want.line, wr = await hsCall({ action: "write", ...(p.net ? { network: { orgId: p.net.id, covers: p.covers || [] } } : { ods: p.ods_code }), companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps, referral,
       lineItem: hs.lineItems == null ? undefined : { productId: w.productId, quantity: w.quantity, listUnit: w.listUnit, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
     hs.lineItems = wr.lineItems ?? hs.lineItems; hs.warnings = wr.warnings || [];
-    refSaved.delete(p.ods_code); refGroups = null; repaintPriceCards();   // the saved group strip reloads
+    if (!p.net) { refSaved.delete(p.ods_code); refGroups = null; } repaintPriceCards();   // the saved group strip reloads
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
     await hsValidate(6);
-    hsSetLink(p, { company_id: company.id, deal_id: deal.id });   // the bar on the price card now reflects the saved link and the new values
+    if (p.net) { if (typeof netDealRefresh === "function") netDealRefresh(); } else hsSetLink(p, { company_id: company.id, deal_id: deal.id });   // the bar on the price card (or the network's deal card) now reflects the saved link and the new values
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; $("hs-write").disabled = false; $("hs-write").textContent = "Push pricing"; }
 }
 
@@ -342,7 +347,7 @@ async function hsValidate(tries) {
     const PER_YEAR = { weekly: 52, biweekly: 26, monthly: 12, quarterly: 4, per_six_months: 2, annually: 1 }, perYear = lineNow ? PER_YEAR[lineNow.recurringbillingfrequency] : null;
     const amt = hsNum(last.amount), lineAmt = lineNow && perYear ? hsNum(lineNow.amount) * perYear : null, okA = amt == null || lineAmt == null || Number.isNaN(lineAmt) ? null : Math.abs(amt - lineAmt) < 0.5;      // HubSpot puts the line item's yearly value in the deal Amount: a monthly line of £352.25 gives £4,227      // the deal's Amount should be the line item's amount (HubSpot sums line items), not something a workflow wrote
     const done = okT && okV && okL !== false && okA !== false;
-    hsCall({ action: "log_check", ods: hs.p.ods_code, dealId: deal.id, dealName: deal.dealname, ok: okT && okV !== false && okL !== false && okA !== false,
+    hsCall({ action: "log_check", ...(hs.p.net ? { network: true } : { ods: hs.p.ods_code }), dealId: deal.id, dealName: deal.dealname, ok: okT && okV !== false && okL !== false && okA !== false,
       note: !okT ? "Total Discount % does not match the tool" : okV === false ? "Actual Value per Patient (Calculated) does not match the tool" : okA === false ? "The deal Amount does not follow the line item (a workflow may be rewriting it)" : "HubSpot does not match the tool",
       hubspot: { total_discount: last.total_discount, actual_value: last.actual_value_per_patient_calculated }, tool: { total_discount: want.total, actual_value: want.rate } }).catch(() => {});
     msg.innerHTML = `<div class="space-y-2">${line(okT, "Total Discount %", last.total_discount == null ? "not set" : pct(hsNum(last.total_discount) / HS_PCT), pct(want.total))}

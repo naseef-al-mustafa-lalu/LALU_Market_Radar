@@ -430,3 +430,7 @@ A HubSpot deal on a group or federation company is recorded by the daily sync ag
 NeverBounce no longer adds passing contacts to HubSpot lists: they are created in HubSpot (with the source, marketing status and legal basis) and wait for review in Atlas; adding contacts to a list happens when a person approves them (Audiences).
 
 Duplicate-contact guard: the HubSpot sync counts duplicates after every run (the same HubSpot id twice at a practice, the same email twice among HubSpot-sourced contacts, HubSpot-sourced rows with neither an id nor an email), records the counts in the run summary (`contact_duplicates`) and sends a Slack alert when any is above zero. The link-matching step that once cleared the links of email-less contacts is a tested function.
+
+### One deal and pricing flow for every company
+
+A group, federation, PCN or ICB deal now uses the same flow as a practice: the same deal form, the same Push pricing preview and write, the same check against HubSpot. A network is priced as an entity of its own route, on the practices a deal covers (tick them in the form; they are associated with the deal in HubSpot), with its tier from those practices' patients; it writes the contracted list size for those practices, and no company list size or referral group. Each deal on a network profile has a Push pricing button; a won deal is read-only, as for practices. The edge function accepts `network` in place of a practice code for `write`, `create_deal` and `log_check`.

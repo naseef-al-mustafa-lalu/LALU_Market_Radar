@@ -156,7 +156,7 @@ async function renderHubspotPanel() {
   const tc = $("hsp-timclear"); if (tc) tc.onclick = () => { hsTimings = []; try { localStorage.removeItem(HS_TIMING_KEY); } catch (e) {} renderHubspotPanel(); };
   const unl = $("hsp-unlink"); if (unl) unl.onclick = async () => { if (!confirm(`Remove each of these ${pcnConflicts} practices' links to a PCN that is not its own NHS PCN, at the next HubSpot sync? The right PCN link stays and each company gets a note.`)) return; const { error } = await db.from("app_flags").upsert([{ key: "pcn_unlink", value: { run_once: true }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) alert("Could not save: " + error.message); else renderHubspotPanel(); };
   const addAll = $("hsp-addall"); if (addAll) addAll.onclick = hsBulkAdd;
-  $("hsp-missing").onclick = () => { showTab("practices"); $("f-hs").value = "missing"; applyFilters(); };
+  const miss = $("hsp-missing"); if (miss) miss.onclick = () => { showTab("practices"); $("f-hs").value = "missing"; applyFilters(); };
   const bad = $("hsp-bad"); if (bad) bad.onclick = () => { hsLogFilter = "bad"; $("hsp-filter").value = "bad"; hsLogRender(); $("hsp-log").scrollIntoView({ behavior: "smooth", block: "center" }); $("hsp-log").classList.add("ring-2", "ring-amber-300"); setTimeout(() => $("hsp-log").classList.remove("ring-2", "ring-amber-300"), 2500); };
   $("hsp-filter").onchange = e => { hsLogFilter = e.target.value; hsLogRender(); };
   $("hsp-q").oninput = e => { hsLogQuery = e.target.value; hsLogRender(); };

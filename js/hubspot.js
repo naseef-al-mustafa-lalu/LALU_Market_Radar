@@ -45,11 +45,11 @@ function hsLineStatus(want, pair) {
 
 // What the profile currently has selected, as the values HubSpot should hold.
 function hsDesired(p, ov) {   // ov: { referral, member } prices another practice of a saved group without touching the profile's own referral state
-  const row = cfgTiers.find(t => t.route === "practice" && t.tier === p.price_tier), monthly = billing === "monthly";
+  const route = p.route || "practice", row = cfgTiers.find(t => t.route === route && t.tier === p.price_tier), monthly = billing === "monthly";   // a group, federation, PCN or ICB deal prices the same way on its own route
   const disc = discountsOn && !monthly;   // list price (no discount) until the salesperson switches size and term discounts on; the speed discount is its own switch
   const size = disc ? Number(row.size_discount) : 0, term = monthly ? 0 : termDiscount(termYrs), speed = speedOn && !monthly ? Number(row.speed_discount) : 0;
-  const referral = ov ? ov.referral : HS_REFERRAL_WRITES && !monthly ? referralExtraFor(p) : 0;   // the conditional referral-group discount
-  return { size, term, speed, referral, group: !ov && referral > 0 ? referralPayload(p) : null, member: ov ? ov.member : refMembership(p), termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral, term, speed), list: baseRate(),
+  const referral = ov ? ov.referral : route === "practice" && HS_REFERRAL_WRITES && !monthly ? referralExtraFor(p) : 0;   // the conditional referral-group discount
+  return { size, term, speed, referral, group: !ov && referral > 0 ? referralPayload(p) : null, member: ov ? ov.member : route === "practice" ? refMembership(p) : null, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral, term, speed), list: baseRate(),
     total: size + referral + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size + referral, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }
 // The HubSpot section of the profile now holds facts only (status, links, lifecycle); the one action lives beside the price controls (hsBarHtml).
@@ -74,7 +74,7 @@ const hsSame = (a, b) => hsNum(a) != null && Math.abs(hsNum(a) - b) < 1e-6;
 // Everything that differs between HubSpot and the tool for the current profile selection. `fixes` need approval; `writes` are always sent.
 function hsChanges(p, want, company, deal, pair) {
   const fixes = [
-    { id: "ls", label: "Company list size", now: company.patient_list_size ? Number(company.patient_list_size).toLocaleString() : "not set", next: p.total_patients.toLocaleString(), same: hsSame(company.patient_list_size, p.total_patients) },
+    ...(p.net ? [] : [{ id: "ls", label: "Company list size", now: company.patient_list_size ? Number(company.patient_list_size).toLocaleString() : "not set", next: p.total_patients.toLocaleString(), same: hsSame(company.patient_list_size, p.total_patients) }]),   // a network's company holds a roll-up, not this deal's size
     { id: "tier", label: "Deal size tier", now: deal.size_tier || "not set", next: want.tier, same: deal.size_tier === want.tier },
     { id: "cm", label: "Deal commercial model", now: HS_MODELS[deal.commercial_model] || deal.commercial_model || "not set", next: want.modelLabel, same: deal.commercial_model === want.model },
     { id: "vpp", label: "Deal value per patient", now: deal.value_per_patient || "not set", next: want.vpp, same: deal.value_per_patient === want.vpp }];
