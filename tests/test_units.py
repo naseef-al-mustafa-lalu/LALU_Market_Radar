@@ -1210,6 +1210,20 @@ def test_deals_made_in_hubspot_for_a_group_are_recorded_against_the_networks_the
     assert r.deleted == [("deal_id", ["1"], {"org_id": "eq.stale"})]      # a sync-made row for a network the deal no longer covers is removed
 
 
+def test_contact_links_keep_emailless_contacts_and_duplicates_are_counted():
+    from src import hubspot_sync as hsy
+    ours = [dict(contact_urn=1, ods_code="A1", email=None, hubspot_status="Imported", hubspot_contact_id="77"),      # a nurse: no email, matched by HubSpot id
+            dict(contact_urn=2, ods_code="A1", email="a@nhs.net", hubspot_status="Not imported", hubspot_contact_id=None),
+            dict(contact_urn=3, ods_code="A1", email=None, hubspot_status="Imported", hubspot_contact_id="99")]      # gone from HubSpot
+    crow = hsy.contact_link_updates(ours, {"A1": []}, {"A1": {"a@nhs.net": ("5", "2026-01-01")}}, {"A1": {"77"}})
+    got = {r["contact_urn"]: r for r in crow}
+    assert 1 not in got      # the link of a contact with no email is NOT cleared (clearing it made every sync store it again)
+    assert got[2]["hubspot_contact_id"] == "5" and got[3]["hubspot_contact_id"] is None
+    rows = [dict(ods_code="A1", email="x@nhs.net", hubspot_contact_id="1", source="hubspot"), dict(ods_code="A1", email="x@nhs.net", hubspot_contact_id="2", source="hubspot"), dict(ods_code="A1", email=None, hubspot_contact_id="1", source="oscar"),
+            dict(ods_code="A1", email=None, hubspot_contact_id=None, source="hubspot"), dict(ods_code="A2", email="x@nhs.net", hubspot_contact_id="1", source="oscar")]
+    assert hsy.duplicate_contact_counts(rows) == {"same_id_same_practice": 1, "same_email_same_practice": 1, "nameless_without_id": 1}      # the same id may appear at different practices; at one practice it is a duplicate
+
+
 def test_a_customer_with_only_a_signed_deal_is_linked_to_it():
     from src import hubspot_sync as hsy
 

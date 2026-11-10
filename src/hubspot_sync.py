@@ -133,6 +133,38 @@ def made_by_atlas(pr):
     return (pr.get("um_source_detail_1") or "").strip().lower() in ("oscar ai", "lalu atlas") or str(pr.get("um_source_detail_2") or "").startswith("Lalu Atlas Import")
 
 
+def contact_link_updates(ours, by_ods, hs_contacts, hs_ids):
+    """Rows to write so each Atlas contact's HubSpot link matches HubSpot: found by email on its practice's companies, else kept when its HubSpot id is still on them (a contact with no email, a nurse say,
+    is matched by id: clearing its link would make the next run store it again, which is how duplicates once built up)."""
+    crow = []
+    for c in ours:
+        if c["ods_code"] not in by_ods:
+            continue
+        email = (c.get("email") or "").strip().lower()
+        hit = hs_contacts[c["ods_code"]].get(email) if email else None
+        if not hit and c.get("hubspot_contact_id") and str(c["hubspot_contact_id"]) in hs_ids.get(c["ods_code"], ()):
+            continue
+        want = ("Imported", hit[1], hit[0]) if hit else ("Not imported", None, None)
+        if (c["hubspot_status"], c.get("hubspot_contact_id")) != (want[0], want[2]):
+            crow.append({"contact_urn": c["contact_urn"], "ods_code": c["ods_code"], "hubspot_status": want[0], "hubspot_imported_at": want[1], "hubspot_contact_id": want[2]})
+    return crow
+
+
+def duplicate_contact_counts(rows):
+    """What would show duplicate contacts: one HubSpot id twice at a practice, one email twice among HubSpot-sourced contacts at a practice, and HubSpot-sourced rows with neither an id nor an email."""
+    ids, emails = {}, {}
+    nameless = 0
+    for r in rows:
+        if r.get("hubspot_contact_id"):
+            k = (r["ods_code"], str(r["hubspot_contact_id"])); ids[k] = ids.get(k, 0) + 1
+        if r.get("source") == "hubspot":
+            if r.get("email"):
+                k = (r["ods_code"], r["email"].strip().lower()); emails[k] = emails.get(k, 0) + 1
+            if not r.get("hubspot_contact_id") and not r.get("email"):
+                nameless += 1
+    return {"same_id_same_practice": sum(1 for v in ids.values() if v > 1), "same_email_same_practice": sum(1 for v in emails.values() if v > 1), "nameless_without_id": nameless}
+
+
 def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=25000, known_emails=frozenset()):
     """Store the HubSpot contacts of practice companies that Atlas does not hold yet, source 'hubspot', with their address and role graded like every other contact (campaign eligibility is decided from that
     and the suppression rules, so nothing here makes a contact campaign-ready). Only contacts with an email address, on a practice company, that a person made in HubSpot (from any lead source) and Atlas does not already hold, by HubSpot id or email address;
@@ -1268,17 +1300,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     conflicts = []
 
     ours = rest.select_all("contacts", "contact_urn,ods_code,email,hubspot_status,hubspot_contact_id", order="contact_urn")
-    crow = []
-    for c in ours:
-        if c["ods_code"] not in by_ods:
-            continue
-        email = (c.get("email") or "").strip().lower()
-        hit = hs_contacts[c["ods_code"]].get(email) if email else None
-        if not hit and c.get("hubspot_contact_id") and str(c["hubspot_contact_id"]) in hs_ids.get(c["ods_code"], ()):
-            continue   # a contact with no email (a nurse, say) is matched by its HubSpot id: its link must not be cleared, or the next run would store it again
-        want = ("Imported", hit[1], hit[0]) if hit else ("Not imported", None, None)
-        if (c["hubspot_status"], c.get("hubspot_contact_id")) != (want[0], want[2]):
-            crow.append({"contact_urn": c["contact_urn"], "ods_code": c["ods_code"], "hubspot_status": want[0], "hubspot_imported_at": want[1], "hubspot_contact_id": want[2]})
+    crow = contact_link_updates(ours, by_ods, hs_contacts, hs_ids)
     rest.upsert("contacts", crow, "contact_urn")
     try:   # contacts HubSpot holds on a practice's company that Atlas does not have yet (the export import only approved decision-makers with direct addresses)
         urn_id = {c["contact_urn"]: c.get("hubspot_contact_id") for c in ours}
@@ -1287,6 +1309,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
     except Exception as e:  # noqa: BLE001
         contacts_added = 0
         print("HubSpot contact import skipped:", e)
+    try:   # a guard against the duplicate-contact problem coming back: counted after every run, said loudly in the log and on Slack when anything shows
+        dupes = duplicate_contact_counts(rest.select_all("contacts", "contact_urn,ods_code,email,hubspot_contact_id,source", order="contact_urn"))
+        if any(dupes.values()):
+            print("DUPLICATE CONTACTS:", dupes)
+            send_alert("Atlas contact duplicates found after the HubSpot sync", f"{dupes}")
+    except Exception as e:  # noqa: BLE001
+        dupes = {"check_error": str(e)[:120]}
     managers_set = fill_hubspot_managers(rest)
     pcn_stats = {}
     if ods_fetched_recently(rest, now):   # a repeat sync the same day does not call NHS ODS again; the PCN / ICB audit rows from the last full run are kept
@@ -1335,7 +1364,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
     audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
     return {**nets, **pcn_stats, **org_stats, **contact_stats, "primary_contacts_set": managers_set, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
-            "contacts_updated": len(crow), "hubspot_contacts_added": contacts_added, **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
+            "contacts_updated": len(crow), "hubspot_contacts_added": contacts_added, "contact_duplicates": dupes, **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
 
 
 def main():
