@@ -133,7 +133,7 @@ def made_by_atlas(pr):
     return (pr.get("um_source_detail_1") or "").strip().lower() in ("oscar ai", "lalu atlas") or str(pr.get("um_source_detail_2") or "").startswith("Lalu Atlas Import")
 
 
-def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=3000, known_emails=frozenset()):
+def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=25000, known_emails=frozenset()):
     """Store the HubSpot contacts of practice companies that Atlas does not hold yet, source 'hubspot', with their address and role graded like every other contact (campaign eligibility is decided from that
     and the suppression rules, so nothing here makes a contact campaign-ready). Only contacts with an email address, on a practice company, that a person made in HubSpot (from any lead source) and Atlas does not already hold, by HubSpot id or email address;
     contacts Atlas created in HubSpot are skipped. Returns how many were added."""
