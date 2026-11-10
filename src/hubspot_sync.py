@@ -968,17 +968,45 @@ def plan_hubspot_orgs(orgs, links, company_ods):
     return out
 
 
-def link_network_deals(rest, hub, org_company_ids):
-    """Deals made in HubSpot for a whole federation or group (associated with its company) are recorded against the organisation, so its practices' profiles say "covered by the group's deal" instead of "no deal linked".
-    Only live deals (open or won) are kept; deals the tool created are already there and never changed."""
+def link_network_deals(rest, hub, org_company_ids, company_ods=None):
+    """Deals made in HubSpot for a federation or group (associated with its company) are recorded against the organisations they cover, with the practices each covers (the practice companies on the deal).
+    A deal covering practices of both a provider group and a federation sits on both. A deal that names no practice we hold stays on the organisation of the company it was made on. Only live deals (not lost) are kept;
+    rows the tool wrote itself are never changed."""
+    company_ods = company_ods or {}
     to_deals = associations(hub, "deals", list(org_company_ids))
     deals = read_objects(hub, "deals", [d for v in to_deals.values() for d in v], ["dealname", "hs_is_closed", "hs_is_closed_won", "hs_is_closed_lost"])
+    live = sorted(d for d in deals if deals[d].get("hs_is_closed_lost") != "true")
+    covered = {}
+    for ch in chunks(live, 1000):
+        d = hub.call("POST", "/crm/v4/associations/deals/companies/batch/read", json={"inputs": [{"id": i} for i in ch]})
+        for r in d.get("results", []):
+            covered[str(r["from"]["id"])] = {company_ods[str(t["toObjectId"])] for t in r.get("to", []) if str(t["toObjectId"]) in company_ods}
     org_of = {str(r["company_id"]): r["org_id"] for r in rest.select_all("hubspot_org_companies", "org_id,company_id", order="company_id")}
-    have = {r["deal_id"] for r in rest.select_all("hubspot_network_deals", "deal_id", order="deal_id")}
-    rows = [{"deal_id": d, "org_id": org_of[c], "company_id": c, "deal_name": (deals[d].get("dealname") or "")[:200] or None, "created_by": "HubSpot sync"}
-            for c, ds in to_deals.items() if c in org_of for d in ds if d in deals and d not in have and deals[d].get("hs_is_closed_lost") != "true"]
+    practice_ods = {r["id"]: r["ods_code"] for r in rest.select_all("organisations", "id,ods_code", order="id", params={"kind": "eq.practice"}) if r.get("ods_code")}
+    members = {}
+    for r in rest.select_all("org_relationships", "from_org,to_org,rel_type", order="from_org", params={"rel_type": "in.(OPERATED_BY,MEMBER_OF_FEDERATION)"}):
+        if r["from_org"] in practice_ods:
+            members.setdefault(r["to_org"], set()).add(practice_ods[r["from_org"]])
+    want = {}   # (deal, org) -> covered practices
+    for c, ds in to_deals.items():
+        for d in ds:
+            if d not in live:
+                continue
+            cov = covered.get(d, set())
+            hits = {o: sorted(cov & m) for o, m in members.items() if cov & m}
+            if hits:
+                for o, c_ in hits.items():
+                    want[(d, o)] = c_
+            elif c in org_of:
+                want[(d, org_of[c])] = sorted(cov)
+    have = {(r["deal_id"], r["org_id"]): r for r in rest.select_all("hubspot_network_deals", "deal_id,org_id,created_by,covers", order="deal_id")}
+    rows = [{"deal_id": d, "org_id": o, "company_id": next((c for c, ds in to_deals.items() if d in ds), ""), "deal_name": (deals[d].get("dealname") or "")[:200] or None, "created_by": (have.get((d, o)) or {}).get("created_by") or "HubSpot sync", "covers": cv}
+            for (d, o), cv in want.items() if (d, o) not in have or sorted(have[(d, o)].get("covers") or []) != cv]
     if rows:
-        rest.upsert("hubspot_network_deals", rows, "deal_id")
+        rest.upsert("hubspot_network_deals", rows, "deal_id,org_id")
+    for (d, o), r in have.items():   # a sync-made row whose deal no longer covers that organisation (a practice taken off the deal, say) is removed
+        if r.get("created_by") == "HubSpot sync" and d in live and (d, o) not in want:
+            rest.delete_in("hubspot_network_deals", "deal_id", [d], extra={"org_id": f"eq.{o}"})
     return len(rows)
 
 
@@ -991,7 +1019,7 @@ def sync_hubspot_orgs(rest, hub, by_ods):
     payload = [{k: v for k, v in i.items() if k != "seen"} for i in items]
     res = rest.rpc("apply_hubspot_orgs", {"items": payload})
     try:
-        deals_linked = link_network_deals(rest, hub, [o["id"] for o in orgs])
+        deals_linked = link_network_deals(rest, hub, [o["id"] for o in orgs], company_ods)
     except Exception as e:  # noqa: BLE001  deals are a convenience; the organisations are already saved
         deals_linked = 0
         print("Network deals skipped:", e)

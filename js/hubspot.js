@@ -90,7 +90,7 @@ function hsChanges(p, want, company, deal, pair) {
 function hsNetworkDeal(p) {
   if (!hsNetDeals.length) return null;
   const keys = [["group", p.cqc_provider_id], ["federation", (p.gp_federation || "").toLowerCase()], ["pcn", p.pcn_code], ["icb", (p.icb_name || "").toLowerCase()]].filter(k => k[1]);
-  for (const n of networks) { if (!keys.some(([kind, key]) => n.kind === kind && keyOf(n) === key)) continue; const d = hsNetDeals.find(x => x.org_id === n.id); if (d) return { ...d, network: n.name }; }
+  for (const n of networks) { if (!keys.some(([kind, key]) => n.kind === kind && keyOf(n) === key)) continue; const d = hsNetDeals.find(x => x.org_id === n.id && (!(x.covers || []).length || x.covers.includes(p.ods_code))); if (d) return { ...d, network: n.name }; }
   return null;
 }
 function hsBarHtml(p) {

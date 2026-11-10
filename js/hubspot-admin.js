@@ -15,7 +15,7 @@ async function hsNetworkSection(n, parts) {
     : `<div class="text-sm italic text-slate-500">No ${n.kind === "icb" ? "ICB" : "PCN"} record found in HubSpot (matched by ${n.kind === "icb" ? "name" : "ODS code"}). Scottish clusters and Welsh boards are not held there.</div>`)
     : `<div class="text-sm text-slate-600">${total ? `${found} of ${total} linked PCN / ICB records found in HubSpot.` : "No linked PCNs or ICB."}</div>`;
   box.outerHTML = `<div id="dr-hsnet">${record}</div>`;
-  const { data: dl } = await db.from("hubspot_network_deals").select("deal_id,deal_name,company_id").eq("org_id", n.id).order("created_at", { ascending: false });
+  const { data: dl } = await db.from("hubspot_network_deals").select("deal_id,deal_name,company_id,covers").eq("org_id", n.id).order("created_at", { ascending: false });
   hsNetBar(n, parts, { own, record: l, found, total, deals: dl || [], company: hsOrgCo.get(n.id) });
 }
 

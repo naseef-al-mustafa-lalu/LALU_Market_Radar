@@ -1182,22 +1182,32 @@ def test_hubspot_contacts_stored_only_when_a_person_made_them_and_atlas_lacks_th
     assert n == 1 and r.rows[0]["hubspot_contact_id"] == "1"      # not Atlas-made contacts, not an address Atlas already holds, nothing without an email
 
 
-def test_deals_made_in_hubspot_for_a_group_are_recorded_against_it():
+def test_deals_made_in_hubspot_for_a_group_are_recorded_against_the_networks_they_cover():
     from src import hubspot_sync as hsy
 
     class Hub:
         def call(self, method, path, **kw):
             if "/companies/deals/batch/read" in path: return {"results": [{"from": {"id": "9"}, "to": [{"toObjectId": 1}, {"toObjectId": 2}, {"toObjectId": 3}]}]}
+            if "/deals/companies/batch/read" in path: return {"results": [{"from": {"id": "1"}, "to": [{"toObjectId": 100}, {"toObjectId": 101}, {"toObjectId": 102}]}, {"from": {"id": "3"}, "to": []}]}
             if "/deals/batch/read" in path:
-                return {"results": [{"id": "1", "properties": {"dealname": "Henmore Health", "hs_is_closed": "false"}}, {"id": "2", "properties": {"dealname": "Lost", "hs_is_closed_lost": "true"}}, {"id": "3", "properties": {"dealname": "Known"}}]}
+                return {"results": [{"id": "1", "properties": {"dealname": "Sunderland GP Alliance", "hs_is_closed": "false"}}, {"id": "2", "properties": {"dealname": "Lost", "hs_is_closed_lost": "true"}}, {"id": "3", "properties": {"dealname": "No practices"}}]}
             raise AssertionError(path)
 
     class R:
-        def __init__(self): self.up = []
-        def select_all(self, table, *a, **k): return {"hubspot_org_companies": [{"org_id": "o1", "company_id": "9"}], "hubspot_network_deals": [{"deal_id": "3"}]}[table]
+        def __init__(self): self.up, self.deleted = [], []
+        def select_all(self, table, *a, **k):
+            return {"hubspot_org_companies": [{"org_id": "prov", "company_id": "9"}], "hubspot_network_deals": [{"deal_id": "1", "org_id": "stale", "created_by": "HubSpot sync", "covers": []}],
+                    "organisations": [{"id": "p1", "ods_code": "A1"}, {"id": "p2", "ods_code": "A2"}, {"id": "p3", "ods_code": "A3"}, {"id": "p4", "ods_code": "A4"}],
+                    "org_relationships": [{"from_org": "p1", "to_org": "prov", "rel_type": "OPERATED_BY"}, {"from_org": "p2", "to_org": "prov", "rel_type": "OPERATED_BY"}, {"from_org": "p1", "to_org": "fed", "rel_type": "MEMBER_OF_FEDERATION"},
+                                          {"from_org": "p3", "to_org": "fed", "rel_type": "MEMBER_OF_FEDERATION"}, {"from_org": "p4", "to_org": "fed", "rel_type": "MEMBER_OF_FEDERATION"}]}[table]
         def upsert(self, table, rows, key): self.up += rows
+        def delete_in(self, table, col, vals, extra=None): self.deleted.append((col, vals, extra))
     r = R()
-    assert hsy.link_network_deals(r, Hub(), ["9"]) == 1 and r.up[0]["deal_id"] == "1" and r.up[0]["org_id"] == "o1"      # a lost deal and one already recorded are skipped
+    n = hsy.link_network_deals(r, Hub(), ["9"], {"100": "A1", "101": "A2", "102": "A3"})
+    got = {(x["deal_id"], x["org_id"]): x["covers"] for x in r.up}
+    assert got[("1", "prov")] == ["A1", "A2"] and got[("1", "fed")] == ["A1", "A3"]      # one deal covering both networks sits on both, with each network's practices
+    assert got[("3", "prov")] == [] and ("2", "prov") not in got and n == 3      # a deal naming no practice stays on the company's own network; a lost deal is dropped
+    assert r.deleted == [("deal_id", ["1"], {"org_id": "eq.stale"})]      # a sync-made row for a network the deal no longer covers is removed
 
 
 def test_a_customer_with_only_a_signed_deal_is_linked_to_it():

@@ -53,7 +53,7 @@ let netPrefetch = null;
 // Federations and operating groups defined in HubSpot (association labels), and the HubSpot company behind each network
 let hsNetDeals = [];   // deals created for a whole network (group, federation, PCN, ICB): a practice in that network is covered by it
 async function loadHsOrgs() {
-  try { hsNetDeals = (await db.from("hubspot_network_deals").select("deal_id,deal_name,org_id")).data || []; } catch (e) { hsNetDeals = []; }
+  try { hsNetDeals = (await db.from("hubspot_network_deals").select("deal_id,deal_name,org_id,covers")).data || []; } catch (e) { hsNetDeals = []; }
   try {
     const [m, c] = await Promise.all([fetchAll("hubspot_network_members", "kind,org_key,ods_code", "ods_code"), fetchAll("hubspot_org_companies", "org_id,company_id,hs_org_type,patient_list_size,patient_list_rollup", "org_id")]);
     hsMembers = new Map(); for (const r of m) { const k = r.kind + "|" + keyOf({ kind: r.kind, source_key: r.org_key }); (hsMembers.get(k) || hsMembers.set(k, new Set()).get(k)).add(r.ods_code); }

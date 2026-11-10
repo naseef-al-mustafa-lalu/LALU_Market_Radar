@@ -76,7 +76,7 @@ function openNetworkProfile(n) {
     })()) +
     `<button id="np-view" class="w-full bg-lalu-teal-700 hover:bg-lalu-teal-800 text-white rounded-lg py-2 text-sm font-semibold">Filter the practice list to this network →</button>`;
   $("dr-body").scrollTop = 0;
-  hsNetworkSection(n, parts); netDealCheck(n, totPts, row);
+  hsNetworkSection(n, parts); netDealCheck(n, members, row);
   $("dr-body").onclick = ev => { const tg = ev.target.closest(".np-sites"); if (tg) { const sub = $("dr-body").querySelector(`tr.np-sub[data-sub="${tg.dataset.for}"]`), open = sub.classList.toggle("hidden") === false; tg.setAttribute("aria-expanded", open); tg.textContent = (open ? "▾ " : "▸ ") + tg.textContent.slice(2); return; }
     const lk = ev.target.closest(".np-link"); if (lk) { const x = networks.find(y => y.kind === lk.dataset.nk && keyOf(y) === lk.dataset.nkey); if (x) openNetworkProfile(x); return; }
     const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
@@ -184,24 +184,29 @@ function renderRevenue() {
 }
 
 // A group, federation or PCN deal in HubSpot against what Atlas works out: practices priced at the network rate on their own list sizes, added up. Contracted size and MRR should match the deal.
-let netDealState = null;   // the deal read from HubSpot, kept so the card re-prices when the calculator's switches change
-async function netDealCheck(n, totPts, tierRow) {
+let netDealState = null;   // the deals read from HubSpot, kept so each card re-prices when the calculator's switches change
+async function netDealCheck(n, members, tierRow) {
   const box = $("np-dealcheck"); if (!box || !tierRow) return;
   try {
-    const { data: dl } = await db.from("hubspot_network_deals").select("deal_id,deal_name,company_id").eq("org_id", n.id).order("created_at", { ascending: false }).limit(1);
-    if (!dl || !dl[0] || !dl[0].company_id) { box.innerHTML = ""; netDealState = null; return; }
-    const r = await hsCall({ action: "read", companyId: String(dl[0].company_id), dealId: String(dl[0].deal_id) });
+    const { data: dl } = await db.from("hubspot_network_deals").select("deal_id,deal_name,company_id,covers").eq("org_id", n.id).order("created_at", { ascending: false });
+    if (!dl || !dl.length) { box.innerHTML = ""; netDealState = null; return; }
+    const read = await Promise.all(dl.filter(x => x.company_id).slice(0, 6).map(async x => { try { return { dl: x, d: (await hsCall({ action: "read", companyId: String(x.company_id), dealId: String(x.deal_id) })).deal || {} }; } catch (e) { return null; } }));
     if (!document.body.contains(box)) return;
-    netDealState = { dl: dl[0], d: r.deal || {}, totPts, tierRow }; netDealRender();
+    netDealState = { deals: read.filter(Boolean), members, tierRow, others: dl.length > read.length }; netDealRender();
   } catch (e) { box.innerHTML = ""; netDealState = null; }
 }
-// Atlas's side is priced exactly as the calculator above is (its size, speed and term switches, list or monthly plan), so with no size discount it shows the list-price figure the deal carries.
+// Atlas's side is priced exactly as the calculator above is (its size, speed and term switches, list or monthly plan), on the practices each deal covers (all of them when a deal names none). With no size discount it shows the list-price figure the deal carries.
 function netDealRender() {
   const box = $("np-dealcheck"), st = netDealState; if (!box || !st) return;
-  const { dl, d, totPts, tierRow } = st, size = Number(d.contracted_patient_list_size) || null, mrr = Number(d.amount) / 12 || null, rate = Number(d.actual_value_per_patient_calculated) || null;
-  const monthly = billing === "monthly", sz = discountsOn && !monthly ? Number(tierRow.size_discount) : 0, sp = speedOn && !monthly ? Number(tierRow.speed_discount) : 0, atRate = dealRate(sz, monthly ? 0 : termDiscount(termYrs), sp), atMrr = totPts * atRate;
   const near = (a, b, tol = 0.01) => a != null && b != null && Math.abs(a - b) <= Math.max(1, Math.abs(b) * tol), row = (label, hsV, atV, ok) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${label}</td><td class="px-2 text-right font-mono">${hsV}</td><td class="px-2 text-right font-mono">${atV}</td><td class="pl-2">${ok == null ? "" : ok ? '<span class="text-emerald-700">matches</span>' : '<span class="font-semibold text-amber-700">differs</span>'}</td></tr>`;
-  box.innerHTML = `<div class="mt-3 rounded-lg border border-slate-200 p-3 text-sm"><div class="font-semibold">Deal in HubSpot: ${hsLink("0-3", dl.deal_id, esc(d.dealname || dl.deal_name || "open deal"))}</div>
-    <table class="mt-1 w-full text-xs"><thead class="text-slate-500"><tr><th class="text-left font-medium">Figure</th><th class="px-2 text-right font-medium">HubSpot</th><th class="px-2 text-right font-medium">Atlas</th><th></th></tr></thead><tbody>
-    ${row("Contracted list size", size ? size.toLocaleString() : "not set", totPts.toLocaleString(), size ? near(size, totPts, 0.005) : false)}${row("MRR", mrr ? gbpFull(mrr) : "no amount", gbpFull(atMrr), mrr ? near(mrr, atMrr) : false)}${row("Net price per patient", rate ? "£" + rate3(rate) : "not calculated", totPts ? "£" + rate3(atRate) : "–", rate && totPts ? near(rate, atRate, 0.02) : null)}</tbody></table></div>`;
+  const monthly = billing === "monthly", sz = discountsOn && !monthly ? Number(st.tierRow.size_discount) : 0, sp = speedOn && !monthly ? Number(st.tierRow.speed_discount) : 0, atRate = dealRate(sz, monthly ? 0 : termDiscount(termYrs), sp);
+  const covered = new Set(st.deals.flatMap(x => x.dl.covers || [])), none = st.members.filter(p => p.total_patients > 0 && !covered.has(p.ods_code));
+  box.innerHTML = st.deals.map(({ dl, d }) => {
+    const cov = (dl.covers || []).length ? st.members.filter(p => dl.covers.includes(p.ods_code)) : st.members, totPts = cov.reduce((t, p) => t + (p.total_patients > 0 ? p.total_patients : 0), 0), atMrr = totPts * atRate;
+    const size = Number(d.contracted_patient_list_size) || null, mrr = Number(d.amount) / 12 || null, rate = Number(d.actual_value_per_patient_calculated) || null;
+    return `<div class="mt-3 rounded-lg border border-slate-200 p-3 text-sm"><div class="font-semibold">Deal in HubSpot: ${hsLink("0-3", dl.deal_id, esc(d.dealname || dl.deal_name || "open deal"))} <span class="text-xs font-normal text-slate-500">covers ${(dl.covers || []).length ? cov.length + " of " + st.members.length + " practices" : "the network (no practices named on the deal)"}</span></div>
+      <table class="mt-1 w-full text-xs"><thead class="text-slate-500"><tr><th class="text-left font-medium">Figure</th><th class="px-2 text-right font-medium">HubSpot</th><th class="px-2 text-right font-medium">Atlas</th><th></th></tr></thead><tbody>
+      ${row("Contracted list size", size ? size.toLocaleString() : "not set", totPts.toLocaleString(), size ? near(size, totPts, 0.005) : false)}${row("MRR", mrr ? gbpFull(mrr) : "no amount", gbpFull(atMrr), mrr ? near(mrr, atMrr) : false)}${row("Net price per patient", rate ? "£" + rate3(rate) : "not calculated", totPts ? "£" + rate3(atRate) : "–", rate && totPts ? near(rate, atRate, 0.02) : null)}</tbody></table></div>`;
+  }).join("") + (st.others ? '<p class="mt-2 text-xs text-slate-500">More deals exist on this network than are shown here.</p>' : "") +
+    (covered.size && none.length ? `<div class="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600"><b>${none.length} practice${none.length === 1 ? "" : "s"} not on any deal yet:</b> ${none.slice(0, 12).map(p => esc(p.practice_name)).join(", ")}${none.length > 12 ? " and " + (none.length - 12) + " more" : ""}</div>` : "");
 }
