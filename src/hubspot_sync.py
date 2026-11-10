@@ -135,7 +135,7 @@ def made_by_atlas(pr):
 
 def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=3000, known_emails=frozenset()):
     """Store the HubSpot contacts of practice companies that Atlas does not hold yet, source 'hubspot', with their address and role graded like every other contact (campaign eligibility is decided from that
-    and the suppression rules, so nothing here makes a contact campaign-ready). Only contacts a person made in HubSpot (from any lead source) that Atlas does not already hold, by HubSpot id or email address;
+    and the suppression rules, so nothing here makes a contact campaign-ready). Only contacts with an email address, on a practice company, that a person made in HubSpot (from any lead source) and Atlas does not already hold, by HubSpot id or email address;
     contacts Atlas created in HubSpot are skipped. Returns how many were added."""
     from . import contact_quality
     rows, now, seen = [], datetime.now(timezone.utc).isoformat(), set(known)
@@ -144,7 +144,8 @@ def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=3000
             for cid in to_contacts.get(str(c["id"]), []):
                 cid = str(cid)
                 pr = contacts.get(cid)
-                if cid in seen or not pr or not (pr.get("email") or pr.get("firstname") or pr.get("lastname")) or made_by_atlas(pr) or (pr.get("email") or "").strip().lower() in known_emails:
+                email0 = (pr.get("email") or "").strip().lower() if pr else ""
+                if cid in seen or not pr or not email0 or made_by_atlas(pr) or email0 in known_emails:   # only contacts with an email address, on a practice company, that Atlas does not hold
                     continue
                 seen.add(cid)
                 first, last, email = (pr.get("firstname") or "").strip(), (pr.get("lastname") or "").strip(), (pr.get("email") or "").strip().lower() or None
