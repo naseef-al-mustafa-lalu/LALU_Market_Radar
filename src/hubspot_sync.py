@@ -1184,6 +1184,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         print("Role links skipped:", e)
     rows, flags, life_audit = [], {"customers": 0, "engaged": 0}, []
     hs_contacts = {}   # ods -> {email: (contact id, createdate)}
+    hs_ids = {}   # ods -> HubSpot contact ids of its companies
     for ods, cs in by_ods.items():
         cset = [str(c["id"]) for c in cs]
         contact_ids = sorted({i for c in cset for i in to_contacts.get(c, [])})
@@ -1196,6 +1197,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         if la:
             life_audit.append(la)
         hs_contacts[ods] = {(contacts[i].get("email") or "").strip().lower(): (i, contacts[i].get("createdate")) for i in contact_ids if contacts.get(i, {}).get("email")}
+        hs_ids[ods] = set(contact_ids)
     for ods, p in practices.items():   # a practice that had a company before but no longer does: clear the link and flags
         if ods not in by_ods and p.get("hubspot_company_id"):
             rows.append({"ods_code": ods, "practice_name": p["practice_name"], "hubspot_company_id": None, "hubspot_company_imported_at": None, "hubspot_stage": None,
@@ -1241,7 +1243,10 @@ def sync(rest, hub, now=None, actor="daily sync"):
     for c in ours:
         if c["ods_code"] not in by_ods:
             continue
-        hit = hs_contacts[c["ods_code"]].get((c.get("email") or "").strip().lower())
+        email = (c.get("email") or "").strip().lower()
+        hit = hs_contacts[c["ods_code"]].get(email) if email else None
+        if not hit and c.get("hubspot_contact_id") and str(c["hubspot_contact_id"]) in hs_ids.get(c["ods_code"], ()):
+            continue   # a contact with no email (a nurse, say) is matched by its HubSpot id: its link must not be cleared, or the next run would store it again
         want = ("Imported", hit[1], hit[0]) if hit else ("Not imported", None, None)
         if (c["hubspot_status"], c.get("hubspot_contact_id")) != (want[0], want[2]):
             crow.append({"contact_urn": c["contact_urn"], "ods_code": c["ods_code"], "hubspot_status": want[0], "hubspot_imported_at": want[1], "hubspot_contact_id": want[2]})
