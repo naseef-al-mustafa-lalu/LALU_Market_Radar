@@ -234,7 +234,7 @@ async function linkIntoGroup(admin: any, ods: string, dealId: string, warnings: 
 const NOTE_TO: Record<string, number> = { companies: 190, deals: NOTE_TO_DEAL, contacts: 202 };   // HubSpot-defined association types: note -> company / deal / contact
 const LABELS: Record<string, string> = { patient_list_size: "Patient List Size", size_tier: "Size tier", size_discount: "Size discount", speed_discount: "Speed discount", term_length_discount: "Term discount",
   referral_discount: "Referral discount", term_length_years: "Term length (years)", value_per_patient: "Value per patient", commercial_model: "Commercial model", contracted_patient_list_size: "Contracted list size", org_type: "Org Type", operating_status: "Operating status",
-  partner_organisation_code: "GP ODS Code", dealname: "Deal name", dealstage: "Deal stage", pipeline: "Pipeline", dealtype: "Deal type", product___service: "Product / Service", amount: "Amount", closedate: "Close date", hubspot_owner_id: "Owner", lifecyclestage: "Lifecycle Stage" };
+  partner_organisation_code: "GP ODS Code", dealname: "Deal name", dealstage: "Deal stage", pipeline: "Pipeline", dealtype: "Deal type", product___service: "Product / Service", amount: "Amount", closedate: "Close date", hubspot_owner_id: "Owner", lifecyclestage: "Lifecycle Stage", merger_date: "Merger date", closure_date: "Closure date" };
 const esc = (t: unknown) => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const show = (v: unknown) => (v === null || v === undefined || v === "") ? "blank" : String(v);
 const stamp = () => new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
@@ -317,12 +317,15 @@ Deno.serve(async (req) => {
       const orgType = String(b.orgType ?? "practice"); if (!["practice", "branch_site"].includes(orgType)) throw new Fail("Unsupported Org Type");   // a merged practice whose site goes on as a branch of its successor is a Branch (Site)
       const br = mode === "branch" ? (b.branch ?? {}) : null, branchCode = String(br?.code ?? "").trim().toUpperCase();
       if (br && (!/^[A-Z0-9]{3,12}$/.test(branchCode) || !String(br.name ?? "").trim())) throw new Fail("The branch needs a code and a name");
-      const props = "name,partner_organisation_code,org_type,operating_status,hs_parent_company_id,patient_list_size,lifecyclestage";
+      const props = "name,partner_organisation_code,org_type,operating_status,hs_parent_company_id,patient_list_size,lifecyclestage,merger_date,closure_date";
       const [co, parent] = await Promise.all([hs(`/crm/v3/objects/companies/${companyId}?properties=${props}`), hs(`/crm/v3/objects/companies/${parentId}?properties=${props}`)]);
       if (String(co.properties?.partner_organisation_code ?? "").toUpperCase() !== ods) throw new Fail("That HubSpot company does not carry this practice's ODS code");
       if (String(parent.properties?.partner_organisation_code ?? "").toUpperCase() !== parentOds) throw new Fail("The parent company does not carry the expected ODS code");
       // The merger process: an absorbed practice whose site closes is Merged with Lifecycle Stage Merged/Closed (not Past Customer); a site that stays open under its parent stays Active; a closed code is Closed with Merged/Closed.
       const opStatus = mode === "merged" ? (orgType === "branch_site" ? "active" : "merged") : "closed", LIFECYCLE_MERGED_CLOSED = "6366279924", lifecycle = opStatus === "active" ? null : LIFECYCLE_MERGED_CLOSED;
+      // The date the practice stopped (NHS end date, else when the merger was recorded, else today) goes in first; the Operating status is written last, because that change fires the churn workflow, which needs the date in place.
+      const { data: dr } = await admin.from("gp_practices").select("operational_end_date,merged_at").eq("ods_code", ods).maybeSingle();
+      const eventDate = String(dr?.operational_end_date ?? "").slice(0, 10) || String(dr?.merged_at ?? "").slice(0, 10) || new Date().toISOString().slice(0, 10), dateProp = mode === "merged" ? "merger_date" : "closure_date";
       const warnings: string[] = [], day = new Date().toISOString().slice(0, 10), parentName = String(parent.properties?.name ?? parentOds), oldName = String(co.properties?.name ?? ods);
       const toParent = async (childId: string, label: string, roles: { label: string; inverse: string; name: string }[]) => {   // the child company points at the parent with the role labels (any number of relationships); Parent Company is only the fallback when the labels cannot be created
         try {
@@ -340,7 +343,7 @@ Deno.serve(async (req) => {
         } catch (e) { warnings.push(`${label} could not be linked to ${parentName}: ${(e as Error).message}`); }
       };
       const coNote = (id: string, text: string) => noteOn("companies", id, text, warnings);   // same helper as everywhere else, on a company, collecting this action's warnings
-      await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { org_type: mode === "merged" ? orgType : "practice", operating_status: opStatus, ...(lifecycle ? { lifecyclestage: lifecycle } : {}), ...(zero ? { patient_list_size: "0" } : {}) } }) });
+      await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { org_type: mode === "merged" ? orgType : "practice", [dateProp]: eventDate, ...(lifecycle ? { lifecyclestage: lifecycle } : {}), ...(zero ? { patient_list_size: "0" } : {}) } }) });
       await toParent(companyId, oldName, mode === "merged" && orgType === "branch_site" ? [ROLE_SUCCESSOR, ROLE_PARENT] : [ROLE_SUCCESSOR]);
       let branchId: string | null = null, created = false, moved = 0;
       if (br) {
@@ -362,9 +365,10 @@ Deno.serve(async (req) => {
           } catch (e) { warnings.push(`Contacts were not linked to the branch: ${(e as Error).message}`); }
         }
       }
+      await hs(`/crm/v3/objects/companies/${companyId}`, { method: "PATCH", body: JSON.stringify({ properties: { operating_status: opStatus } }) });   // last, so the dates, links and branch are all in place when the churn workflow fires
       const text = mode === "merged" ? `Atlas, ${day}, by ${who}: practice ${ods} has merged into ${parentName} (${parentOds}). Operating status set to ${opStatus === "active" ? "Active (its site continues under the successor)" : "Merged and Lifecycle Stage to Merged/Closed"}${orgType === "branch_site" ? ", Org Type set to Branch (Site) because its site continues as a branch of the successor," : ""} and linked to ${parentName} with the Successor Practice label${orgType === "branch_site" ? " and the Parent Practice label" : ""}. The company and its history stay here.${zero ? ` List size set to 0 (was ${co.properties?.patient_list_size ?? "blank"}) because its patients are counted at ${parentName}; this stops HubSpot counting them twice.` : ""}`
         : `Atlas, ${day}, by ${who}: practice code ${ods} has closed, but its site continues as ${br.name} (${branchCode}), a branch of ${parentName} (${parentOds}). This company is marked Closed with Lifecycle Stage Merged/Closed and linked to ${parentName} (Successor Practice) and to the branch company${created ? " (created by Atlas)" : ""}. Its history stays here.${zero ? ` List size set to 0 (was ${co.properties?.patient_list_size ?? "blank"}) because its patients are counted at ${parentName}; this stops HubSpot counting them twice.` : ""}`;
-      const diff = changes(co.properties, { org_type: mode === "merged" ? orgType : "practice", operating_status: opStatus, ...(lifecycle ? { lifecyclestage: "Merged/Closed" } : {}), ...(zero ? { patient_list_size: 0 } : {}) });
+      const diff = changes(co.properties, { org_type: mode === "merged" ? orgType : "practice", [dateProp]: eventDate, operating_status: opStatus, ...(lifecycle ? { lifecyclestage: "Merged/Closed" } : {}), ...(zero ? { patient_list_size: 0 } : {}) });
       await coNote(companyId, esc(text) + (diff.length ? "<br>" + diff.map((l) => esc("• " + l)).join("<br>") : ""));
       if (branchId) await coNote(branchId, esc(`Atlas, ${day}, by ${who}: this branch site took over from the closed practice code ${ods} (${oldName}), which is linked to this company for history. Parent: ${parentName} (${parentOds}).`) + (created ? "<br>" + esc("• Company: not in HubSpot → created by Atlas") : ""));
       const changeNote = (mode === "merged" ? `Merged into ${parentName} (${parentOds}); ${opStatus === "active" ? "kept Active as its site continues" : "marked Merged"}${orgType === "branch_site" ? " and as a Branch (Site)" : ""} and linked to its successor in HubSpot` : `Closed; site continues as ${branchCode}, a branch of ${parentName} (${parentOds}); marked Closed in HubSpot and linked to the successor and the branch company`) + ` on ${day} by ${who}`;

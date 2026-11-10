@@ -438,6 +438,8 @@ def plan_alignment(practices, rows, branches):
             props["org_type"] = "practice"
         want = expected_status(p)
         if (r.get("hubspot_operating_status") or "") != want:
+            if want == "closed":   # the closure date goes in first, then the status: the churn workflow fires on the status and needs the date in place
+                props["closure_date"] = str(p.get("operational_end_date") or "")[:10] or datetime.now(timezone.utc).date().isoformat()
             props["operating_status"] = want
         if props:
             auto.append({"ods": r["ods_code"], "id": str(r["hubspot_company_id"]), "name": p["practice_name"], "props": props, "was": {"org_type": r.get("hubspot_org_type"), "operating_status": r.get("hubspot_operating_status")}})
@@ -453,12 +455,16 @@ def push_alignment(rest, hub, auto):
     done, err = [], None
     for ch in chunks(auto, 100):
         try:
-            hub.call("POST", "/crm/v3/objects/companies/batch/update", json={"inputs": [{"id": c["id"], "properties": c["props"]} for c in ch]})
+            for step in (set().union(*(c["props"].keys() for c in ch)) - {"operating_status"}, {"operating_status"}):   # everything else first (Org Type, closure date), the Operating status last
+                inputs = [{"id": c["id"], "properties": {k: v for k, v in c["props"].items() if k in step}} for c in ch]
+                inputs = [i for i in inputs if i["properties"]]
+                if inputs:
+                    hub.call("POST", "/crm/v3/objects/companies/batch/update", json={"inputs": inputs})
         except Exception as e:  # noqa: BLE001
             err = str(e)[:300]
             break
-        rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], **{"hubspot_" + k: v for k, v in c["props"].items()}} for c in ch], "ods_code")
-        labels = {"org_type": "Org Type", "operating_status": "Operating status"}
+        rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], **{"hubspot_" + k: v for k, v in c["props"].items() if k != "closure_date"}} for c in ch], "ods_code")
+        labels = {"org_type": "Org Type", "operating_status": "Operating status", "closure_date": "Closure date"}
         add_notes(hub, "companies", [(c["id"], note_text("set from NHS data by the daily sync", [change_line(labels[k], (c.get("was") or {}).get(k), v) for k, v in c["props"].items()])) for c in ch])
         done += ch
     return done, err
@@ -1150,7 +1156,7 @@ def record(rest, rows, actor):
 
 def sync(rest, hub, now=None, actor="daily sync"):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,data_month,postcode,status,merged_into,closure_confirmed_at,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
+    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,data_month,postcode,status,merged_into,closure_confirmed_at,operational_end_date,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
     by_ods = {}
     for c in raw:

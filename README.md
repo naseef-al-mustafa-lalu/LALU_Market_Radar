@@ -416,3 +416,7 @@ Data > HubSpot audit has two lifecycle checks, rebuilt by every HubSpot sync and
 HubSpot contacts are stored in Atlas only when a person made them in HubSpot (any lead source) and Atlas does not already hold them (by HubSpot id or email address). Contacts Atlas created in HubSpot itself (source detail Oscar AI or Lalu Atlas Import) are never stored again, so the two sides mirror each other without duplicates.
 
 Deals made in HubSpot for a federation or group (associated with its company, any lost deals left out) are recorded against that organisation by the daily sync, so a practice covered by a group deal says so instead of "no deal linked".
+
+### Merger and closure process
+
+For a merged practice or a closed code whose site goes on, the HubSpot push (edge action `entity_change`) writes the **Merger date** or **Closure date** first (the NHS end date, else when the merger was recorded in Atlas, else today), then the successor links, and the **Operating status last**, because that change fires HubSpot's churn workflow, which needs the date in place. Atlas still sets the Merged/Closed lifecycle stage and the absorbed practice's list size (from NHS ODS) itself; ending the service stays with Customer Success. Plain closures set by the daily alignment write the Closure date, then the status. A site that stays open under a parent stays Active.
