@@ -96,8 +96,7 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
     left = credits_left(key, get)
     todo = approved[:MAX_PER_RUN] if left is None else approved[:max(0, min(MAX_PER_RUN, left))]
     companies = {r["ods_code"]: r.get("hubspot_company_id") for r in rest.select_all("gp_practices", "ods_code,hubspot_company_id", order="ods_code")}
-    tracked = [s for s in rest.select_all("hubspot_segments", "list_id,processing_type,criteria", order="list_id", params={"tracked": "eq.true"}) if s.get("processing_type") in ("MANUAL", "SNAPSHOT")]
-    out = {"checked": 0, "passed": 0, "failed": 0, "created": 0, "enrolled": 0, "errors": 0, "by_status": {}}
+    out = {"checked": 0, "passed": 0, "failed": 0, "created": 0, "errors": 0, "by_status": {}}
     for c in todo:
         try:
             status = verify(c["email"], key, get)
@@ -116,10 +115,6 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
                 cid, created = hubspot_contact(hub, c, companies.get(c["ods_code"]), status)
                 patch.update(hubspot_contact_id=cid, hubspot_status="Imported", hubspot_imported_at=now.isoformat())
                 out["created"] += int(created)
-                for s in tracked:
-                    if fits(s.get("criteria") or {}, status, c):
-                        hub.call("PUT", f"/crm/v3/lists/{s['list_id']}/memberships/add", json=[cid])
-                        out["enrolled"] += 1
             except Exception as e:  # noqa: BLE001  the result is still recorded in Atlas; HubSpot is retried by hand
                 out["errors"] += 1
                 out["last_error"] = str(e)[:200]
@@ -142,7 +137,7 @@ def report(out, link=""):
     if out.get("skipped"):
         return None
     st = ", ".join(f"{k} {v}" for k, v in sorted(out.get("by_status", {}).items())) or "nothing checked"
-    return (f":white_check_mark: *NeverBounce run*: {out.get('checked', 0)} checked ({st}); {out.get('created', 0)} created in HubSpot, {out.get('enrolled', 0)} added to segments"
+    return (f":white_check_mark: *NeverBounce run*: {out.get('checked', 0)} checked ({st}); {out.get('created', 0)} created in HubSpot (not added to any list: they wait for review in Atlas)"
             f"{'; ' + str(out['waiting']) + ' still waiting' if out.get('waiting') else ''}{'; credits left ' + str(out['credits_remaining']) if out.get('credits_remaining') is not None else ''}"
             f"{'; ' + str(out['errors']) + ' errors, last: ' + slack.mrkdwn(out.get('last_error', '')) if out.get('errors') else ''}{' ' + link if link else ''}")
 
@@ -161,7 +156,7 @@ def main():
     if out.get("skipped") or not out.get("checked") and not out.get("errors"):
         return
     rest.insert("neverbounce_runs", [{"kind": "weekly", "checked": out.get("checked", 0), "passed": out.get("passed", 0), "failed": out.get("failed", 0), "created_in_hubspot": out.get("created", 0),
-                                      "enrolled": out.get("enrolled", 0), "credits_remaining": out.get("credits_remaining"), "summary": out, "error": out.get("last_error")}])
+                                      "enrolled": 0, "credits_remaining": out.get("credits_remaining"), "summary": out, "error": out.get("last_error")}])
     msg = report(out, env.get("ATLAS_URL", ""))
     if msg and slack.atlas_configured():
         try:

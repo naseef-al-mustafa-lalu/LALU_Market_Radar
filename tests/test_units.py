@@ -1037,10 +1037,10 @@ def test_neverbounce_queue_run_and_results():
                 return {"status": "success", "result": answers[params["email"]]}
         return J()
     out = nb.run(rest, hub, "k", datetime(2026, 11, 9, 7, 0, tzinfo=timezone.utc), get=get)
-    assert out["checked"] == 2 and out["passed"] == 1 and out["failed"] == 1 and out["created"] == 1 and out["enrolled"] == 1 and out["by_status"] == {"Accept All (Unverifiable)": 1, "Invalid": 1} and out["credits_remaining"] == 100, out
+    assert out["checked"] == 2 and out["passed"] == 1 and out["failed"] == 1 and out["created"] == 1 and "enrolled" not in out and out["by_status"] == {"Accept All (Unverifiable)": 1, "Invalid": 1} and out["credits_remaining"] == 100, out
     created = [c for c in hub.calls if c[0] == "POST" and c[1] == "/crm/v3/objects/contacts"][0][2]["properties"]
     assert created["neverbounce_status"] == "Accept All (Unverifiable)" and created["job_role_standardised"] == "Practice Manager" and created["email"] == "jane.doe@nhs.net"
-    assert ("PUT", "/crm/v4/objects/contacts/555/associations/default/companies/77", None) in hub.calls and ("PUT", "/crm/v3/lists/4584/memberships/add", ["555"]) in hub.calls      # on its practice company, and into the static segment it fits
+    assert ("PUT", "/crm/v4/objects/contacts/555/associations/default/companies/77", None) in hub.calls and not [c for c in hub.calls if "/lists/" in c[1]]      # on its practice company; never added to a HubSpot list automatically (that waits for review in Atlas)
     ok = [p for p in rest.patched if p[1] == {"contact_urn": "eq.1"}][0][2]
     assert ok["nb_result"] == "Accept All (Unverifiable)" and ok["hubspot_contact_id"] == "555" and [p for p in rest.patched if p[1] == {"contact_urn": "eq.2"}][0][2]["hs_neverbounce"] == "Invalid"
     assert nb.run(rest, hub, "k", datetime(2026, 11, 10, 7, 0, tzinfo=timezone.utc), get=get) == {"skipped": "outside Monday before 09:00 UK"}

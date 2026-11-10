@@ -426,3 +426,5 @@ A contact a person has accepted or rejected in Contacts > Review keeps that deci
 ### Group and federation deals
 
 A HubSpot deal on a group or federation company is recorded by the daily sync against every Atlas network whose practices it covers (the practice companies associated with the deal in HubSpot), with the practices it covers; one deal covering both a provider group and a federation shows on both. A deal that names no practice stays on the network of the company it was made on. The network profile lists each deal with its Atlas-versus-HubSpot figures for the practices it covers, and names the practices not on any deal. A practice not covered by a deal does not show "covered by". Practice associations, labels and the deal's practices are managed in HubSpot. Migration 77 adds the `covers` column and makes the key (deal, network).
+
+NeverBounce no longer adds passing contacts to HubSpot lists: they are created in HubSpot (with the source, marketing status and legal basis) and wait for review in Atlas; adding contacts to a list happens when a person approves them (Audiences).
