@@ -657,5 +657,7 @@ with sync_playwright() as p:
     assert "Opt B ⚠" in wb and "Lena A ⚠" not in wb and "Already in a sequence" in wb and "disabled" not in wb.split("nd-primary")[1].split("</select>")[0], wb[:300]      # a contact Atlas would hold back is flagged in the deal picker, not blocked
     nk = pg.evaluate("['GP Led Dermatology Service', 'I.C.B. (Oxford City)', 'Litherland Primary Care Walk-in Service', 'Liverpool Women\\'s NHS Foundation Trust', 'Cgl Aspire', 'Fiveways PCN Ea Hub', 'Something Else'].map(nonGpKind)")
     assert nk == ["GP-led specialist service", "ICB / commissioning", "Walk-in / urgent care", "Hospital trust", "Community service", "PCN / network hub", "Other non-GP service"], nk      # non-GP services get a plain label from their name
+    pg.evaluate("showTab('data'); practices.forEach(p => { if (!p.hubspot_company_id) p.hubspot_company_id = 'x' + p.ods_code; })"); pg.evaluate("renderHubspotPanel()"); pg.wait_for_selector("#hsp-q")
+    assert pg.evaluate("typeof $('hsp-q').oninput === 'function'"), "the HubSpot panel's controls are wired even when every practice is in HubSpot (the 'not in HubSpot' button is then absent)"      # a missing button once threw and left the rest of the panel unwired
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)
