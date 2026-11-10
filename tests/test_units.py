@@ -705,6 +705,23 @@ def test_oscar_contacts_step_keeps_hubspot_contacts_adopts_by_email_and_gates_ne
     assert "practice_generic_emails" not in rest2.up      # the practice already has an Oscar generic address: nothing more is ingested
 
 
+def test_oscar_load_does_not_undo_a_review_decision():
+    from src import ingest
+    class R:
+        def __init__(self, rows): self.rows, self.up = rows, {}
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else []
+        def upsert(self, table, rows, on_conflict, batch=500): self.up.setdefault(table, []).extend(rows)
+        def delete_in(self, *a, **k): pass
+    base = dict(ods_code="A1", seniority=None, phone=None, email_opt_out=False, is_primary=False, org_urn=None, title=None, quals=None, dept=None, categories=None, data_types=None, main_site=False, source="oscar", full_name="Pat Smith", first_name="Pat", last_name="Smith", email="psmith2@nhs.net", job_title="Practice Manager")
+    db = [dict(base, contact_urn=21, email_quality="direct", held_reason=None, reviewed_by="a@lalu.co.uk"), dict(base, contact_urn=22, email_quality="check", held_reason="rejected in review", reviewed_by="a@lalu.co.uk", email="x@nhs.net"),
+          dict(base, contact_urn=23, email_quality="check", held_reason="email is not a direct address (check)", reviewed_by=None, email="y@nhs.net")]
+    feed = [dict(base, contact_urn=21), dict(base, contact_urn=22, email="x@nhs.net"), dict(base, contact_urn=23, email="y@nhs.net")]
+    r = R(db); ingest.contacts_step(r, feed, {"A1": {}}, [], {}, [])
+    up = {c["contact_urn"]: c for c in r.up.get("contacts", [])}
+    assert up[21]["email_quality"] == "direct" and up[21]["held_reason"] is None      # accepted in review: the load keeps it direct, so it does not come back to the queue
+    assert up[22]["held_reason"] == "rejected in review"      # rejected in review: stays rejected
+
+
 def test_primary_contact_is_picked_from_hubspot_sourced_contacts():
     from src import hubspot_sync as hsy
     c = lambda urn, title, **k: dict(contact_urn=urn, job_title=title, seniority=None, email=f"p{urn}@nhs.net", email_opt_out=False, **k)

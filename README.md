@@ -420,3 +420,5 @@ Deals made in HubSpot for a federation or group (associated with its company, an
 ### Merger and closure process
 
 For a merged practice or a closed code whose site goes on, the HubSpot push (edge action `entity_change`) writes the **Merger date** or **Closure date** first (the NHS end date, else when the merger was recorded in Atlas, else today), then the successor links, and the **Operating status last**, because that change fires HubSpot's churn workflow, which needs the date in place. Atlas still sets the Merged/Closed lifecycle stage and the absorbed practice's list size (from NHS ODS) itself; ending the service stays with Customer Success. Plain closures set by the daily alignment write the Closure date, then the status. A site that stays open under a parent stays Active.
+
+A contact a person has accepted or rejected in Contacts > Review keeps that decision: the daily Oscar load no longer recomputes its address quality or clears its held reason, so reviewed contacts do not return to the queue.

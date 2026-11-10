@@ -318,6 +318,9 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
             keep.append(c)
     for c in keep:
         c.setdefault("held_reason", None)
+        old = oscar_db.get(c["contact_urn"])
+        if old and old.get("reviewed_by"):   # a person already accepted or rejected this contact in Atlas's Review queue: the daily load must not undo that and put it back in the queue
+            c["email_quality"], c["held_reason"] = old.get("email_quality"), old.get("held_reason")
     cols = CONTACT_FIELDS + ["email_quality", "role_tier", "source", "held_reason"]
     changed = [c for c in keep if c["contact_urn"] not in db or any(c.get(k) != db[c["contact_urn"]].get(k) for k in cols)]
     rest.upsert("contacts", changed, "contact_urn")
