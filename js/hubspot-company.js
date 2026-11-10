@@ -161,7 +161,7 @@ async function hsDealForm(company) {
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Patients", p.total_patients.toLocaleString(), esc(want.tier))}${pt("List price", "£" + rate3(want.list) + " /mo", "per patient")}
         ${pt("Total discount", pct(want.total), `size ${pct(want.size)} · term ${pct(want.term)} · speed ${pct(want.speed)}${want.referral > 0 ? " · referral " + pct(want.referral) : ""}`)}${pt("Net price", "£" + rate3(want.rate) + " /mo", "per patient")}</div>
       <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Annual revenue", gbpFull(annual), "becomes the deal Amount")}${pt("Line item", esc(w.productName), "billed monthly")}
-        ${pt("Unit discount", "£" + rate3(Math.max(0, w.listUnit - w.netUnit)), "off £" + rate3(w.listUnit) + " /mo")}${pt("Contract term", w.term + " month" + (w.term > 1 ? "s" : ""), "the product")}</div></div>`;
+        ${pt("Line discount", hsPctText(hsWantDiscPct(w)), "off £" + rate3(w.listUnit) + " /mo")}${pt("Contract term", w.term + " month" + (w.term > 1 ? "s" : ""), "the product")}</div></div>`;
     box.innerHTML = `${pricing}<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New deal on ${esc(company.name)}</h4>
       <div class="grid gap-2 sm:grid-cols-2">
         <div class="sm:col-span-2">${field("Deal name", `<input id="nd-name" class="${inp}" value="${esc(hs.net ? hs.net.name : lead ? lead + " - " + company.name : company.name)}">`)}</div>
@@ -266,12 +266,12 @@ function hsPreview() {
     .map(([l, nowV, hv, tv]) => chg(l, pctShow(hsNum(nowV)), pct(tv), sameNum(nowV, hv))).join("") + chg("Term length (years)", esc(deal.term_length_years || "not set"), String(want.termYears), String(deal.term_length_years) === String(want.termYears));
   const nDeal = [sameNum(deal.size_discount, hsPct(want.size)), sameNum(deal.speed_discount, hsPct(want.speed)), sameNum(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), !refShown || sameNum(deal.referral_discount || 0, hsPct(want.referral))].filter(x => !x).length;
   const tile = (k, v, changed, sub = "") => `<div class="rounded-lg ${changed ? "bg-emerald-50 ring-1 ring-emerald-200" : "bg-slate-50"} px-3 py-2"><div class="text-[11px] uppercase tracking-wider text-slate-500">${k}</div><div class="font-mono font-semibold">${v}</div>${sub ? `<div class="text-[11px] text-slate-500">${sub}</div>` : ""}</div>`;
-  const cur = line.cur, discNew = Math.max(0, w.listUnit - w.netUnit);
+  const cur = line.cur;
   const lineCard = line.unreadable ? '<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Line items cannot be read with the current HubSpot token. Add the <b>crm.objects.line_items.read / write</b> scopes (and e-commerce) to include the line item in this push.</div>'
     : `<div class="mb-2 text-sm font-semibold">${esc(w.productName)} ${line.action === "create" ? '<span class="ml-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">new line</span>' : line.action === "replace" ? '<span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">replaces ' + esc(cur.name || "existing line") + '</span>' : ""}</div>
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">${tile("Quantity", w.quantity.toLocaleString() + " patients", !cur || Number(cur.quantity) !== w.quantity, cur ? "now " + Number(cur.quantity).toLocaleString() : "")}
         ${tile("Unit price", "£" + rate3(w.listUnit) + " /mo", !cur || Math.abs((Number(cur.price) || 0) - w.listUnit) >= 0.0006, cur ? "now £" + rate3(Number(cur.price) || 0) : "set by the tool")}
-        ${tile("Unit discount", "£" + rate3(discNew), !cur || Math.abs((Number(cur.discount) || 0) - discNew) >= 0.0006, cur ? "now £" + rate3(Number(cur.discount) || 0) : "")}
+        ${tile("Discount", hsPctText(hsWantDiscPct(w)), !cur || Math.abs(hsLineDiscPct(cur) - hsWantDiscPct(w)) >= 0.01, cur ? "now " + hsPctText(hsLineDiscPct(cur)) : "")}
         ${tile("Net unit price", "£" + rate3(w.netUnit) + " /mo", false, "p/month")}
         ${tile("Contract term", w.term + " month" + (w.term > 1 ? "s" : ""), false, "the product (Annual or Monthly)")}
         ${tile("Billing", "Monthly", !cur || cur.recurringbillingfrequency !== "monthly", cur ? "now " + esc(cur.recurringbillingfrequency || "not set") : "everyone is billed monthly")}</div>`;
@@ -343,7 +343,7 @@ async function hsValidate(tries) {
     const okV = blankV ? null : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4;   // null: HubSpot has not filled it in
     const line = (ok, label, got, exp) => `<div class="flex items-center justify-between rounded-lg border ${ok === null ? "border-amber-300 bg-amber-50 text-amber-900" : ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"} px-3 py-2"><span>${ok === null ? "?" : ok ? "✓" : "✗"} ${label}</span><span class="font-mono">HubSpot ${got} · tool ${exp}</span></div>`;
     const lineNow = hsOurLine(lastFull), lw = want.line;   // the last poll already read the line items
-    const lineNet = lineNow ? (Number(lineNow.price) - (Number(lineNow.discount) || 0)) : null, okL = lineNow == null ? null : Math.abs(lineNet - lw.netUnit) < 0.0006 && Number(lineNow.quantity) === lw.quantity;
+    const lineNet = lineNow ? Number(lineNow.price) * (1 - hsLineDiscPct(lineNow) / 100) : null, okL = lineNow == null ? null : Math.abs(lineNet - lw.netUnit) < 0.0006 && Number(lineNow.quantity) === lw.quantity;
     const PER_YEAR = { weekly: 52, biweekly: 26, monthly: 12, quarterly: 4, per_six_months: 2, annually: 1 }, perYear = lineNow ? PER_YEAR[lineNow.recurringbillingfrequency] : null;
     const amt = hsNum(last.amount), lineAmt = lineNow && perYear ? hsNum(lineNow.amount) * perYear : null, okA = amt == null || lineAmt == null || Number.isNaN(lineAmt) ? null : Math.abs(amt - lineAmt) < 0.5;      // HubSpot puts the line item's yearly value in the deal Amount: a monthly line of £352.25 gives £4,227      // the deal's Amount should be the line item's amount (HubSpot sums line items), not something a workflow wrote
     const done = okT && okV && okL !== false && okA !== false;

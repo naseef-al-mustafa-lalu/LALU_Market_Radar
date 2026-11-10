@@ -659,5 +659,7 @@ with sync_playwright() as p:
     assert nk == ["GP-led specialist service", "ICB / commissioning", "Walk-in / urgent care", "Hospital trust", "Community service", "PCN / network hub", "Other non-GP service"], nk      # non-GP services get a plain label from their name
     pg.evaluate("showTab('data'); practices.forEach(p => { if (!p.hubspot_company_id) p.hubspot_company_id = 'x' + p.ods_code; })"); pg.evaluate("renderHubspotPanel()"); pg.wait_for_selector("#hsp-q")
     assert pg.evaluate("typeof $('hsp-q').oninput === 'function'"), "the HubSpot panel's controls are wired even when every practice is in HubSpot (the 'not in HubSpot' button is then absent)"      # a missing button once threw and left the rest of the panel unwired
+    dp = pg.evaluate("[hsLineDiscPct({ price: '0.08', discount: '0.008' }), hsLineDiscPct({ hs_discount_percentage: '10', discount: '0.5' }), hsWantDiscPct({ listUnit: 0.1, netUnit: 0.09 }), hsPctText(hsWantDiscPct({ listUnit: 0.08, netUnit: 0.0712 }))]")
+    assert abs(dp[0] - 10) < 1e-9 and dp[1] == 10 and abs(dp[2] - 10) < 1e-9 and dp[3] == "11%", dp      # line item discounts are read and shown as percentages, as HubSpot holds them (an old flat £ discount reads as its percentage)
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

@@ -429,12 +429,12 @@ Deno.serve(async (req) => {
           lineId = String(c.id); action = ours.length ? "replaced" : "created";
         }
         const unit = Number(li.listUnit);   // the price is written explicitly, per patient per month, so it never depends on the product's own price or on what someone later edited
-        const discount = Math.max(0, Math.round((unit - Number(li.netUnit)) * 10000) / 10000);   // flat per-unit discount: the tool's list price less the calculator's net price
-        await hs(`/crm/v3/objects/line_items/${lineId}`, { method: "PATCH", body: JSON.stringify({ properties: { discount: String(discount), hs_discount_percentage: "" } }) });
-        lineResult = { id: lineId, action, unit, discount };
+        const discountPct = unit > 0 ? Math.round(Math.max(0, 1 - Number(li.netUnit) / unit) * 1e6) / 1e4 : 0;   // the discount is a percentage, as HubSpot holds it: the calculator's net price off the list price
+        await hs(`/crm/v3/objects/line_items/${lineId}`, { method: "PATCH", body: JSON.stringify({ properties: { hs_discount_percentage: String(discountPct), discount: "" } }) });
+        lineResult = { id: lineId, action, unit, discountPct };
         const old = action === "updated" ? ours[0] : null;
-        lineLines = [`Line item ${action}${action === "replaced" && ours[0] ? ` (was ${ours[0].name ?? ours[0].hs_product_id})` : ""}`, ...changes(old ?? {}, { quantity: li.quantity, price: unit, discount, recurringbillingfrequency: li.frequency, hs_recurring_billing_terms: li.terms, ...(li.termMonths != null ? { hs_recurring_billing_period: `P${Number(li.termMonths)}M` } : {}) })
-          .map((l) => l.replace(/^quantity:/, "Patients:").replace(/^price:/, "List price p/patient/month:").replace(/^discount:/, "Unit discount:").replace(/^recurringbillingfrequency:/, "Billing frequency:").replace(/^hs_recurring_billing_terms:/, "Billing terms:").replace(/^hs_recurring_billing_period:/, "Billing period:"))];
+        lineLines = [`Line item ${action}${action === "replaced" && ours[0] ? ` (was ${ours[0].name ?? ours[0].hs_product_id})` : ""}`, ...changes(old ?? {}, { quantity: li.quantity, price: unit, hs_discount_percentage: discountPct, recurringbillingfrequency: li.frequency, hs_recurring_billing_terms: li.terms, ...(li.termMonths != null ? { hs_recurring_billing_period: `P${Number(li.termMonths)}M` } : {}) })
+          .map((l) => l.replace(/^quantity:/, "Patients:").replace(/^price:/, "List price p/patient/month:").replace(/^hs_discount_percentage:/, "Discount %:").replace(/^recurringbillingfrequency:/, "Billing frequency:").replace(/^hs_recurring_billing_terms:/, "Billing terms:").replace(/^hs_recurring_billing_period:/, "Billing period:"))];
       }
       if (dealLines.length || lineLines.length) await noteOn("deals", dealId, noteBody(who, pushed, [...dealLines, ...lineLines]), noteWarn);
       if (net) await admin.from("hubspot_network_deals").upsert({ deal_id: dealId, org_id: String(net.orgId), company_id: companyId, deal_name: before.deal.dealname ?? null }).then(() => null, () => null);

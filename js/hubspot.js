@@ -32,6 +32,10 @@ function hsLineWanted(p, monthly, yrs, rate, list) {      // Annual / Monthly na
   return { productId, productName, quantity: p.total_patients, listUnit: Math.round(list * 10000) / 10000, netUnit: Math.round(rate * 10000) / 10000, term: monthly ? 1 : 12 * yrs, termMonths: null,
     frequency: "monthly", terms: "AUTOMATICALLY_RENEW", payments: null };
 }
+// A line item's discount is held and shown as a percentage, as HubSpot does (hs_discount_percentage); an older line written with a flat £ discount is read as the equivalent percentage.
+const hsLineDiscPct = l => { const p = hsNum(l && l.hs_discount_percentage); if (p != null) return p; const pr = Number(l && l.price) || 0, d = Number(l && l.discount) || 0; return pr > 0 ? d / pr * 100 : 0; };
+const hsWantDiscPct = w => w.listUnit > 0 ? Math.round(Math.max(0, 1 - w.netUnit / w.listUnit) * 1e6) / 1e4 : 0;   // percent, 4 decimals
+const hsPctText = x => (Math.round(x * 100) / 100) + "%";
 const hsOurLine = pair => (pair?.lineItems || []).find(l => HS_PRODUCT_IDS.has(String(l.hs_product_id)));
 // How the deal's current tool line item compares with the wanted one (null when there is none or the token cannot read line items).
 function hsLineStatus(want, pair) {
@@ -39,7 +43,7 @@ function hsLineStatus(want, pair) {
   const cur = hsOurLine(pair), w = want.line;
   if (!cur) return { action: "create", same: false, cur: null };
   const sameProduct = String(cur.hs_product_id) === w.productId, unit = Number(cur.price) || w.listUnit;
-  const same = sameProduct && Number(cur.quantity) === w.quantity && Math.abs(unit - w.listUnit) < 0.0006 && Math.abs((Number(cur.discount) || 0) - Math.max(0, w.listUnit - w.netUnit)) < 0.0006 && cur.recurringbillingfrequency === "monthly";
+  const same = sameProduct && Number(cur.quantity) === w.quantity && Math.abs(unit - w.listUnit) < 0.0006 && Math.abs(hsLineDiscPct(cur) - hsWantDiscPct(w)) < 0.01 && cur.recurringbillingfrequency === "monthly";
   return { action: sameProduct ? "update" : "replace", same, cur, unit };
 }
 
