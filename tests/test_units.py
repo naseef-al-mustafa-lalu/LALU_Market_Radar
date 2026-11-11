@@ -707,6 +707,11 @@ def test_oscar_load_does_not_undo_a_review_decision():
     up = {c["contact_urn"]: c for c in r.up.get("contacts", [])}
     assert up[21]["email_quality"] == "direct" and up[21]["held_reason"] is None      # accepted in review: the load keeps it direct, so it does not come back to the queue
     assert up[22]["held_reason"] == "rejected in review"      # rejected in review: stays rejected
+    db2 = [dict(base, contact_urn=31, email=None, email_quality=None, held_reason="email is not a direct address (no_email)", reviewed_by=None), dict(base, contact_urn=32, email="psmith2@nhs.net", email_quality="likely_direct", held_reason="email is not a direct address (likely_direct)", reviewed_by=None)]
+    r2 = R(db2); ingest.contacts_step(r2, [dict(base, contact_urn=31, email=None), dict(base, contact_urn=32, email="pat.smith@nhs.net")], {"A1": {}}, [], {}, [])
+    up2 = {c["contact_urn"]: c for c in r2.up.get("contacts", [])}
+    assert up2[31]["held_reason"] == "email is not a direct address (no_email)"      # the load does not clear the reason a stored contact was held for, which rewrote every held contact the next day
+    assert up2[32]["held_reason"] is None      # an address that has become direct is released
 
 
 def test_primary_contact_is_picked_from_hubspot_sourced_contacts():
