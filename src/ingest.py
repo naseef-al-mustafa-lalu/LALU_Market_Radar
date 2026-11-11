@@ -285,6 +285,19 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
     known = set(existing) | {r["ods_code"] for r in records}
     feed = [c for c in contacts if c["ods_code"] in known]
     rejects += [("oscar", str(c["contact_urn"]), f"practice {c['ods_code']} not in NHS GP list") for c in contacts if c["ods_code"] not in known]
+    # Oscar can list one person more than once at a practice under different ContactURNs: one row is kept (the named one, else the lowest URN), the others are rejected, and any already stored are removed as stale
+    best = {}
+    for c in feed:
+        k = (c["ods_code"], (c.get("email") or "").strip().lower())
+        if not k[1]:
+            continue
+        cur = best.get(k)
+        if cur is None or (bool(c.get("full_name")), len(c.get("full_name") or ""), -c["contact_urn"]) > (bool(cur.get("full_name")), len(cur.get("full_name") or ""), -cur["contact_urn"]):
+            best[k] = c
+    dup = [c for c in feed if (c.get("email") or "").strip() and best[(c["ods_code"], c["email"].strip().lower())] is not c]
+    rejects += [("oscar", str(c["contact_urn"]), "duplicate email at this practice") for c in dup]
+    drop = {c["contact_urn"] for c in dup}
+    feed = [c for c in feed if c["contact_urn"] not in drop]
     db = {r["contact_urn"]: r for r in rest.select_all("contacts", order="contact_urn")}
     oscar_db = {u: r for u, r in db.items() if r.get("source", "oscar") == "oscar"}
     by_email = {(r["ods_code"], r["email"].lower()): r for r in db.values() if r.get("source") == "hubspot" and r.get("email")}

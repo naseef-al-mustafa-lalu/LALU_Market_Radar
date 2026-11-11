@@ -714,6 +714,22 @@ def test_oscar_load_does_not_undo_a_review_decision():
     assert up2[32]["held_reason"] is None      # an address that has become direct is released
 
 
+def test_oscar_load_keeps_one_row_per_email_at_a_practice():
+    from src import ingest
+    class R:
+        def __init__(self, rows): self.rows, self.up, self.deleted = rows, {}, []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else []
+        def upsert(self, table, rows, on_conflict, batch=500): self.up.setdefault(table, []).extend(rows)
+        def delete_in(self, table, col, vals, chunk=200, extra=None): self.deleted += list(vals)
+    base = dict(ods_code="A1", seniority=None, phone=None, email_opt_out=False, is_primary=False, org_urn=None, title=None, quals=None, dept=None, categories=None, data_types=None, main_site=False, job_title="Practice Manager", first_name=None, last_name=None)
+    feed = [dict(base, contact_urn=1, full_name=None, email="a.b@nhs.net"), dict(base, contact_urn=2, full_name="Ann Bee", email="a.b@nhs.net"), dict(base, contact_urn=3, full_name=None, email="a.b@nhs.net"), dict(base, contact_urn=4, full_name="Cy Dee", email="c.d@nhs.net")]
+    db = [dict(base, contact_urn=1, full_name=None, email="a.b@nhs.net", source="oscar", email_quality="direct", held_reason=None, reviewed_by=None), dict(base, contact_urn=3, full_name=None, email="a.b@nhs.net", source="oscar", email_quality="direct", held_reason=None, reviewed_by=None)]
+    r, rejects = R(db), []; ingest.contacts_step(r, feed, {"A1": {}}, [], {}, rejects)
+    kept = {c["contact_urn"] for c in r.up.get("contacts", [])}
+    assert 2 in kept and 4 in kept and 1 not in kept and 3 not in kept      # the named row is kept, the other two copies are not stored
+    assert sorted(x[1] for x in rejects if "duplicate email" in x[2]) == ["1", "3"] and sorted(r.deleted) == [1, 3]      # and copies already stored are removed on this load
+
+
 def test_primary_contact_is_picked_from_hubspot_sourced_contacts():
     from src import hubspot_sync as hsy
     c = lambda urn, title, **k: dict(contact_urn=urn, job_title=title, seniority=None, email=f"p{urn}@nhs.net", email_opt_out=False, **k)
