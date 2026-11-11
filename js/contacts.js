@@ -19,7 +19,7 @@ function ctTitlesSection() {
       <div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-xs font-semibold ${e.set ? "" : "opacity-70"}" role="group" aria-label="Section for ${esc(e.t)}">${btn(e, "main", "Main", cur)}${btn(e, "other", "Other", cur)}${btn(e, "off", "Off", cur)}</div></div>`; }).join("") || '<p class="p-4 text-center text-sm italic text-slate-500">No title matches.</p>'}</div>
     ${list.length > shown.length ? `<div class="pt-2 text-center"><button type="button" id="ct-title-more" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(list.length - shown.length).toLocaleString()})</button></div>` : ""}</section>`;
 }
-const ctInSel = r => ctPick ? ctPick.has(r.c.contact_urn) : ctMatch(r);
+const ctInSel = r => ctPick ? ctPick.has(r.c.contact_urn) : (ctLoaded ? ctMatch(r) : true);   // while the database serves the list, every row shown already matches the filters
 const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,held_reason,nb_state,nb_result,nb_checked_at,nb_approved_by,hs_lost_reason,hs_lost_at,hs_lost_deal,hs_lost_kind,hs_dq_reason,hs_dq_note,hs_dq_at,hs_reengage_date,hs_seq_exit,hs_seq_ended_at";
 const CT_STATUS = { eligible: ["Eligible", "bg-emerald-100 text-emerald-800"], suppressed: ["Held back", "bg-amber-100 text-amber-800"], excluded: ["Not used", "bg-slate-100 text-slate-600"] };
 const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other", "bg-sky-100 text-sky-800"] };
@@ -38,7 +38,7 @@ async function ctLoadPage() {
   const seq = ++ctSrvSeq; ctSrvBusy = true; if (!ctSrvReady) $("ct-body").innerHTML = ctSkeleton(); else renderContacts();
   try {
     const f = { q: ctF.q, section: ctF.section, status: ctF.status, role: ctF.role, source: ctF.source, reason: ctF.reason, lifecycle: ctF.lifecycle, dq: ctMode === "reengage" ? ctF.dq : "" };
-    const [page, counts, flags, ne] = await Promise.all([db.rpc("contacts_page", { p_f: f, p_mode: ctMode, p_limit: ctShown, p_offset: 0 }), ctSrvCounts ? null : db.rpc("contacts_counts"), ctSrvReady ? null : db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]),
+    const [page, counts, flags, ne] = await Promise.all([db.rpc("contacts_query", { p_f: f, p_mode: ctMode, p_what: "rows", p_limit: ctShown, p_offset: 0 }), ctSrvCounts ? null : db.rpc("contacts_counts"), ctSrvReady ? null : db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]),
       ctSrvReady ? null : db.from("contact_noemail").select("ref", { count: "exact", head: true })]);
     if (seq !== ctSrvSeq) return;   // a newer search or filter has replaced this one
     if (page.error) throw page.error;
@@ -47,6 +47,17 @@ async function ctLoadPage() {
     if (ne) ctNoEmail = ne.count || 0;
     const d = page.data || {}; ctSrvRows = (d.rows || []).map(ctWrap); ctSrvTotal = d.total || 0; ctSrvEligible = d.eligible || 0; ctSrvRe = { total: d.total || 0, eligible: d.eligible || 0, suppressed: d.suppressed || 0, due: d.due || 0 }; if (ctMode === "reengage") ctSrvDq = d.reasons || []; ctSrvReady = true; ctSrvBusy = false; const q = $("ct-q"), pos = q && document.activeElement === q ? q.selectionStart : null; renderContacts(); if (pos != null) { const n = $("ct-q"); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
   } catch (e) { ctSrvBusy = false; $("ct-body").innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load contacts: ${esc(e.message || e)}</p>`; }
+}
+
+const ctQueryFilters = () => ({ q: ctF.q, section: ctF.section, status: ctF.status, role: ctF.role, source: ctF.source, reason: ctF.reason, lifecycle: ctF.lifecycle, dq: ctMode === "reengage" ? ctF.dq : "" });
+async function ctMatchIds(f = ctQueryFilters()) {   // the ids (never the records) of every contact matching: what ticking, select all and Create audience work from
+  const { data, error } = await db.rpc("contacts_query", { p_f: f, p_mode: ctMode, p_what: "ids", p_limit: 0, p_offset: 0 }); if (error) throw error; return data;
+}
+// CSV exports come from the database, which refuses anyone who is not on the download list (app_flags.download_allowed).
+async function ctExport(f, urns, name) {
+  const { data, error } = await db.rpc("contacts_export", { p_f: { ...(urns ? {} : f), status: "eligible", ...(urns ? { urns: [...urns] } : {}) }, p_mode: ctMode });
+  if (error) { alert(/restricted/.test(error.message || "") ? "Downloads are restricted to the account owner for now." : "Could not export: " + (error.message || error)); return; }
+  ctCsv((data || []).map(ctWrap), name);
 }
 function ctEnsureAll() {
   if (ctLoaded) return Promise.resolve();
@@ -236,15 +247,14 @@ document.addEventListener("click", e => {
   if (t.closest("#ct-save")) { ctSave(); return; }
   if (t.closest("#ct-reset")) { if (confirm("Reset job roles and suppression rules to the defaults?")) { ctSetRules(null); ctRulesChanged(); } return; }
   if (t.closest(".ct-more")) { ctShown += 200; if (ctUseSrv()) ctLoadPage(); else renderContacts(); return; }
-  const needAll = t.closest("#ct-csv, #ct-seg-save, #ct-seg-update, #ct-pick-clear"); if (needAll && ctUseSrv()) { const id = needAll.id; ctEnsureAll().then(() => { const b = $(id); if (b) b.click(); }); return; }
-  if (t.closest("#ct-csv")) { ctCsv(ctAll.filter(ctInSel).filter(r => r.ev.status === "eligible"), "atlas-eligible-contacts.csv"); return; }
+  if (t.closest("#ct-csv")) { ctExport(ctQueryFilters(), ctPick, "atlas-eligible-contacts.csv"); return; }
   if (t.closest("#ct-pick-clear")) { ctPick = null; ctEditing = null; ctKeepScroll(); return; }
   if (t.closest("#ct-seg-save")) { const name = (prompt("Name this segment") || "").trim(); if (name) { ctSegments.push({ id: "s" + Date.now().toString(36), name, filters: { ...ctF }, ...(ctPick ? { members: [...ctPick] } : {}) }); ctSaveSegments(); setCtSub("segments"); } return; }
   if (t.closest("#ct-seg-update")) { const s = ctSegments.find(x => x.id === ctEditing); if (s) { s.filters = { ...ctF }; if (ctPick) s.members = [...ctPick]; else delete s.members; ctSaveSegments(); ctEditing = null; ctPick = null; setCtSub("segments"); } return; }
   const sg = t.closest(".ct-seg-open, .ct-seg-csv, .ct-seg-del"); if (sg) {
     const s = ctSegments.find(x => x.id === sg.dataset.id); if (!s) return;
     if (sg.classList.contains("ct-seg-open")) { ctF = { q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", ...s.filters }; ctPick = s.members ? new Set(s.members) : null; ctEditing = s.id; setCtSub("contacts"); }   // opening a segment lets you tick or untick who is in it, then Update
-    else if (sg.classList.contains("ct-seg-csv")) { const saved = ctF, ps = s.members ? new Set(s.members) : null; ctF = { ...ctF, ...s.filters }; const rows = ctAll.filter(r => ps ? ps.has(r.c.contact_urn) : ctMatch(r)).filter(r => r.ev.status === "eligible"); ctF = saved; ctCsv(rows, "atlas-segment-" + s.name.replace(/\W+/g, "-").toLowerCase() + ".csv"); }
+    else if (sg.classList.contains("ct-seg-csv")) { ctExport({ q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", ...s.filters }, s.members ? new Set(s.members) : null, "atlas-segment-" + s.name.replace(/\W+/g, "-").toLowerCase() + ".csv"); }
     else if (confirm(`Delete the segment “${s.name}”?`)) { ctSegments = ctSegments.filter(x => x.id !== s.id); ctSaveSegments(); renderContacts(); }
   }
 });
@@ -252,14 +262,8 @@ document.addEventListener("click", e => {
 // Re-engagement > "Create audience from…": a custom audience (the existing Audiences feature) holding the eligible contacts now in view, so they can be approved and enrolled in a sequence there.
 // The audience keeps the contact ids; its practices are the ones those contacts belong to. Customers and held-back contacts are not included.
 async function ctMakeAudience() {
-  let rows;
-  if (ctLoaded) rows = ctAll.filter(ctInSel).filter(r => r.ev.status === "eligible" && r.c.hubspot_contact_id);
-  else {   // nothing hand-picked and not everything loaded: the database lists the eligible contacts the filters show
-    const { data, error } = await db.rpc("contacts_page", { p_f: { q: ctF.q, section: ctF.section, status: "eligible", role: ctF.role, source: ctF.source, reason: ctF.reason, lifecycle: ctF.lifecycle, dq: ctF.dq }, p_mode: ctMode, p_limit: 100000, p_offset: 0 });
-    if (error) { alert("Could not list the contacts: " + error.message); return; }
-    rows = (data.rows || []).map(ctWrap).filter(r => r.c.hubspot_contact_id);
-  }
-  const ids = [...new Set(rows.map(r => String(r.c.hubspot_contact_id)))], ods = [...new Set(rows.map(r => r.c.ods_code).filter(Boolean))];
+  let d; try { d = await ctMatchIds(ctPick ? { urns: [...ctPick] } : ctQueryFilters()); } catch (e) { alert("Could not list the contacts: " + (e.message || e)); return; }
+  const ids = (d.hubspot_ids || []).map(String), ods = d.ods || [];
   const why = ctF.dq && ctF.dq !== "any" ? ctDqLabel(ctF.dq.replace(/^lost:/, "")) : "all reasons";
   if (!ids.length) { audModal("Create audience", '<p class="text-sm text-slate-600">No eligible contacts in HubSpot are showing. Clear the filters, or check Settings for which reasons are switched on.</p>', null); return; }
   audModal("Create audience", `<label class="block text-xs font-semibold text-slate-600">Name<input type="text" id="aud-name" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value="${esc("Re-engagement: " + why + " " + new Date().toISOString().slice(0, 10))}" maxlength="80"></label>
@@ -269,9 +273,9 @@ async function ctMakeAudience() {
 
 // Ticking a box: the first tick turns the filters' result into an explicit set (everything matching starts ticked), then one contact is added or taken out.
 const ctKeepScroll = () => { const y = window.scrollY; renderContacts(); window.scrollTo(0, y); };
-const ctStartPick = () => { if (!ctPick) ctPick = new Set(ctAll.filter(ctMatch).map(r => r.c.contact_urn)); };
+const ctStartPick = async () => { if (ctPick) return; ctPick = new Set(ctLoaded ? ctAll.filter(ctMatch).map(r => r.c.contact_urn) : (await ctMatchIds()).urns); };
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.classList && t.classList.contains("ct-pick")) { const u = Number(t.dataset.u), on = t.checked; (async () => { await ctEnsureAll(); ctStartPick(); on ? ctPick.add(u) : ctPick.delete(u); ctKeepScroll(); })(); return; }
-  if (t.id === "ct-pick-all") { const on = t.checked; (async () => { await ctEnsureAll(); ctStartPick(); for (const r of ctAll.filter(ctMatch)) on ? ctPick.add(r.c.contact_urn) : ctPick.delete(r.c.contact_urn); ctKeepScroll(); })(); return; }
+  if (t.classList && t.classList.contains("ct-pick")) { const u = Number(t.dataset.u), on = t.checked; (async () => { try { await ctStartPick(); on ? ctPick.add(u) : ctPick.delete(u); ctKeepScroll(); } catch (e) { alert("Could not select: " + (e.message || e)); } })(); return; }
+  if (t.id === "ct-pick-all") { const on = t.checked; (async () => { try { await ctStartPick(); const all = ctLoaded ? ctAll.filter(ctMatch).map(r => r.c.contact_urn) : (await ctMatchIds()).urns; for (const u of all) on ? ctPick.add(u) : ctPick.delete(u); ctKeepScroll(); } catch (e) { alert("Could not select: " + (e.message || e)); } })(); return; }
 });

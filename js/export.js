@@ -1,12 +1,15 @@
-// CSV exports.
+// CSV exports. Downloading is limited to the people on the download list (app_flags.download_allowed, checked by the database): everyone else gets a message.
+async function mayDownload() { const { data } = await db.rpc("can_download"); if (data === true) return true; alert("Downloads are restricted to the account owner for now."); return false; }
 /* ---------- export ---------- */
-function downloadCsv(name, head, lines) {
+async function downloadCsv(name, head, lines) {
+  if (!(await mayDownload())) return;
   const blob = new Blob(["﻿" + head.map(csvCell).join(",") + "\r\n" + lines.map(r => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${name}_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 }
 const csvCell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replaceAll('"', '""') + '"'; };
-$("btn-export").addEventListener("click", () => {
+$("btn-export").addEventListener("click", async () => {
+  if (!(await mayDownload())) return;
   const rows = filtered.filter(p => p.lead_status !== "Do-Not-Contact");   // never export do-not-contact leads
   const head = ["ODS Code", "Practice", "PCN", "ICB", "Group", "Federation", "Patients", "Tier", "Est ARR (All reports, annual)", "SAR-only ARR (annual)", "Clinical System", "CQC Rating", "Contact", "Job Title", "Email", "Phone", "HubSpot", "Imported to HubSpot", "Region"];
   const lines = rows.map(p => [p.ods_code, p.practice_name, p.pcn_name, p.icb_name, p.group_size > 1 ? p.group_name : "", p.gp_federation, p.total_patients, p.tier_label, p.est_arr, p.est_arr_sar, p.clinical_software, p.cqc_rating,
