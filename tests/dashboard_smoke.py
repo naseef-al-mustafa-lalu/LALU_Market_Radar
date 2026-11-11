@@ -590,11 +590,6 @@ with sync_playwright() as p:
     assert [c for c in pg.evaluate("window.__rpc.filter(c => c[0] === 'updateUser')")][0][1]["password"] == "correct horse battery"
     assert "type=invite" not in pg.evaluate("location.href")
     pg.goto("about:blank"); pg.goto(INDEX + "#error=access_denied&error_description=Email+link+is+invalid+or+has+expired")
-    ci = pg.evaluate("""(() => { const csv = 'Record ID,First Name,Last Name,Email,Phone Number,Primary Associated Company ID,Job Title,Job Role,Opted out of email: One to One,Email hard bounce reason\\n'
-      + '1,Alex,Sample,alex.sample@nhs.net,,100,Practice Manager,,,\\n2,Anne,Lee,enquiries@nhs.net,,100,Practice Manager,,,\\n3,Sam,Roe,sam.roe@nhs.net,,100,Practice Nurse,,,\\n4,Jo,Fry,jo.fry@nhs.net,,100,Senior Partner,,Yes,\\n'
-      + '5,Al,Kay,al.kay@nhs.net,,100,,,,\\n6,Bo,Dee,bo.dee@nhs.net,,,Practice Manager,,,\\n7,No,Mail,,,100,Practice Manager,,,';
-      const r = readHubspotContacts(csv); return [r.rows.map(x => x.status), r.noEmail]; })()""")
-    assert ci == [["approved", "generic", "rejected", "suppressed", "review", "rejected"], 1], ci      # direct decision-maker, shared mailbox, nurse, opted out, unclear role, no company; a row without email is skipped
     # Contacts tab: rules decide who is eligible; settings switch roles and suppression rules and save to app_flags
     pg.goto("about:blank"); pg.add_init_script("window.__fail = false"); pg.goto(INDEX); pg.wait_for_selector("#app:not(.hidden)"); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     sb = pg.evaluate("""(() => { const c = { email: 'jane.smith@nhs.net', first_name: 'Jane', last_name: 'Smith', job_title: 'Practice Manager', hs_in_sequence: true, hs_neverbounce: 'Valid', email_opt_out: true }; return [ctBadges(c)]; })()""")
@@ -615,7 +610,6 @@ with sync_playwright() as p:
     pg.click(".ct-title-set[data-m=off] >> nth=0"); assert pg.evaluate("Object.values(ctRules.titleModes).includes('off')"), "a job title can be set on its own"; pg.click("#ct-save")
     pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'contact_rules')")
     sv = pg.evaluate("window.__rpc.filter(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'contact_rules').pop()[1][0]"); assert sv["value"]["roles"]["clinical"] == "off", sv
-    pg.click("#ct-sub button[data-c=import]"); pg.wait_for_function("document.querySelector('#contact-import') && document.querySelector('#contact-import').innerText.includes('Contacts from HubSpot')")      # the HubSpot export upload now lives on the Contacts tab
     pg.click("#ct-sub button[data-c=review]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('New job titles')"); pg.wait_for_selector("#rv-source")
     assert pg.evaluate("JSON.stringify([ctNameFromEmail('claire.chambers12@nhs.net'), ctNameFromEmail('mary-jane.o.smith@nhs.net'), ctNameFromEmail('admincliftonroad@nhs.net')])") == '[["Claire","Chambers"],["Mary-Jane","O Smith"],["",""]]', "names are pre-filled from the email: the dot divides first and last, capitalised, nothing guessed without a dot"      # the Review queue: tabs, Accept / Reject, and a way to add job titles to the approved mapping
     pg.click("#ct-sub button[data-c=neverbounce]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.toLowerCase().includes('waiting for approval')"); assert "Mondays before 9am" in pg.inner_text("#ct-body")

@@ -1,4 +1,4 @@
-/* Contacts tab: every contact Atlas holds, who may be contacted and why not, saved segments, the HubSpot export import, and the settings that switch job roles and suppression rules on and off.
+/* Contacts tab: every contact Atlas holds, who may be contacted and why not, saved segments, and the settings that switch job roles and suppression rules on and off.
    The rules live in contact-rules.js. Loaded after contact-rules.js. Contacts are read from public.contacts; their HubSpot state (lifecycle, sequence, bounce...) is kept there by the daily HubSpot sync. */
 let ctAll = [], ctLoaded = false, ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctLocked = new Map(), ctHeld = null, ctSaving = false;
 let ctMoreOpen = false, ctF = { dq: "", q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "" };
@@ -193,7 +193,6 @@ function renderContacts() {
   const box = $("ct-body"); if (!box || currentTab !== "contacts") return;
   if (!ctLoaded && !(ctSrvReady && ctUseSrv())) return;
   $("ct-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.c === ctSub ? "bg-white shadow-sm" : "text-slate-500"));
-  if (ctSub === "import") { if (!$("contact-import")) { box.innerHTML = '<div id="contact-import"></div>'; renderContactImport(); } return; }
   box.innerHTML = ctSub === "review" ? ctReview() : ctSub === "segments" ? ctSegmentsHub() : ctSub === "neverbounce" ? ctNeverbounce() : ctSub === "settings" ? ctSettings() : ctList();
   }
 let ctQT = null;

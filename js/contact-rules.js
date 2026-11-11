@@ -1,7 +1,7 @@
 /* Contacts: which people we may contact, and why not. Two sets of rules that anyone can switch on and off in Contacts > Settings:
    - JOB ROLES: a contact's job title falls into one role group; each group is Main (decision-makers), Other, or Off.
    - SUPPRESSION RULES: reasons to hold a contact back from campaigns. They follow HubSpot's "Campaign Exclusion List", and nothing is written back to HubSpot.
-   Loaded after contact-import.js, whose cqEmailQuality() grades an email address. Saved in app_flags.contact_rules. */
+   The rules themselves run in the database (see contact_status); this file keeps the labels and the Settings helpers. Saved in app_flags.contact_rules. */
 
 // Role groups. [id, label, (unused), default section, locked]. The patterns that decide which group a title falls into now live in the database (ct_role), so there is one copy. Anything with a name and a direct address is wanted, so the default for a group that is not a decision-maker is Other.
 const CT_ROLES = [
