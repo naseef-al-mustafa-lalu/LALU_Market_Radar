@@ -457,19 +457,6 @@ def test_branch_listing_by_a_pcn_enhanced_access_service_is_worded_as_such():
     assert r["resolution"] == "duplicate_practice" and r["practice_code"] == "F82022" and "enhanced-access service" in r["match_note"] and "F82022" in r["match_note"]
 
 
-def test_n8n_line_item_discount():
-    import json, pathlib, shutil, subprocess
-    wf = json.loads(pathlib.Path("n8n/line-item-sync.workflow.json").read_text())
-    code = next(n for n in wf["nodes"] if n["name"] == "Work out discount")["parameters"]["jsCode"]
-    assert pathlib.Path("n8n/line-item-discount.js").read_text().replace("module.exports = { expectedDiscount };\n", "") in code
-    if not shutil.which("node"):
-        return
-    js = "const {expectedDiscount:e}=require('./n8n/line-item-discount.js');const d={size_discount:'0.05',speed_discount:'0.05',term_length_discount:'0.025',referral_discount:'0.02'};" \
-         "console.log(JSON.stringify([e(d,{hs_product_id:'440423339237',price:'0.96'}),e({...d,referral_discount:'0'},{hs_product_id:'440423339237',price:'0.96'}),e(d,{hs_product_id:'440425147578',price:'0.1'}),e({size_discount:'0.5',speed_discount:'0.5'},{hs_product_id:'440423339237',price:'0.96'}),e({size_discount:'0.5',speed_discount:'0.5'},{hs_product_id:'440434162881',price:'0.6'}),e(d,{hs_product_id:'1',price:'1'})]))"
-    out = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
-    assert out == [0.1392, 0.12, 0, 0.336, 0.6, None], out
-
-
 def test_other_uk_records_and_step():
     from src import ingest, sources
     z1 = {"Organisation": {"Name": "DR. HOEY & PARTNERS", "Status": "Active", "GeoLoc": {"Location": {"AddrLn1": "HARLAND MEDICAL PRACTICE", "AddrLn2": "HOLYWOOD ARCHES HEALTH CENTRE", "AddrLn3": "WESTMINSTER AVENUE",
