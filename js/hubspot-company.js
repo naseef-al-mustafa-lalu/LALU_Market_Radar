@@ -58,10 +58,12 @@ function hsOpenDealNotice(company, existing, again) {
 // The deal needs one contact carrying the "Primary contact" label (HubSpot's own form requires it): picked here, others are optional.
 // Contacts Atlas would hold back (unsubscribed, bounced, in a sequence, failed NeverBounce...) are flagged in the pickers: a warning, never a block, since a deal or lead can still be about them.
 async function hsContactWarn(ids) {
-  if (!ids.length || typeof ctSuppressedWhy !== "function") return new Map();
+  if (!ids.length || typeof ctRuleLabel !== "function") return new Map();
   try {
-    const { data } = await db.from("contacts").select("hubspot_contact_id,ods_code,first_name,last_name,full_name,job_title,email,email_opt_out,email_quality,role_tier,held_reason,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce").in("hubspot_contact_id", ids.map(String));
-    return new Map((data || []).map(c => [String(c.hubspot_contact_id), ctSuppressedWhy(c, byOds.get(c.ods_code))]).filter(([, w]) => w));
+    const { data: cs } = await db.from("contacts").select("contact_urn,hubspot_contact_id").in("hubspot_contact_id", ids.map(String)); if (!(cs || []).length) return new Map();
+    const { data: st } = await db.from("contact_status").select("contact_urn,status,reasons").in("contact_urn", cs.map(c => c.contact_urn)).eq("status", "suppressed");
+    const why = new Map((st || []).map(s => [s.contact_urn, (s.reasons || []).map(ctRuleLabel).join("; ")]));
+    return new Map(cs.map(c => [String(c.hubspot_contact_id), why.get(c.contact_urn)]).filter(([, w]) => w));
   } catch (e) { return new Map(); }
 }
 function hsContactBlock(contacts, warn = new Map()) {

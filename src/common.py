@@ -116,3 +116,11 @@ def send_alert(subject, body):
     """Best-effort failure notice to Slack (or stderr when Slack is not set up); never raises."""
     from . import slack
     slack.alert(subject, body)
+
+
+def refresh_contact_status(rest):
+    """Ask the database to recalculate every contact's status (Main/Other/held/excluded) after anything that changes it; a failure is returned, never raised, so a load or sync is not undone by it."""
+    try:
+        return {"contact_status_refreshed": int(rest.rpc("refresh_contact_status") or 0)}
+    except Exception as e:  # noqa: BLE001
+        return {"contact_status_error": str(e)[:200]}

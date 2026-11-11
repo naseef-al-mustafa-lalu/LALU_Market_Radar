@@ -6,7 +6,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 
 from . import branches, contact_quality, cqc, jobs, maintenance, neverbounce, oscar, slack, software, sources
-from .common import Rest, need_env, send_alert, title_case
+from .common import Rest, need_env, refresh_contact_status, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
            "status", "clinical_software", "software_source", "manager_name", "manager_title", "manager_email",
@@ -453,6 +453,7 @@ def sync(rest, run_id):
     cqc_step(rest, env, existing, records, now, stats)
     if oscar_info is not None:
         contacts_step(rest, contacts, existing, records, stats, rejects)
+        stats.update(refresh_contact_status(rest))
     jobs_step(rest, env, existing, records, stats)
     other_uk_step(rest, existing, stats)
     graph_step(rest, stats)

@@ -8,7 +8,7 @@ let ctPick = null, ctEditing = null, ctNoEmail = 0;   // ctNoEmail: contacts wit
 let ctTitleQ = "", ctTitleF = "all", ctTitleShown = 100;
 function ctTitlesSection() {
   const m = new Map(); for (const r of ctAll) { const t = String(r.c.job_title || r.c.title || "").trim(); if (!t) continue; const k = t.toLowerCase(), e = m.get(k) || { t, n: 0 }; e.n++; m.set(k, e); }
-  const q = ctTitleQ.trim().toLowerCase(), all = [...m.values()].map(e => ({ ...e, set: ctTitleMode(e.t), group: ctRoleOf(e.t) })).filter(e => !e.group.locked);
+  const q = ctTitleQ.trim().toLowerCase(), all = [...m.values()].map(e => ({ ...e, set: ctTitleMode(e.t), group: CT_ROLE[ctTitleRole.get(e.t.toLowerCase()) || "other"] || CT_ROLE.other })).filter(e => !e.group.locked);
   const list = all.filter(e => (!q || e.t.toLowerCase().includes(q)) && (ctTitleF === "all" || (ctTitleF === "unset" ? !e.set : !!e.set))).sort((a, b) => b.n - a.n || a.t.localeCompare(b.t)), shown = list.slice(0, ctTitleShown);
   const btn = (e, k, l, cur) => `<button type="button" class="ct-title-set rounded-md px-2.5 py-1 ${cur === k ? "bg-lalu-navy text-white" : "text-slate-600 hover:bg-slate-50"}" data-t="${esc(e.t)}" data-m="${k}" aria-pressed="${cur === k}">${l}</button>`;
   return `<section class="rounded-xl border border-slate-200 bg-white p-4"><h3 class="font-bold">Job titles</h3><p class="text-xs text-slate-500">Every title in your contacts, most common first. <b>Main</b> is for decision-makers, <b>Other</b> for anyone else we want, <b>Off</b> leaves the title out. A title you have not set follows its group's default (shown in grey).</p>
@@ -28,7 +28,7 @@ async function loadContacts(force) {
   if (ctLoaded && !force) { renderContacts(); return; }
   $("ct-body").innerHTML = '<p class="p-6 text-sm text-slate-500">Loading contacts…</p>';
   try {
-    const [rows, flags, am, au, run] = await Promise.all([fetchAll("contacts_full", CT_COLS, "contact_urn"), db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]),
+    const [rows, , flags, am, au, run] = await Promise.all([fetchAll("contacts_full", CT_COLS, "contact_urn"), ctLoadStatus(), db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]),
       db.from("audience_members").select("audience_id,contact_id,state"), db.from("audiences").select("id,name").eq("archived", false), db.from("ingest_runs").select("stats").eq("status", "success").order("id", { ascending: false }).limit(1)]);
     try { const ne = await db.from("contact_noemail").select("ref", { count: "exact", head: true }); ctNoEmail = ne.count || 0; } catch (e) { ctNoEmail = 0; }
     const f = Object.fromEntries((flags.data || []).map(r => [r.key, r.value]));
@@ -40,7 +40,24 @@ async function loadContacts(force) {
   } catch (e) { $("ct-body").innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load contacts: ${esc(e.message || e)}</p>`; }
 }
 let ctRows = [];
-function ctEvalAll() { ctAll = ctRows.map(c => { const p = byOds.get(c.ods_code); return { c, p, ev: ctEvaluate(c, p, ctLocked) }; }); }
+// The database decides each contact's role, section and status (contact_status); the page only reads and shows it. The Re-engagement view lifts the lifecycle rule.
+let ctStatus = new Map(), ctTitleRole = new Map();
+const CT_STATUS_COLS = "contact_urn,status,section,excluded,reasons,role_id";
+async function ctLoadStatus() { ctStatus = new Map((await fetchAll("contact_status", CT_STATUS_COLS, "contact_urn")).map(x => [x.contact_urn, x])); }
+async function ctReloadStatus(urns) {   // after a review decision: the database has already recalculated these contacts
+  for (let i = 0; i < urns.length; i += 100) { const { data } = await db.from("contact_status").select(CT_STATUS_COLS).in("contact_urn", urns.slice(i, i + 100)); for (const x of data || []) ctStatus.set(x.contact_urn, x); }
+  ctEvalAll();
+}
+function ctEvalAll() {
+  ctTitleRole = new Map();
+  ctAll = ctRows.map(c => {
+    const p = byOds.get(c.ods_code), s = ctStatus.get(c.contact_urn), role = CT_ROLE[(s && s.role_id) || "none"] || CT_ROLE.other;
+    let reasons = s ? (s.reasons || []) : [], status = s ? s.status : "excluded";
+    if (ctMode !== "standard") { reasons = reasons.filter(x => x !== "lifecycle"); if (status === "suppressed" && !reasons.length) status = "eligible"; }
+    const t = String(c.job_title || c.title || "").trim().toLowerCase(); if (t && s && !ctTitleRole.has(t)) ctTitleRole.set(t, s.role_id);
+    return { c, p, ev: { role, quality: c.email_quality, name: [c.first_name, c.last_name].filter(Boolean).join(" ") || c.full_name || "", section: s ? s.section : null, excluded: s ? (s.excluded || "") : "not calculated yet", reasons, status } };
+  });
+}
 
 function setCtSub(which) {
   ctSub = which; ctShown = 100;
@@ -115,39 +132,6 @@ const ctFilterText = f => [f.section && "section " + (CT_SECTION[f.section] || [
 
 /* ---------- Settings ---------- */
 
-// Step 3 of the contacts rethink: the same rules now also run in the database (contact_status). This compares the two for every contact, using the rules as last saved, so the browser can switch to the database's answer only once they agree.
-let ctDbCheck = null;
-function ctDbCheckSection() {
-  const r = ctDbCheck;
-  const body = !r ? '<p class="mt-2 text-xs text-slate-500">Compares what this page shows for every contact with the answer the database holds, calculated from the last saved rules. Save any changes first, and ask for a recalculation after changing a rule.</p>'
-    : r.busy ? '<p class="mt-2 text-xs text-slate-500">Comparing every contact…</p>'
-    : r.error ? `<p class="mt-2 text-xs text-rose-700">${esc(r.error)}</p>`
-    : `<p class="mt-2 text-sm"><b>${r.same.toLocaleString()}</b> of ${r.total.toLocaleString()} contacts agree. <b class="${r.diff.length ? "text-rose-700" : "text-emerald-700"}">${r.differ.toLocaleString()} differ.</b> <span class="text-xs text-slate-500">Database answers calculated ${esc(String(r.at || "").slice(0, 16).replace("T", " "))} UTC.</span></p>${r.diff.length ? `<ul class="mt-1 space-y-0.5 text-xs text-slate-600">${r.diff.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}`;
-  return `<details${ctDbCheck ? " open" : ""} class="rounded-xl border border-slate-200 bg-white p-4"><summary class="cursor-pointer font-bold">Check against the database <span class="text-xs font-normal text-slate-500">(rules are being moved into the database)</span></summary>${body}<button id="ct-dbcheck" class="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">${ctDbCheck && ctDbCheck.busy ? "Checking…" : "Run the check"}</button></details>`;
-}
-async function ctRunDbCheck() {
-  ctDbCheck = { busy: true }; renderContacts();
-  try {
-    const rows = await fetchAll("contact_status", "contact_urn,status,section,excluded,reasons,role_id,evaluated_at", "contact_urn");   // recalculated by the database after each load and sync; reading it is quick
-    const st = new Map(rows.map(x => [x.contact_urn, x])), at = rows.reduce((m, x) => x.evaluated_at > m ? x.evaluated_at : m, "");
-    const std = ctMode === "standard", strip = a => (a || []).filter(x => std || x !== "lifecycle").sort().join(",");
-    let same = 0, differ = 0; const diff = [];
-    for (const r of ctAll) {
-      const d = st.get(r.c.contact_urn), e = r.ev, why = [];
-      if (!d) why.push("missing in the database");
-      else {
-        if (d.role_id !== e.role.id) why.push(`role ${e.role.id} here, ${d.role_id} there`);
-        if ((d.section || null) !== (e.section || null)) why.push(`section ${e.section} here, ${d.section} there`);
-        if ((d.excluded || "") !== (e.excluded || "")) why.push(`excluded "${e.excluded}" here, "${d.excluded || ""}" there`);
-        if (strip(d.reasons) !== strip(e.reasons)) why.push(`held by [${strip(e.reasons)}] here, [${strip(d.reasons)}] there`);
-      }
-      if (why.length) { differ++; if (diff.length < 12) diff.push(`${r.c.full_name || r.c.email || r.c.contact_urn} (${r.c.contact_urn}): ${why.join("; ")}`); } else same++;
-    }
-    ctDbCheck = { same, differ, diff, total: ctAll.length, at };
-  } catch (e) { ctDbCheck = { error: "Check failed: " + (e.message || e) }; }
-  renderContacts();
-}
-
 function ctSettings() {
   const counts = {}; for (const r of ctAll) counts[r.ev.role.id] = (counts[r.ev.role.id] || 0) + 1;
   const held = {}; for (const r of ctAll) for (const x of r.ev.reasons) held[x] = (held[x] || 0) + 1;
@@ -156,7 +140,7 @@ function ctSettings() {
     <span class="relative mt-0.5 shrink-0"><input type="checkbox" class="peer sr-only ct-rule-set" data-id="${id}" ${on ? "checked" : ""}><span class="block h-5 w-9 rounded-full bg-slate-300 transition peer-checked:bg-lalu-teal-700 peer-focus-visible:ring-2 peer-focus-visible:ring-lalu-teal-700"></span><span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4"></span></span></label>`;
   return `<div class="space-y-4"><div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border ${ctDirty ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"} p-3"><span class="text-sm ${ctDirty ? "text-amber-900" : "text-slate-600"}">${ctDirty ? "You have unsaved changes. The numbers above already follow them." : "Changes apply straight away to this page and to Audiences. Save to keep them for everyone."}</span>
       <span class="flex gap-2"><button id="ct-reset" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Reset to defaults</button><button id="ct-save" class="rounded-lg bg-lalu-navy px-4 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700 disabled:opacity-50" ${ctDirty && !ctSaving ? "" : "disabled"}>${ctSaving ? "Saving…" : "Save"}</button></span></div>
-    ${ctTitlesSection()}${ctDbCheckSection()}<details class="rounded-xl border border-slate-200 bg-white p-4"><summary class="cursor-pointer font-bold">Group defaults <span class="text-xs font-normal text-slate-500">(used for any title you have not set above)</span></summary><p class="mt-1 text-xs text-slate-500">A contact needs a direct email address that belongs to them. <b>Main</b> is for decision-makers, <b>Other</b> for anyone else we want, <b>Off</b> leaves the role out.</p>
+    ${ctTitlesSection()}<details class="rounded-xl border border-slate-200 bg-white p-4"><summary class="cursor-pointer font-bold">Group defaults <span class="text-xs font-normal text-slate-500">(used for any title you have not set above)</span></summary><p class="mt-1 text-xs text-slate-500">A contact needs a direct email address that belongs to them. <b>Main</b> is for decision-makers, <b>Other</b> for anyone else we want, <b>Off</b> leaves the role out.</p>
       <div class="mt-2 divide-y divide-slate-100">${CT_ROLES.map(([id, label, , , locked]) => `<div class="flex flex-wrap items-center justify-between gap-2 py-2"><div class="min-w-0"><div class="text-sm font-medium">${esc(label)}</div><div class="text-xs text-slate-500">${(counts[id] || 0).toLocaleString()} contact${(counts[id] || 0) === 1 ? "" : "s"}</div></div>${locked ? '<span class="text-xs text-slate-400">always off</span>' : seg(id, ctRoleMode(id))}</div>`).join("")}</div></details>
     <section class="rounded-xl border border-slate-200 bg-white p-4 space-y-2"><h3 class="font-bold">Email addresses</h3>
       ${sw("likely", ctRules.likely, "Accept likely-direct addresses", "Part of the person's name is in the address (for example jsmith@). Off by default.")}
@@ -181,8 +165,11 @@ const ctRefilter = () => { ctShown = 100; const q = $("ct-q"), pos = q && docume
 const ctRulesChanged = () => { ctDirty = true; ctEvalAll(); renderContacts(); };
 async function ctSave() {
   ctSaving = true; renderContacts();
-  try { const { error } = await db.from("app_flags").upsert([{ key: "contact_rules", value: ctRules, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) throw error; ctDirty = false; }
-  catch (e) { alert("Could not save: " + (e.message || e)); }
+  try {
+    const { error } = await db.from("app_flags").upsert([{ key: "contact_rules", value: ctRules, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) throw error; ctDirty = false;
+    for (let b = 0; b < 8; b++) { const r = await db.rpc("refresh_contact_status_bucket", { p_bucket: b, p_buckets: 8 }); if (r.error) throw r.error; }   // the database recalculates every contact with the new rules, in slices so no request runs long
+    await ctLoadStatus(); ctEvalAll();
+  } catch (e) { alert("Could not save: " + (e.message || e)); }
   ctSaving = false; renderContacts();
 }
 async function ctSaveSegments() { const { error } = await db.from("app_flags").upsert([{ key: "contact_segments", value: { list: ctSegments }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) alert("Could not save: " + (error.message || error)); }
@@ -217,7 +204,6 @@ document.addEventListener("click", e => {
   if (t.closest("#ct-csv")) { ctCsv(ctAll.filter(ctInSel).filter(r => r.ev.status === "eligible"), "atlas-eligible-contacts.csv"); return; }
   if (t.closest("#ct-pick-clear")) { ctPick = null; ctEditing = null; ctKeepScroll(); return; }
   if (t.closest("#ct-seg-save")) { const name = (prompt("Name this segment") || "").trim(); if (name) { ctSegments.push({ id: "s" + Date.now().toString(36), name, filters: { ...ctF }, ...(ctPick ? { members: [...ctPick] } : {}) }); ctSaveSegments(); setCtSub("segments"); } return; }
-  if (t.id === "ct-dbcheck") { ctRunDbCheck(); return; }
   if (t.closest("#ct-seg-update")) { const s = ctSegments.find(x => x.id === ctEditing); if (s) { s.filters = { ...ctF }; if (ctPick) s.members = [...ctPick]; else delete s.members; ctSaveSegments(); ctEditing = null; ctPick = null; setCtSub("segments"); } return; }
   const sg = t.closest(".ct-seg-open, .ct-seg-csv, .ct-seg-del"); if (sg) {
     const s = ctSegments.find(x => x.id === sg.dataset.id); if (!s) return;

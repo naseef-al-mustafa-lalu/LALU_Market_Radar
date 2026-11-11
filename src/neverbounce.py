@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from . import slack
-from .common import Rest
+from .common import Rest, refresh_contact_status
 
 API = "https://api.neverbounce.com/v4"
 HS_STATUS = {"valid": "Valid", "catchall": "Accept All (Unverifiable)", "unknown": "Unknown", "disposable": "Disposable", "invalid": "Invalid"}
@@ -127,6 +127,8 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
             rest.patch("contacts", {"contact_urn": f"eq.{c['contact_urn']}"}, patch)
     out["credits_remaining"] = credits_left(key, get)
     out["waiting"] = len(approved) - out["checked"]
+    if out["checked"]:
+        out.update(refresh_contact_status(rest))
     return out
 
 

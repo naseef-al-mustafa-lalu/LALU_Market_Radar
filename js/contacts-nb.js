@@ -100,7 +100,7 @@ async function ctReviewAct(urns, action) {
   const { error } = await db.rpc("review_contact", { p_urns: urns, p_action: action });
   if (error) { ctMsg = "Could not save: " + (error.message || error); renderContacts(); return; }
   for (const r of ctAll) if (urns.includes(r.c.contact_urn)) { if (action === "accept") { r.c.email_quality = "direct"; r.c.held_reason = null; } else r.c.held_reason = "rejected in review"; }
-  ctMsg = `${urns.length} ${action === "accept" ? "accepted" : "rejected"}.`; ctEvalAll(); renderContacts();
+  await ctReloadStatus(urns); ctMsg = `${urns.length} ${action === "accept" ? "accepted" : "rejected"}.`; renderContacts();
 }
 
 /* ---------- events ---------- */

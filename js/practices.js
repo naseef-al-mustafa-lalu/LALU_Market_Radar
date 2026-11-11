@@ -385,7 +385,7 @@ async function openDrawer(p) {
   body.onclick = ev => { const a = ev.target.closest("a[data-net]"); if (a) { ev.preventDefault(); const [kind, key, label] = a.dataset.net.split("|"); openNetwork(kind, key, label); } };
   const jobs = jobAdverts.filter(j => j.ods_code === p.ods_code).sort((a, b) => (b.post_date || "").localeCompare(a.post_date || "")).slice(0, 8);
   const [{ data: cs }, { data: sg }, { data: hl }, { data: gen }] = await Promise.all([
-    db.from("contacts").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
+    db.from("contacts_full").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
     db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10),
     db.from("hubspot_links").select("deal_id,deal_name").eq("ods_code", p.ods_code).limit(1),
     db.from("practice_generic_emails").select("email,source").eq("ods_code", p.ods_code).limit(1)]);

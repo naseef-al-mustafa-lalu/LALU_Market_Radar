@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import requests
 
 from . import oscar, segments, slack, sources
-from .common import Rest, need_env, norm_ods, send_alert, title_case
+from .common import Rest, need_env, refresh_contact_status, norm_ods, send_alert, title_case
 
 BASE = "https://api.hubapi.com"
 LIFECYCLE = {"6366279924": "Merged/Closed", "lead": "New", "2207373534": "Engaged", "marketingqualifiedlead": "Marketing Qualified Lead", "5640141025": "Prospecting",
@@ -1363,6 +1363,7 @@ def sync(rest, hub, now=None, actor="daily sync"):
         org_stats = {"hubspot_orgs_error": str(e)[:300]}
     audit = write_audit(rest, audit_all)
     nets = sync_networks(rest, hub, now)
+    contact_stats.update(refresh_contact_status(rest))   # the status of every contact follows what the sync just changed
     return {**nets, **pcn_stats, **org_stats, **contact_stats, "primary_contacts_set": managers_set, "hubspot_companies_with_ods": total, "practices_linked": len(by_ods), "customers": flags["customers"], "engaged": flags["engaged"],
             "contacts_updated": len(crow), "hubspot_contacts_added": contacts_added, "contact_duplicates": dupes, **sizes, **({"service_error": service_error} if service_error else {}), "search_capped": total > len(raw), **audit}
 

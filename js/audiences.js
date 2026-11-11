@@ -129,9 +129,10 @@ async function audLoadContacts(ods) {
   const p = byOds.get(ods); if (!p || !p.hubspot_company_id || (audContacts.has(ods) && !audContacts.get(ods).error)) return;
   audContacts.set(ods, { loading: true }); renderAudiences();
   try {
-    const { data, error } = await db.from("contacts").select("contact_urn,ods_code,first_name,last_name,hubspot_contact_id,full_name,job_title,email,email_opt_out,role_tier,held_reason,email_quality,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,hs_seq_exit,hs_seq_ended_at").eq("ods_code", ods); if (error) throw error;
+    const { data, error } = await db.from("contacts_full").select("contact_urn,ods_code,first_name,last_name,hubspot_contact_id,full_name,job_title,email,email_opt_out,role_tier,held_reason,email_quality,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,hs_seq_exit,hs_seq_ended_at").eq("ods_code", ods); if (error) throw error;
+    const stv = ((await db.from("contact_status").select("contact_urn,status,reasons").in("contact_urn", (data || []).map(k => k.contact_urn)).eq("status", "suppressed")).data || []), supWhy = new Map(stv.map(x => [x.contact_urn, (x.reasons || []).map(ctRuleLabel).join("; ")]));   // why the database holds a contact back, if it does
     const tier = { A: 0, B: 1, "?": 2 };
-    audContacts.set(ods, { list: (data || []).filter(k => !k.held_reason).sort((x, y) => ((tier[x.role_tier] ?? 3) - (tier[y.role_tier] ?? 3)) || String(x.full_name).localeCompare(String(y.full_name))).map(k => ({ id: k.hubspot_contact_id ? String(k.hubspot_contact_id) : "u" + k.contact_urn, name: k.full_name || "", title: k.job_title || "", email: k.email || "", optout: !!k.email_opt_out, bad: false, noHs: !k.hubspot_contact_id, sup: ctSuppressedWhy(k, byOds.get(ods)), badges: ctBadges(k) })), all: false });
+    audContacts.set(ods, { list: (data || []).filter(k => !k.held_reason).sort((x, y) => ((tier[x.role_tier] ?? 3) - (tier[y.role_tier] ?? 3)) || String(x.full_name).localeCompare(String(y.full_name))).map(k => ({ id: k.hubspot_contact_id ? String(k.hubspot_contact_id) : "u" + k.contact_urn, name: k.full_name || "", title: k.job_title || "", email: k.email || "", optout: !!k.email_opt_out, bad: false, noHs: !k.hubspot_contact_id, sup: supWhy.get(k.contact_urn) || "", badges: ctBadges(k) })), all: false });
   } catch (e) { audContacts.set(ods, { error: e.message }); }
   renderAudiences();
 }
@@ -175,6 +176,7 @@ async function audDecideIds(a, ids, state) {
   if (!rows.length) return;
   const { error } = await db.from("audience_members").upsert(rows, { onConflict: "audience_id,contact_id" });
   if (error) { alert("Could not save: " + error.message); return; }
+  db.rpc("refresh_contact_status_hubspot", { p_ids: rows.map(r => r.contact_id) }).then(() => { if (typeof ctLoaded !== "undefined") ctLoaded = false; }, () => {});   // approving a contact holds it for this audience in Contacts: the database recalculates those contacts
   for (const r of rows) { audTicked.delete(r.contact_id); const i = audMembers.findIndex(m => m.audience_id === r.audience_id && m.contact_id === r.contact_id); if (i >= 0) audMembers[i] = { ...audMembers[i], ...r }; else audMembers.push(r); }
   renderAudiences();
 }
