@@ -659,6 +659,16 @@ with sync_playwright() as p:
     assert nk == ["GP-led specialist service", "ICB / commissioning", "Walk-in / urgent care", "Hospital trust", "Community service", "PCN / network hub", "Other non-GP service"], nk      # non-GP services get a plain label from their name
     pg.evaluate("showTab('data'); practices.forEach(p => { if (!p.hubspot_company_id) p.hubspot_company_id = 'x' + p.ods_code; })"); pg.evaluate("renderHubspotPanel()"); pg.wait_for_selector("#hsp-q")
     assert pg.evaluate("typeof $('hsp-q').oninput === 'function'"), "the HubSpot panel's controls are wired even when every practice is in HubSpot (the 'not in HubSpot' button is then absent)"      # a missing button once threw and left the rest of the panel unwired
+    pg.evaluate("showTab('contacts'); setCtSub('contacts'); ctMode = 'standard'; ctPick = null; ctEditing = null; ctF = { dq: '', q: '', section: '', status: '', role: '', source: '', reason: '', lifecycle: '' }; renderContacts()"); pg.wait_for_selector(".ct-pick")
+    pg.evaluate("ctRows.slice(0, 3).forEach((c, i) => { c.hs_lifecycle = i === 0 ? 'lead' : 'customer'; }); ctEvalAll(); renderContacts()"); pg.wait_for_selector("#ct-lifecycle", state="attached")
+    n_all = pg.evaluate("ctAll.filter(ctMatch).length"); pg.evaluate("ctF.lifecycle = 'lead'; renderContacts()")
+    assert pg.evaluate("ctAll.filter(ctMatch).length") < n_all and pg.evaluate("ctAll.filter(ctMatch).every(r => r.c.hs_lifecycle === 'lead')"), "the Lifecycle stage filter narrows the list"
+    pg.evaluate("ctF.lifecycle = ''; renderContacts()"); first = pg.locator(".ct-pick").first; assert first.is_checked()      # everything matching starts in
+    first.uncheck(); assert pg.evaluate("ctPick.size") == pg.evaluate("ctAll.filter(ctMatch).length") - 1, "unticking one contact takes just that contact out"
+    pg.locator("#ct-pick-all").check(); assert pg.evaluate("ctPick.size") == pg.evaluate("ctAll.filter(ctMatch).length"); pg.locator("#ct-pick-all").uncheck(); assert pg.evaluate("ctPick.size") == 0; pg.locator("#ct-pick-all").check()      # the header box clears or selects the whole list
+    pg.evaluate("ctSegments = [{ id: 'sx', name: 'Picked', filters: { ...ctF }, members: [...ctPick].slice(0, 2) }]; ctPick = null"); pg.evaluate("document.querySelector('#ct-sub button[data-s=segments]')?.click()")
+    pg.evaluate("setCtSub('segments')"); assert "2 hand-picked contacts" in pg.inner_text("#ct-body"), pg.inner_text("#ct-body")[:200]      # a segment can hold hand-picked members
+    pg.evaluate("ctPick = null; ctEditing = null; ctSegments = []; setCtSub('contacts')")
     dp = pg.evaluate("[hsLineDiscPct({ price: '0.08', discount: '0.008' }), hsLineDiscPct({ hs_discount_percentage: '10', discount: '0.5' }), hsWantDiscPct({ listUnit: 0.1, netUnit: 0.09 }), hsPctText(hsWantDiscPct({ listUnit: 0.08, netUnit: 0.0712 }))]")
     assert abs(dp[0] - 10) < 1e-9 and dp[1] == 10 and abs(dp[2] - 10) < 1e-9 and dp[3] == "11%", dp      # line item discounts are read and shown as percentages, as HubSpot holds them (an old flat £ discount reads as its percentage)
     print("SMOKE OK; page errors:", errors)
