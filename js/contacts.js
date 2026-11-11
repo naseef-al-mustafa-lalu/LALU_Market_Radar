@@ -119,17 +119,17 @@ const ctFilterText = f => [f.section && "section " + (CT_SECTION[f.section] || [
 let ctDbCheck = null;
 function ctDbCheckSection() {
   const r = ctDbCheck;
-  const body = !r ? '<p class="mt-2 text-xs text-slate-500">Recalculates every contact in the database with the saved rules and compares it with what this page shows. Save any changes first.</p>'
-    : r.busy ? '<p class="mt-2 text-xs text-slate-500">Recalculating every contact in the database…</p>'
+  const body = !r ? '<p class="mt-2 text-xs text-slate-500">Compares what this page shows for every contact with the answer the database holds, calculated from the last saved rules. Save any changes first, and ask for a recalculation after changing a rule.</p>'
+    : r.busy ? '<p class="mt-2 text-xs text-slate-500">Comparing every contact…</p>'
     : r.error ? `<p class="mt-2 text-xs text-rose-700">${esc(r.error)}</p>`
-    : `<p class="mt-2 text-sm"><b>${r.same.toLocaleString()}</b> of ${r.total.toLocaleString()} contacts agree. <b class="${r.diff.length ? "text-rose-700" : "text-emerald-700"}">${r.differ.toLocaleString()} differ.</b></p>${r.diff.length ? `<ul class="mt-1 space-y-0.5 text-xs text-slate-600">${r.diff.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}`;
+    : `<p class="mt-2 text-sm"><b>${r.same.toLocaleString()}</b> of ${r.total.toLocaleString()} contacts agree. <b class="${r.diff.length ? "text-rose-700" : "text-emerald-700"}">${r.differ.toLocaleString()} differ.</b> <span class="text-xs text-slate-500">Database answers calculated ${esc(String(r.at || "").slice(0, 16).replace("T", " "))} UTC.</span></p>${r.diff.length ? `<ul class="mt-1 space-y-0.5 text-xs text-slate-600">${r.diff.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : ""}`;
   return `<details${ctDbCheck ? " open" : ""} class="rounded-xl border border-slate-200 bg-white p-4"><summary class="cursor-pointer font-bold">Check against the database <span class="text-xs font-normal text-slate-500">(rules are being moved into the database)</span></summary>${body}<button id="ct-dbcheck" class="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">${ctDbCheck && ctDbCheck.busy ? "Checking…" : "Run the check"}</button></details>`;
 }
 async function ctRunDbCheck() {
   ctDbCheck = { busy: true }; renderContacts();
   try {
-    const rf = await db.rpc("refresh_contact_status"); if (rf.error) throw rf.error;
-    const st = new Map((await fetchAll("contact_status", "contact_urn,status,section,excluded,reasons,role_id", "contact_urn")).map(x => [x.contact_urn, x]));
+    const rows = await fetchAll("contact_status", "contact_urn,status,section,excluded,reasons,role_id,evaluated_at", "contact_urn");   // recalculated by the database after each load and sync; reading it is quick
+    const st = new Map(rows.map(x => [x.contact_urn, x])), at = rows.reduce((m, x) => x.evaluated_at > m ? x.evaluated_at : m, "");
     const std = ctMode === "standard", strip = a => (a || []).filter(x => std || x !== "lifecycle").sort().join(",");
     let same = 0, differ = 0; const diff = [];
     for (const r of ctAll) {
@@ -143,7 +143,7 @@ async function ctRunDbCheck() {
       }
       if (why.length) { differ++; if (diff.length < 12) diff.push(`${r.c.full_name || r.c.email || r.c.contact_urn} (${r.c.contact_urn}): ${why.join("; ")}`); } else same++;
     }
-    ctDbCheck = { same, differ, diff, total: ctAll.length };
+    ctDbCheck = { same, differ, diff, total: ctAll.length, at };
   } catch (e) { ctDbCheck = { error: "Check failed: " + (e.message || e) }; }
   renderContacts();
 }
