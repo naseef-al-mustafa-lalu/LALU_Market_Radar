@@ -298,6 +298,17 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
     rejects += [("oscar", str(c["contact_urn"]), "duplicate email at this practice") for c in dup]
     drop = {c["contact_urn"] for c in dup}
     feed = [c for c in feed if c["contact_urn"] not in drop]
+    # A contact with no email address cannot be contacted, so it is not stored: it is counted and remembered in a small ledger (so it is never re-imported), and any already stored is removed as stale.
+    noemail = [c for c in feed if not (c.get("email") or "").strip()]
+    feed_total = len(feed)   # the stale-deletion safety check below compares the whole feed with what is stored
+    feed = [c for c in feed if (c.get("email") or "").strip()]
+    if noemail:
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            rest.upsert("contact_noemail", [{"source": "oscar", "ref": str(c["contact_urn"]), "ods_code": c["ods_code"], "last_seen": now_iso} for c in noemail], "source,ref")
+        except Exception as e:  # noqa: BLE001  the ledger arrives with migration 79; counting is an extra
+            stats["noemail_error"] = str(e)[:150]
+    stats["contacts_noemail"] = len(noemail)
     db = {r["contact_urn"]: r for r in rest.select_all("contacts", order="contact_urn")}
     oscar_db = {u: r for u, r in db.items() if r.get("source", "oscar") == "oscar"}
     by_email = {(r["ods_code"], r["email"].lower()): r for r in db.values() if r.get("source") == "hubspot" and r.get("email")}
@@ -347,7 +358,7 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
         except Exception as e:  # noqa: BLE001
             stats["generic_error"] = str(e)[:200]
     stale = sorted(set(oscar_db) - {c["contact_urn"] for c in feed})
-    if stale and len(feed) >= 0.5 * len(oscar_db):
+    if stale and feed_total >= 0.5 * len(oscar_db):
         rest.delete_in("contacts", "contact_urn", stale)
     elif stale:
         stats["contacts_delete_skipped"] = len(stale)

@@ -707,10 +707,10 @@ def test_oscar_load_does_not_undo_a_review_decision():
     up = {c["contact_urn"]: c for c in r.up.get("contacts", [])}
     assert up[21]["email_quality"] == "direct" and up[21]["held_reason"] is None      # accepted in review: the load keeps it direct, so it does not come back to the queue
     assert up[22]["held_reason"] == "rejected in review"      # rejected in review: stays rejected
-    db2 = [dict(base, contact_urn=31, email=None, email_quality=None, held_reason="email is not a direct address (no_email)", reviewed_by=None), dict(base, contact_urn=32, email="psmith2@nhs.net", email_quality="likely_direct", held_reason="email is not a direct address (likely_direct)", reviewed_by=None)]
-    r2 = R(db2); ingest.contacts_step(r2, [dict(base, contact_urn=31, email=None), dict(base, contact_urn=32, email="pat.smith@nhs.net")], {"A1": {}}, [], {}, [])
+    db2 = [dict(base, contact_urn=31, email="reception@nhs.net", email_quality="shared", held_reason="shared mailbox, not a person", reviewed_by=None), dict(base, contact_urn=32, email="psmith2@nhs.net", email_quality="likely_direct", held_reason="email is not a direct address (likely_direct)", reviewed_by=None)]
+    r2 = R(db2); ingest.contacts_step(r2, [dict(base, contact_urn=31, email="reception@nhs.net"), dict(base, contact_urn=32, email="pat.smith@nhs.net")], {"A1": {}}, [], {}, [])
     up2 = {c["contact_urn"]: c for c in r2.up.get("contacts", [])}
-    assert up2[31]["held_reason"] == "email is not a direct address (no_email)"      # the load does not clear the reason a stored contact was held for, which rewrote every held contact the next day
+    assert up2[31]["held_reason"] == "shared mailbox, not a person"      # the load does not clear the reason a stored contact was held for, which rewrote every held contact the next day
     assert up2[32]["held_reason"] is None      # an address that has become direct is released
 
 
@@ -728,6 +728,21 @@ def test_oscar_load_keeps_one_row_per_email_at_a_practice():
     kept = {c["contact_urn"] for c in r.up.get("contacts", [])}
     assert 2 in kept and 4 in kept and 1 not in kept and 3 not in kept      # the named row is kept, the other two copies are not stored
     assert sorted(x[1] for x in rejects if "duplicate email" in x[2]) == ["1", "3"] and sorted(r.deleted) == [1, 3]      # and copies already stored are removed on this load
+
+
+def test_oscar_contacts_without_an_email_are_counted_not_stored():
+    from src import ingest
+    class R:
+        def __init__(self, rows): self.rows, self.up, self.deleted = rows, {}, []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else []
+        def upsert(self, table, rows, on_conflict, batch=500): self.up.setdefault(table, []).extend(rows)
+        def delete_in(self, table, col, vals, chunk=200, extra=None): self.deleted += list(vals)
+    base = dict(ods_code="A1", seniority=None, phone=None, email_opt_out=False, is_primary=False, org_urn=None, title=None, quals=None, dept=None, categories=None, data_types=None, main_site=False, job_title="Nurse", first_name=None, last_name=None, full_name="N N")
+    db = [dict(base, contact_urn=41, email=None, source="oscar", email_quality=None, held_reason="email is not a direct address (no_email)", reviewed_by=None), dict(base, contact_urn=42, email="n.n@nhs.net", source="oscar", email_quality="direct", held_reason=None, reviewed_by=None)]
+    r, stats = R(db), {}; ingest.contacts_step(r, [dict(base, contact_urn=41, email=None), dict(base, contact_urn=42, email="n.n@nhs.net"), dict(base, contact_urn=43, email=None)], {"A1": {}}, [], stats, [])
+    assert {c["contact_urn"] for c in r.up.get("contacts", [])} <= {42}      # nothing without an email is stored
+    assert sorted(x["ref"] for x in r.up["contact_noemail"]) == ["41", "43"] and stats["contacts_noemail"] == 2      # remembered in the ledger, so never re-imported
+    assert r.deleted == [41]      # and a stored one is removed on this load
 
 
 def test_primary_contact_is_picked_from_hubspot_sourced_contacts():

@@ -31,11 +31,12 @@ Every bug this week was two writers disagreeing about one row:
 
 ## 3. Proposal
 
-### A. One person, one row
-- Identity is **(practice, lowercase email)**. A partial unique index enforces it, so a duplicate fails loudly instead of accumulating.
-- Contacts with no email are not stored (HubSpot ones already are not; Oscar ones are kept only as a count).
-- Oscar and HubSpot become **attributes** of the person (`oscar_urn`, `hubspot_contact_id`), not separate rows. No adoption, no "delete the HubSpot twin".
-- `contact_urn` stays as the stable internal id so audiences, candidates and segments keep working.
+### A. One person per email, linked to the practices they work at (DECIDED)
+- **A person is one row, keyed by lowercase email.** The practices they work at are rows in a link table (`contact_practices`: person, practice, job title at that practice, Oscar URN, primary flag). This matches HubSpot, where one contact is one record associated with several companies.
+- Why not one row per (practice, email): opt-out, bounce, lifecycle, sequence, NeverBounce result and the review decision belong to the **person**, not the practice. Held once per practice they drift apart (an opt-out recorded on one row and not another), NeverBounce would check the same address twice, and an audience could list one person twice.
+- A partial unique index on the email enforces it, so a duplicate fails loudly instead of accumulating.
+- **Contacts with no email are counted, not stored (DECIDED, built).** A ledger table `contact_noemail` remembers each one by Oscar URN or HubSpot id, so it is never re-imported, and the Contacts page shows the count.
+- `contact_urn` stays as the stable internal id of the person so audiences, candidates and segments keep working.
 
 ### B. Each writer owns its own table
 `contacts` keeps identity and Oscar facts only. Side tables, each written by exactly one program:
@@ -57,7 +58,8 @@ Merge the Import tab's candidate flow into Review. One queue, one list of reason
 Oscar import, NeverBounce, Audiences and their approval flow, HubSpot sequences, the re-engagement view, the duplicate guard, the suppression rules and their settings screen.
 
 ## 5. Order of work (each step ships and is tested on its own)
-1. **Dedupe and constrain:** remove the remaining duplicates, add the unique index on (practice, email), make every writer tolerate it. *Small.*
+1. **No-email ledger (done) and dedupe:** stop storing contacts with no email (done: ledger, load change, count on the page); remove the remaining duplicates. *Small.*
+1b. **Person and practice link:** introduce the person row keyed by email and the `contact_practices` link table, backfilled from today's rows, with a compatibility view; add the unique email index once the counts are clean. *Medium.*
 2. **Split the side tables** with a compatibility view so nothing in the browser changes; move each writer to its table. *Medium.*
 3. **Status in the database:** port the rules, store the result, compare it against the browser's answer on all 56,000 contacts until they match exactly, then switch the browser to it. *Medium-large.*
 4. **Server-side Contacts page** and server-side segments. *Medium.*
@@ -69,10 +71,10 @@ Oscar import, NeverBounce, Audiences and their approval flow, HubSpot sequences,
 - **Downtime:** none expected; the compatibility view keeps the current screens working between steps.
 - **Rollback:** each step is a migration plus a code change; the previous table layout stays until the step after it is verified.
 
-## 7. Decisions needed
-1. Is **(practice, email)** the right identity? (A person at two practices is two rows; that is the current behaviour.)
-2. Contacts with **no email: drop entirely** (my recommendation) or keep as a count only?
-3. Approve the **five steps in this order**, or change the order?
+## 7. Decisions
+1. Identity: one person per email, linked to one or more practices. **Decided.**
+2. No-email contacts: kept as a count only, remembered so they are not re-imported. **Decided and built.**
+3. Order of work: **approved**, starting with the no-email ledger (step 1 below), then the person/practice split.
 
 ## 8. Fixed during the audit (already live)
 HubSpot link kept for email-less contacts; held reasons kept by the daily load; one row per email per practice in the Oscar load; contact import limited to contacts with an email; duplicate guard with Slack alert; Review source filter, name entry and one-by-one job titles; NeverBounce no longer adds to lists automatically.
