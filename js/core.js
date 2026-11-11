@@ -84,7 +84,7 @@ async function enforceSessionLimit() {
     const at = Date.parse(session.user && session.user.last_sign_in_at); if (!at || at >= ukLastEight()) return false;
     if (channel) { db.removeChannel(channel); channel = null; }
     closeDrawer(); practices = []; filtered = []; networks = []; signals = [];
-    await db.auth.signOut(); showLogin(); $("login-error").textContent = "You were signed out at 8pm. Sign in again to continue."; return true;
+    await db.auth.signOut(); showLogin(); return true;
   } catch (e) { return false; }
 }
 setInterval(enforceSessionLimit, 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) enforceSessionLimit(); });
@@ -93,7 +93,7 @@ document.body.classList.add("no-dl");
 async function applyDownloadRight() { try { const { data } = await db.rpc("can_download"); document.body.classList.toggle("no-dl", data !== true); } catch (e) { document.body.classList.add("no-dl"); } }
 async function boot() {
   const { data: { session } } = await db.auth.getSession();
-  if (session && session.user && Date.parse(session.user.last_sign_in_at) < ukLastEight()) { await db.auth.signOut(); showLogin(); $("login-error").textContent = "You were signed out at 8pm. Sign in again to continue."; return; }
+  if (session && session.user && Date.parse(session.user.last_sign_in_at) < ukLastEight()) { await db.auth.signOut(); showLogin(); return; }
   if (session && ["invite", "recovery"].includes(linkParams.get("type"))) { showSetPassword(session); return; }
   if (!session && linkParams.get("error_description")) {
     showLogin(); $("login-error").textContent = /expired|invalid/i.test(linkParams.get("error_description")) ? "That link has expired or was already used. Ask for a new invite, or use “Forgot your password?”." : "Sign-in link problem: " + linkParams.get("error_description");
