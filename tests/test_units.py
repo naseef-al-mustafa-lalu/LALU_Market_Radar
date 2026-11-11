@@ -1027,22 +1027,23 @@ def test_neverbounce_queue_run_and_results():
     assert nb.uk_monday_morning(datetime(2026, 7, 6, 7, 30, tzinfo=timezone.utc)) and not nb.uk_monday_morning(datetime(2026, 7, 6, 8, 30, tzinfo=timezone.utc))      # BST: 08:30 UTC is 09:30 UK
 
     class R:
-        def __init__(self): self.patched, self.tables = [], {
+        def __init__(self): self.patched, self.upserted, self.tables = [], [], {
             "contacts": [dict(contact_urn=1, ods_code="A1", full_name="Jane Doe", first_name="Jane", last_name="Doe", job_title="Practice Manager", email="jane.doe@nhs.net", phone=None, role_tier="A"),
                          dict(contact_urn=2, ods_code="A1", full_name="Bad One", first_name="Bad", last_name="One", job_title="Practice Manager", email="bad.one@nhs.net", phone=None, role_tier="A"),
                          dict(contact_urn=4, ods_code="A1", full_name="Jane Dup", first_name="Jane", last_name="Dup", job_title="Practice Manager", email="jane.dup@nhs.net", phone=None, role_tier="A"),
                          dict(contact_urn=3, ods_code="A1", full_name="Nurse N", first_name="Nurse", last_name="N", job_title="Nurse", email="nurse.n@nhs.net", phone=None, role_tier="x")],
             "gp_practices": [dict(ods_code="A1", hubspot_company_id="77")], "hubspot_segments": [dict(list_id="4584", processing_type="MANUAL", criteria=dict(neverbounce=["Valid", "Accept All (Unverifiable)"], roles=["Practice Manager"]))]}
         def select_all(self, table, columns="*", order="id", params=None, page=1000):
-            rows = self.tables[table]
-            if table == "contacts" and params and params.get("nb_state") == "eq.approved": return rows[:2]
+            rows = self.tables["contacts" if table == "contacts_full" else table]
+            if table == "contacts_full" and params and params.get("nb_state") == "eq.approved": return rows[:2]
             if table == "contacts" and params and params.get("hubspot_contact_id") == "not.is.null": return [dict(contact_urn=9, email="Jane.Dup@nhs.net")]      # an address HubSpot already holds
-            if table == "contacts" and params and params.get("nb_state") == "is.null": return [r for r in rows]
+            if table == "contacts_full" and params and params.get("nb_state") == "is.null": return [r for r in rows]
             return rows
         def patch(self, table, filters, values): self.patched.append((table, filters, values))
+        def upsert(self, table, rows, on_conflict): self.upserted.append((table, rows, on_conflict))
     rest = R()
-    assert nb.queue_new(rest) == 2 and rest.patched[0][2] == {"nb_state": "pending"} and "1,2" in rest.patched[0][1]["contact_urn"]      # decision-makers only; the nurse is not queued
-    rest.patched.clear()
+    assert nb.queue_new(rest) == 2 and rest.upserted == [("contact_nb", [{"contact_urn": 1, "nb_state": "pending"}, {"contact_urn": 2, "nb_state": "pending"}], "contact_urn")] and not rest.patched      # decision-makers only; the nurse is not queued; written to contact_nb only
+    rest.upserted.clear()
 
     class H:
         def __init__(self): self.calls = []
@@ -1065,7 +1066,8 @@ def test_neverbounce_queue_run_and_results():
     assert created["neverbounce_status"] == "Accept All (Unverifiable)" and created["job_role_standardised"] == "Practice Manager" and created["email"] == "jane.doe@nhs.net"
     assert ("PUT", "/crm/v4/objects/contacts/555/associations/default/companies/77", None) in hub.calls and not [c for c in hub.calls if "/lists/" in c[1]]      # on its practice company; never added to a HubSpot list automatically (that waits for review in Atlas)
     ok = [p for p in rest.patched if p[1] == {"contact_urn": "eq.1"}][0][2]
-    assert ok["nb_result"] == "Accept All (Unverifiable)" and ok["hubspot_contact_id"] == "555" and [p for p in rest.patched if p[1] == {"contact_urn": "eq.2"}][0][2]["hs_neverbounce"] == "Invalid"
+    nbrows = {r[1][0]["contact_urn"]: r[1][0] for r in rest.upserted if r[0] == "contact_nb"}
+    assert nbrows[1]["nb_result"] == "Accept All (Unverifiable)" and nbrows[1]["nb_state"] == "checked" and "nb_result" not in ok and ok["hubspot_contact_id"] == "555" and [p for p in rest.patched if p[1] == {"contact_urn": "eq.2"}][0][2]["hs_neverbounce"] == "Invalid"
     assert nb.run(rest, hub, "k", datetime(2026, 11, 10, 7, 0, tzinfo=timezone.utc), get=get) == {"skipped": "outside Monday before 09:00 UK"}
     assert "2 checked" in nb.report(out)
 

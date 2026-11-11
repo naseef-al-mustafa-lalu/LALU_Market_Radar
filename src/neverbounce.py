@@ -53,12 +53,12 @@ def credits_left(key, get=requests.get):
 
 def queue_new(rest):
     """Put new Oscar contacts that qualify (a direct address, not opted out, a decision-maker or secondary role, not in HubSpot, never checked) in the approval queue. Returns how many were added."""
-    rows = rest.select_all("contacts", "contact_urn,role_tier,email", order="contact_urn", params={"source": "eq.oscar", "held_reason": "is.null", "email_quality": "eq.direct", "email_opt_out": "eq.false",
+    rows = rest.select_all("contacts_full", "contact_urn,role_tier,email", order="contact_urn", params={"source": "eq.oscar", "held_reason": "is.null", "email_quality": "eq.direct", "email_opt_out": "eq.false",
                                                                                             "hubspot_contact_id": "is.null", "nb_state": "is.null", "email": "not.is.null"})
     known = {str(r["email"]).strip().lower() for r in rest.select_all("contacts", "contact_urn,email", order="contact_urn", params={"hubspot_contact_id": "not.is.null", "email": "not.is.null"})}   # an address HubSpot already holds needs no check
     urns = [r["contact_urn"] for r in rows if r.get("role_tier") in ("A", "B") and str(r.get("email") or "").strip().lower() not in known]
     for i in range(0, len(urns), 200):
-        rest.patch("contacts", {"contact_urn": "in.(" + ",".join(map(str, urns[i:i + 200])) + ")"}, {"nb_state": "pending"})
+        rest.upsert("contact_nb", [{"contact_urn": u, "nb_state": "pending"} for u in urns[i:i + 200]], "contact_urn")
     return len(urns)
 
 
@@ -90,7 +90,7 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
     now = now or datetime.now(timezone.utc)
     if not force and not uk_monday_morning(now):
         return {"skipped": "outside Monday before 09:00 UK"}
-    approved = rest.select_all("contacts", "contact_urn,ods_code,full_name,first_name,last_name,job_title,email,phone", order="contact_urn", params={"nb_state": "eq.approved"})
+    approved = rest.select_all("contacts_full", "contact_urn,ods_code,full_name,first_name,last_name,job_title,email,phone", order="contact_urn", params={"nb_state": "eq.approved"})
     if not approved:
         return {"checked": 0}
     left = credits_left(key, get)
@@ -108,7 +108,8 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
             continue
         out["checked"] += 1
         out["by_status"][status] = out["by_status"].get(status, 0) + 1
-        patch = {"nb_state": "checked", "nb_result": status, "nb_checked_at": now.isoformat(), "hs_neverbounce": status}
+        nb_row = {"contact_urn": c["contact_urn"], "nb_state": "checked", "nb_result": status, "nb_checked_at": now.isoformat()}
+        patch = {"hs_neverbounce": status}
         if status in PASS:
             out["passed"] += 1
             try:
@@ -120,6 +121,7 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
                 out["last_error"] = str(e)[:200]
         else:
             out["failed"] += 1
+        rest.upsert("contact_nb", [nb_row], "contact_urn")   # the NeverBounce result is written to its own table only
         rest.patch("contacts", {"contact_urn": f"eq.{c['contact_urn']}"}, patch)
     out["credits_remaining"] = credits_left(key, get)
     out["waiting"] = len(approved) - out["checked"]

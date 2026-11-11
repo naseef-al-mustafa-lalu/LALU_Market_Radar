@@ -28,7 +28,7 @@ async function loadContacts(force) {
   if (ctLoaded && !force) { renderContacts(); return; }
   $("ct-body").innerHTML = '<p class="p-6 text-sm text-slate-500">Loading contacts…</p>';
   try {
-    const [rows, flags, am, au, run] = await Promise.all([fetchAll("contacts", CT_COLS, "contact_urn"), db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]),
+    const [rows, flags, am, au, run] = await Promise.all([fetchAll("contacts_full", CT_COLS, "contact_urn"), db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]),
       db.from("audience_members").select("audience_id,contact_id,state"), db.from("audiences").select("id,name").eq("archived", false), db.from("ingest_runs").select("stats").eq("status", "success").order("id", { ascending: false }).limit(1)]);
     try { const ne = await db.from("contact_noemail").select("ref", { count: "exact", head: true }); ctNoEmail = ne.count || 0; } catch (e) { ctNoEmail = 0; }
     const f = Object.fromEntries((flags.data || []).map(r => [r.key, r.value]));
