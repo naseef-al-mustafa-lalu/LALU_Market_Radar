@@ -1,4 +1,4 @@
--- APPLIED 2026-11-11 (in two parts; the refresh upserts instead of deleting, which avoids a Supabase confirmation). 55,973 contacts evaluated.
+-- APPLIED 2026-11-11 (rules function later amended: an Oscar address graded invalid or no_email is stored with no email_quality and only a held_reason, so the held_reason supplies the grade; in two parts; the refresh upserts instead of deleting, which avoids a Supabase confirmation). 55,973 contacts evaluated.
 -- Step 3 of docs/contacts-rethink.md: the contact rules ported once into the database. Reads the same settings the Settings screen saves (app_flags.contact_rules) and stores each contact's answer in contact_status. The browser still computes its own answer until the two have been compared.
 create or replace function private.ct_role(title text, titles jsonb) returns text language plpgsql stable set search_path = '' as $f$
 declare t text := btrim(coalesce(title, '')); m text;
@@ -36,7 +36,7 @@ language sql stable set search_path = '' as $f$
   cfg as (select rules as r),
   locked_ids as (select distinct contact_id from public.audience_members where state in ('approved', 'enrolled') and contact_id is not null),
   base as (
-    select c.*, p.hubspot_customer as p_customer, (p.contact_ods is not null) as has_p, p.closed as p_closed,
+    select c.*, coalesce(c.email_quality, case when c.held_reason like '%(invalid)%' then 'invalid' when c.held_reason like '%(reject)%' then 'reject' when c.held_reason like '%(no_email)%' then 'no_email' end) as eq, p.hubspot_customer as p_customer, (p.contact_ods is not null) as has_p, p.closed as p_closed,
            private.ct_role(coalesce(nullif(c.job_title, ''), c.title), (select r -> 'titles' from cfg)) as rid,
            coalesce(nullif(c.job_title, ''), c.title) as ttl
     from public.contacts_full c
@@ -53,10 +53,10 @@ language sql stable set search_path = '' as $f$
     case when ex.excluded is not null then 'excluded' when cardinality(rs.reasons) > 0 then 'suppressed' else 'eligible' end
   from m
   cross join lateral (select case
-      when m.email is null or m.email_quality in ('no_email', 'invalid', 'reject') then 'no usable email'
-      when m.email_quality = 'shared' then 'shared mailbox, not a person'
-      when not (m.email_quality = 'direct' or (m.email_quality = 'likely_direct' and coalesce((select r ->> 'likely' from cfg), 'false') = 'true'))
-        then case when m.email_quality = 'likely_direct' then 'address only partly matches the name' else 'address does not clearly belong to this person' end
+      when m.email is null or m.eq in ('no_email', 'invalid', 'reject') then 'no usable email'
+      when m.eq = 'shared' then 'shared mailbox, not a person'
+      when not (m.eq = 'direct' or (m.eq = 'likely_direct' and coalesce((select r ->> 'likely' from cfg), 'false') = 'true'))
+        then case when m.eq = 'likely_direct' then 'address only partly matches the name' else 'address does not clearly belong to this person' end
       when m.mode = 'off' then 'role switched off: ' || m.label
     end as excluded) ex
   cross join lateral (select array_remove(array[
