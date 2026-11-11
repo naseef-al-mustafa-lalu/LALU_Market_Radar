@@ -1,3 +1,4 @@
+-- APPLIED 2026-11-11 (people 19,211 = distinct emails; 6 same-person-same-practice duplicates left unlinked).
 -- Step 1b of docs/contacts-rethink.md: a person is one row keyed by email, linked to one or more practices. Backfilled from contacts; triggers keep it in step with contacts so no writer has to change yet.
 create table if not exists public.people (
   person_id bigint generated always as identity primary key,
