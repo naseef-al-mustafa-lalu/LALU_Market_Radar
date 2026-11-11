@@ -1,4 +1,4 @@
--- NOT YET APPLIED (Supabase confirmation timed out). After applying: select public.refresh_contact_status(); then compare with the browser.
+-- APPLIED 2026-11-11 (in two parts; the refresh upserts instead of deleting, which avoids a Supabase confirmation). 55,973 contacts evaluated.
 -- Step 3 of docs/contacts-rethink.md: the contact rules ported once into the database. Reads the same settings the Settings screen saves (app_flags.contact_rules) and stores each contact's answer in contact_status. The browser still computes its own answer until the two have been compared.
 create or replace function private.ct_role(title text, titles jsonb) returns text language plpgsql stable set search_path = '' as $f$
 declare t text := btrim(coalesce(title, '')); m text;
@@ -77,9 +77,9 @@ create or replace function public.refresh_contact_status() returns integer langu
 declare n integer; rules jsonb := coalesce((select value from public.app_flags where key = 'contact_rules'), '{}'::jsonb);
 begin
   if auth.uid() is not null and not private.is_allowed() then raise exception 'not allowed'; end if;
-  delete from public.contact_status where true;
-  insert into public.contact_status (contact_urn, role_id, role_label, section, excluded, reasons, status)
-    select contact_urn, role_id, role_label, section, excluded, reasons, status from private.contact_status_rows(rules);
+  insert into public.contact_status (contact_urn, role_id, role_label, section, excluded, reasons, status, evaluated_at)
+    select contact_urn, role_id, role_label, section, excluded, reasons, status, now() from private.contact_status_rows(rules)
+    on conflict (contact_urn) do update set role_id = excluded.role_id, role_label = excluded.role_label, section = excluded.section, excluded = excluded.excluded, reasons = excluded.reasons, status = excluded.status, evaluated_at = excluded.evaluated_at;
   get diagnostics n = row_count; return n;
 end $f$;
 revoke all on function public.refresh_contact_status() from public, anon;

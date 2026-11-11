@@ -606,6 +606,7 @@ with sync_playwright() as p:
     assert "sequence" in sb[0].lower() and "In sequence" in sb[1] and "NB: Valid" in sb[1] and "Unsubscribed" in sb[1] and sb[2] == "", sb      # one suppression answer and one set of badges for every list that shows a contact
     pg.click("#tab-contacts"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Eligible') && document.querySelector('#ct-body').innerText.includes('Lena Contact')")
     pg.click("#ct-sub button[data-c=settings]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Suppression rules') && document.querySelector('#ct-body').innerText.includes('Job titles')")
+    pg.evaluate("document.querySelector('#ct-body details:has(#ct-dbcheck)').open = true"); pg.click('#ct-dbcheck'); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('contacts agree')"); assert pg.evaluate("window.__rpc.some(c => c[0] === 'refresh_contact_status')")      # the database check recalculates then compares
     assert "not evaluated yet" in pg.inner_text("#ct-body") and pg.is_disabled("#ct-save")
     pg.click("summary:has-text('Group defaults')"); pg.click(".ct-role-set[data-id=clinical][data-m=off]"); assert pg.is_enabled("#ct-save")
     pg.click(".ct-title-set[data-m=off] >> nth=0"); assert pg.evaluate("Object.values(ctRules.titleModes).includes('off')"), "a job title can be set on its own"; pg.click("#ct-save")
