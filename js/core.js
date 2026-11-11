@@ -69,8 +69,31 @@ const HOT = ["CUSTOMER_MERGER", "MERGER_DETECTED", "NEW_PRACTICE", "CQC_DEREGIST
 /* Invite and password-reset links arrive as #access_token=…&type=invite|recovery (or #error=… when the link has expired). */
 const linkParams = new URLSearchParams(location.hash.replace(/^#/, ""));
 const clearLinkHash = () => history.replaceState(null, "", location.pathname + location.search);
+/* Sessions end at 8pm UK time: anyone signed in before the most recent 8pm is signed out (checked when the page opens, every minute, and when the tab is shown again).
+   This is a browser-side limit: it ends the session on every screen that is open, but is not a server-side token expiry. */
+function ukLastEight(now = new Date()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map(x => [x.type, x.value]));
+  const offset = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - Math.floor(now.getTime() / 60000) * 60000;   // how far UK wall-clock time is ahead of UTC right now (0 or 1 hour)
+  let cut = Date.UTC(+p.year, +p.month - 1, +p.day, 20, 0) - offset;
+  if (cut > now.getTime()) cut -= 864e5;
+  return cut;
+}
+async function enforceSessionLimit() {
+  try {
+    const { data: { session } } = await db.auth.getSession(); if (!session || $("app").classList.contains("hidden")) return false;
+    const at = Date.parse(session.user && session.user.last_sign_in_at); if (!at || at >= ukLastEight()) return false;
+    if (channel) { db.removeChannel(channel); channel = null; }
+    closeDrawer(); practices = []; filtered = []; networks = []; signals = [];
+    await db.auth.signOut(); showLogin(); $("login-error").textContent = "You were signed out at 8pm. Sign in again to continue."; return true;
+  } catch (e) { return false; }
+}
+setInterval(enforceSessionLimit, 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) enforceSessionLimit(); });
+// Download buttons are hidden for everyone who is not on the download list (the database enforces the list too).
+document.body.classList.add("no-dl");
+async function applyDownloadRight() { try { const { data } = await db.rpc("can_download"); document.body.classList.toggle("no-dl", data !== true); } catch (e) { document.body.classList.add("no-dl"); } }
 async function boot() {
   const { data: { session } } = await db.auth.getSession();
+  if (session && session.user && Date.parse(session.user.last_sign_in_at) < ukLastEight()) { await db.auth.signOut(); showLogin(); $("login-error").textContent = "You were signed out at 8pm. Sign in again to continue."; return; }
   if (session && ["invite", "recovery"].includes(linkParams.get("type"))) { showSetPassword(session); return; }
   if (!session && linkParams.get("error_description")) {
     showLogin(); $("login-error").textContent = /expired|invalid/i.test(linkParams.get("error_description")) ? "That link has expired or was already used. Ask for a new invite, or use “Forgot your password?”." : "Sign-in link problem: " + linkParams.get("error_description");

@@ -78,7 +78,7 @@ function loadFailed(err) {
 }
 $("load-retry").onclick = () => startApp();
 async function startApp() {
-  $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("login").classList.add("hidden"); $("app").classList.remove("hidden"); applyDownloadRight();
   loading(true, "Checking your sign-in and loading the price list…");
   try {
     loadStep("Loading practices, networks and the price list…"); await Promise.all([loadConfig(), loadPractices(), netPrefetch = fetchAll("network_summary", NET_COLS, "id").catch(() => null)]); loadStep("Loading signals…");
