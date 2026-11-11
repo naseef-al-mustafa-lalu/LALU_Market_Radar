@@ -441,3 +441,9 @@ Line item discounts are percentages everywhere: the push writes the line item's 
 All contacts has a **Lifecycle stage** filter (in More filters) and a tick box on every row, with a header box for the whole list. Everything matching the filters starts ticked; ticking or unticking one contact (or the header box) turns the result into an explicit set, shown as "N picked" with a way back to the filters. **Save as segment** then keeps the filters and, when contacts were picked, the members; a segment with members shows "N hand-picked contacts". **Open** on a segment brings its filters and ticks back, and **Update "<segment>"** saves changes to who is in it. **Export eligible** and the Re-engagement audience button use the picked contacts when there are any.
 
 The daily Oscar load keeps the reason a stored contact was held back for (it used to clear it the day after the contact was stored, which rewrote about 36,800 held contacts and put them back in profiles and the Review tabs); an address that becomes direct is released, and reviewed contacts keep your decision.
+
+### Review: source filter and names; job titles one by one
+
+- **Review > Source** filters Partly matches, Not clearly theirs and Held at import to Oscar or HubSpot contacts.
+- A contact with **no name** shows First and Last name boxes in Review, pre-filled from the start of the email (the dot divides first and last, digits dropped, capitalised; nothing is guessed when there is no dot). Edit them, then **Accept** (or Accept the shown) saves the name through `set_contact_name` and accepts the address.
+- **Job titles** (Contacts > Settings) lists every title with how many contacts carry it, each set Main, Other or Off on its own; a title nobody has set follows its group's default, which is kept under "Group defaults". Review > New job titles uses the same three buttons and saves at once. A title's own setting is saved in the rules as `titleModes`.

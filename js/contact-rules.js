@@ -46,16 +46,18 @@ const CT_RULES = [
 const CT_NOT_EVALUATED = [["disqualified", "Disqualified lead, or closed-lost deal while New / Engaged", "HubSpot's exclusion list holds these; Atlas does not read lead or deal outcomes yet, so they stay excluded in HubSpot only."]];
 const CT_LIFECYCLE = { lead: "New", "2207373534": "Engaged", marketingqualifiedlead: "MQL", "5640141025": "Prospecting", salesqualifiedlead: "SQL", opportunity: "Opportunity", customer: "Customer", "4726262995": "Past customer", evangelist: "Evangelist", other: "Other", "4025181418": "Client services" };
 const CT_BAD_BOUNCE = new Set(["UNKNOWN_USER", "OTHER", "POLICY", "Unknown user", "Other", "Policy"]);
-const CT_DEFAULTS = () => ({ roles: {}, titles: {}, dq: {}, suppression: {}, likely: false, strictValid: false, owners: ["78343211", "34750167", "34750166", "9112363"] });
+const CT_DEFAULTS = () => ({ roles: {}, titles: {}, titleModes: {}, dq: {}, suppression: {}, likely: false, strictValid: false, owners: ["78343211", "34750167", "34750166", "9112363"] });
 let ctRules = CT_DEFAULTS(), ctMode = "standard";   // ctMode: standard campaigns, or re-engagement (lifts the lifecycle rule)
 const ctRoleMode = id => (ctRules.roles[id] === "main" || ctRules.roles[id] === "other" || ctRules.roles[id] === "off") ? ctRules.roles[id] : CT_ROLE[id].def;
+// A job title can be set on its own: Main, Other or Off, ahead of the group default it falls into.
+const ctTitleMode = t => { const m = ctRules.titleModes && ctRules.titleModes[String(t || "").trim().toLowerCase()]; return m === "main" || m === "other" || m === "off" ? m : null; };
 const ctRuleOn = id => ctRules.suppression[id] === undefined ? (CT_RULES.find(r => r[0] === id) || [])[3] !== false : !!ctRules.suppression[id];
-function ctSetRules(v) { const d = CT_DEFAULTS(); ctRules = { ...d, ...(v || {}), roles: { ...(v || {}).roles }, titles: { ...(v || {}).titles }, dq: { ...(v || {}).dq }, suppression: { ...(v || {}).suppression }, owners: Array.isArray((v || {}).owners) ? v.owners.map(String) : d.owners }; }
+function ctSetRules(v) { const d = CT_DEFAULTS(); ctRules = { ...d, ...(v || {}), roles: { ...(v || {}).roles }, titles: { ...(v || {}).titles }, titleModes: { ...(v || {}).titleModes }, dq: { ...(v || {}).dq }, suppression: { ...(v || {}).suppression }, owners: Array.isArray((v || {}).owners) ? v.owners.map(String) : d.owners }; }
 
 // Everything about one contact: its role group, which section it belongs in (or why it does not), and the suppression rules that hold it back.
 // c: a row of public.contacts; p: its practice; locked: Map of hubspot contact id -> audience name (approved elsewhere).
 function ctEvaluate(c, p, locked = new Map()) {
-  const role = ctRoleOf(c.job_title || c.title), mode = ctRoleMode(role.id), name = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.full_name || "";
+  const role = ctRoleOf(c.job_title || c.title), mode = role.locked ? ctRoleMode(role.id) : (ctTitleMode(c.job_title || c.title) || ctRoleMode(role.id)), name = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.full_name || "";
   const q = c.email_quality || (typeof cqEmailQuality === "function" ? cqEmailQuality(c.email, c.first_name || (c.full_name || "").split(" ")[0], c.last_name || (c.full_name || "").split(" ").slice(1).join(" "))[0] : null);
   const direct = q === "direct" || (q === "likely_direct" && ctRules.likely);
   const out = { role, quality: q, name, section: null, excluded: "", reasons: [], status: "excluded" };
