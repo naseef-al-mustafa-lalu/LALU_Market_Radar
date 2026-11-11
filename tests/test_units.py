@@ -672,7 +672,7 @@ def test_oscar_contacts_step_keeps_hubspot_contacts_adopts_by_email_and_gates_ne
     from src import ingest
     class R:
         def __init__(self, rows, generic): self.rows, self.generic, self.up, self.deleted = rows, generic, {}, []
-        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else self.generic
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else [] if table == "contact_review" else self.generic
         def upsert(self, table, rows, on_conflict, batch=500): self.up.setdefault(table, []).extend(rows)
         def delete_in(self, table, column, values, chunk=200, extra=None): self.deleted += [(table, v) for v in values]
     base = dict(ods_code="A1", seniority=None, phone=None, email_opt_out=False, is_primary=False, org_urn=None, title=None, quals=None, dept=None, categories=None, data_types=None, main_site=False)
@@ -696,7 +696,7 @@ def test_oscar_load_does_not_undo_a_review_decision():
     from src import ingest
     class R:
         def __init__(self, rows): self.rows, self.up = rows, {}
-        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else [dict(contact_urn=r["contact_urn"], reviewed_by=r["reviewed_by"]) for r in self.rows if r.get("reviewed_by")] if table == "contact_review" else []
         def upsert(self, table, rows, on_conflict, batch=500): self.up.setdefault(table, []).extend(rows)
         def delete_in(self, *a, **k): pass
     base = dict(ods_code="A1", seniority=None, phone=None, email_opt_out=False, is_primary=False, org_urn=None, title=None, quals=None, dept=None, categories=None, data_types=None, main_site=False, source="oscar", full_name="Pat Smith", first_name="Pat", last_name="Smith", email="psmith2@nhs.net", job_title="Practice Manager")
@@ -718,7 +718,7 @@ def test_oscar_load_keeps_one_row_per_email_at_a_practice():
     from src import ingest
     class R:
         def __init__(self, rows): self.rows, self.up, self.deleted = rows, {}, []
-        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else [dict(contact_urn=r["contact_urn"], reviewed_by=r["reviewed_by"]) for r in self.rows if r.get("reviewed_by")] if table == "contact_review" else []
         def upsert(self, table, rows, on_conflict, batch=500): self.up.setdefault(table, []).extend(rows)
         def delete_in(self, table, col, vals, chunk=200, extra=None): self.deleted += list(vals)
     base = dict(ods_code="A1", seniority=None, phone=None, email_opt_out=False, is_primary=False, org_urn=None, title=None, quals=None, dept=None, categories=None, data_types=None, main_site=False, job_title="Practice Manager", first_name=None, last_name=None)
@@ -734,7 +734,7 @@ def test_oscar_contacts_without_an_email_are_counted_not_stored():
     from src import ingest
     class R:
         def __init__(self, rows): self.rows, self.up, self.deleted = rows, {}, []
-        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else []
+        def select_all(self, table, columns="*", order="id", params=None, page=1000): return self.rows if table == "contacts" else [dict(contact_urn=r["contact_urn"], reviewed_by=r["reviewed_by"]) for r in self.rows if r.get("reviewed_by")] if table == "contact_review" else []
         def upsert(self, table, rows, on_conflict, batch=500): self.up.setdefault(table, []).extend(rows)
         def delete_in(self, table, col, vals, chunk=200, extra=None): self.deleted += list(vals)
     base = dict(ods_code="A1", seniority=None, phone=None, email_opt_out=False, is_primary=False, org_urn=None, title=None, quals=None, dept=None, categories=None, data_types=None, main_site=False, job_title="Nurse", first_name=None, last_name=None, full_name="N N")

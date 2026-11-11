@@ -310,6 +310,9 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
             stats["noemail_error"] = str(e)[:150]
     stats["contacts_noemail"] = len(noemail)
     db = {r["contact_urn"]: r for r in rest.select_all("contacts", order="contact_urn")}
+    reviewed = {r["contact_urn"]: r["reviewed_by"] for r in rest.select_all("contact_review", "contact_urn,reviewed_by", order="contact_urn", params={"reviewed_by": "not.is.null"})}   # review decisions live in their own table
+    for u, r in db.items():
+        r["reviewed_by"] = reviewed.get(u)
     oscar_db = {u: r for u, r in db.items() if r.get("source", "oscar") == "oscar"}
     by_email = {(r["ods_code"], r["email"].lower()): r for r in db.values() if r.get("source") == "hubspot" and r.get("email")}
     try:
