@@ -1067,7 +1067,7 @@ def test_neverbounce_queue_run_and_results():
     assert ("PUT", "/crm/v4/objects/contacts/555/associations/default/companies/77", None) in hub.calls and not [c for c in hub.calls if "/lists/" in c[1]]      # on its practice company; never added to a HubSpot list automatically (that waits for review in Atlas)
     ok = [p for p in rest.patched if p[1] == {"contact_urn": "eq.1"}][0][2]
     nbrows = {r[1][0]["contact_urn"]: r[1][0] for r in rest.upserted if r[0] == "contact_nb"}
-    assert nbrows[1]["nb_result"] == "Accept All (Unverifiable)" and nbrows[1]["nb_state"] == "checked" and "nb_result" not in ok and ok["hubspot_contact_id"] == "555" and [p for p in rest.patched if p[1] == {"contact_urn": "eq.2"}][0][2]["hs_neverbounce"] == "Invalid"
+    assert nbrows[1]["nb_result"] == "Accept All (Unverifiable)" and nbrows[1]["nb_state"] == "checked" and "nb_result" not in ok and ok["hubspot_contact_id"] == "555" and {r[1][0]["contact_urn"]: r[1][0]["hs_neverbounce"] for r in rest.upserted if r[0] == "contact_hubspot"}[2] == "Invalid"
     assert nb.run(rest, hub, "k", datetime(2026, 11, 10, 7, 0, tzinfo=timezone.utc), get=get) == {"skipped": "outside Monday before 09:00 UK"}
     assert "2 checked" in nb.report(out)
 

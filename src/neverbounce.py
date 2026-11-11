@@ -109,7 +109,7 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
         out["checked"] += 1
         out["by_status"][status] = out["by_status"].get(status, 0) + 1
         nb_row = {"contact_urn": c["contact_urn"], "nb_state": "checked", "nb_result": status, "nb_checked_at": now.isoformat()}
-        patch = {"hs_neverbounce": status}
+        patch = {}
         if status in PASS:
             out["passed"] += 1
             try:
@@ -122,7 +122,9 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
         else:
             out["failed"] += 1
         rest.upsert("contact_nb", [nb_row], "contact_urn")   # the NeverBounce result is written to its own table only
-        rest.patch("contacts", {"contact_urn": f"eq.{c['contact_urn']}"}, patch)
+        rest.upsert("contact_hubspot", [{"contact_urn": c["contact_urn"], "hs_neverbounce": status}], "contact_urn")   # HubSpot-side state lives in its own table
+        if patch:
+            rest.patch("contacts", {"contact_urn": f"eq.{c['contact_urn']}"}, patch)
     out["credits_remaining"] = credits_left(key, get)
     out["waiting"] = len(approved) - out["checked"]
     return out
