@@ -176,7 +176,7 @@ async function audDecideIds(a, ids, state) {
   if (!rows.length) return;
   const { error } = await db.from("audience_members").upsert(rows, { onConflict: "audience_id,contact_id" });
   if (error) { alert("Could not save: " + error.message); return; }
-  db.rpc("refresh_contact_status_hubspot", { p_ids: rows.map(r => r.contact_id) }).then(() => { if (typeof ctLoaded !== "undefined") ctLoaded = false; }, () => {});   // approving a contact holds it for this audience in Contacts: the database recalculates those contacts
+  db.rpc("refresh_contact_status_hubspot", { p_ids: rows.map(r => r.contact_id) }).then(() => { if (typeof ctSrvCounts !== "undefined") ctSrvCounts = null; }, () => {});   // approving a contact holds it for this audience in Contacts: the database recalculates those contacts
   for (const r of rows) { audTicked.delete(r.contact_id); const i = audMembers.findIndex(m => m.audience_id === r.audience_id && m.contact_id === r.contact_id); if (i >= 0) audMembers[i] = { ...audMembers[i], ...r }; else audMembers.push(r); }
   renderAudiences();
 }

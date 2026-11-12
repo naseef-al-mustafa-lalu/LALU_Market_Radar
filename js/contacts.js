@@ -1,6 +1,6 @@
 /* Contacts tab: every contact Atlas holds, who may be contacted and why not, saved segments, and the settings that switch job roles and suppression rules on and off.
    The rules live in contact-rules.js. Loaded after contact-rules.js. Contacts are read from public.contacts; their HubSpot state (lifecycle, sequence, bounce...) is kept there by the daily HubSpot sync. */
-let ctAll = [], ctLoaded = false, ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctLocked = new Map(), ctHeld = null, ctSaving = false;
+let ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctHeld = null, ctSaving = false;
 let ctMoreOpen = false, ctF = { dq: "", q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "" };
 // Hand-picking: null while the filters decide who is in; once a box is ticked or unticked it is the explicit set of contact urns (a saved segment keeps it as its members).
 let ctPick = new Set(), ctOff = new Set(), ctEditing = null,   // ctPick: the urns ticked (none to begin with); null only after Select all = everything the filters show except the urns in ctOff
@@ -8,8 +8,7 @@ let ctPick = new Set(), ctOff = new Set(), ctEditing = null,   // ctPick: the ur
 // Job titles, one by one: each distinct title with how many contacts carry it, set Main, Other or Off. A title nobody has set follows the group default (its group is shown).
 let ctTitleQ = "", ctTitleF = "all", ctTitleShown = 100;
 function ctTitlesSection() {
-  const m = new Map(); for (const r of ctAll) { const t = String(r.c.job_title || r.c.title || "").trim(); if (!t) continue; const k = t.toLowerCase(), e = m.get(k) || { t, n: 0 }; e.n++; m.set(k, e); }
-  const q = ctTitleQ.trim().toLowerCase(), all = [...m.values()].map(e => ({ ...e, set: ctTitleMode(e.t), group: CT_ROLE[ctTitleRole.get(e.t.toLowerCase()) || "other"] || CT_ROLE.other })).filter(e => !e.group.locked);
+  const q = ctTitleQ.trim().toLowerCase(), all = (ctStats ? ctStats.titles : []).map(e => ({ t: e.t, n: e.n, set: ctTitleMode(e.t), group: CT_ROLE[e.role] || CT_ROLE.other })).filter(e => !e.group.locked);
   const list = all.filter(e => (!q || e.t.toLowerCase().includes(q)) && (ctTitleF === "all" || (ctTitleF === "unset" ? !e.set : !!e.set))).sort((a, b) => b.n - a.n || a.t.localeCompare(b.t)), shown = list.slice(0, ctTitleShown);
   const btn = (e, k, l, cur) => `<button type="button" class="ct-title-set rounded-md px-2.5 py-1 ${cur === k ? "bg-lalu-navy text-white" : "text-slate-600 hover:bg-slate-50"}" data-t="${esc(e.t)}" data-m="${k}" aria-pressed="${cur === k}">${l}</button>`;
   return `<section class="rounded-xl border border-slate-200 bg-white p-4"><h3 class="font-bold">Job titles</h3><p class="text-xs text-slate-500">Every title in your contacts, most common first. <b>Main</b> is for decision-makers, <b>Other</b> for anyone else we want, <b>Off</b> leaves the title out. A title you have not set follows its group's default (shown in grey).</p>
@@ -20,34 +19,39 @@ function ctTitlesSection() {
       <div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-xs font-semibold ${e.set ? "" : "opacity-70"}" role="group" aria-label="Section for ${esc(e.t)}">${btn(e, "main", "Main", cur)}${btn(e, "other", "Other", cur)}${btn(e, "off", "Off", cur)}</div></div>`; }).join("") || '<p class="p-4 text-center text-sm italic text-slate-500">No title matches.</p>'}</div>
     ${list.length > shown.length ? `<div class="pt-2 text-center"><button type="button" id="ct-title-more" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(list.length - shown.length).toLocaleString()})</button></div>` : ""}</section>`;
 }
-const ctInSel = r => ctPick ? ctPick.has(r.c.contact_urn) : (ctLoaded ? ctMatch(r) : true) && !ctOff.has(r.c.contact_urn);   // while the database serves the list, every row shown already matches the filters
+const ctInSel = r => ctPick ? ctPick.has(r.c.contact_urn) : !ctOff.has(r.c.contact_urn);   // every row shown already matches the filters
 const CT_COLS = "contact_urn,ods_code,full_name,first_name,last_name,job_title,title,email,phone,email_opt_out,is_primary,hubspot_status,hubspot_contact_id,source,email_quality,role_tier,hs_lifecycle,hs_in_sequence,hs_bounced,hs_bounce_reason,hs_last_sent,hs_mkt_optout,hs_optout_all,hs_owner,hs_neverbounce,held_reason,nb_state,nb_result,nb_checked_at,nb_approved_by,hs_lost_reason,hs_lost_at,hs_lost_deal,hs_lost_kind,hs_dq_reason,hs_dq_note,hs_dq_at,hs_reengage_date,hs_seq_exit,hs_seq_ended_at";
 const CT_STATUS = { eligible: ["Eligible", "bg-emerald-100 text-emerald-800"], suppressed: ["Held back", "bg-amber-100 text-amber-800"], excluded: ["Not used", "bg-slate-100 text-slate-600"] };
 const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other", "bg-sky-100 text-sky-800"] };
 
 
-// ---- Loading and the server-paged list ----
-// The default view (All contacts, Standard) asks the database for one page at a time, with the filters, sort and tile counts calculated there, so it opens straight away. Anything that needs every contact
-// (ticking, segments, CSV, Re-engagement, Review, NeverBounce, Import, Settings) loads them all once (ctEnsureAll) and then works as before.
-let ctDirtySrv = false, ctSrvRows = [], ctSrvTotal = 0, ctSrvEligible = 0, ctSrvCounts = null, ctSrvBusy = false, ctSrvReady = false, ctFullPromise = null, ctSrvSeq = 0;
-const ctUseSrv = () => !ctLoaded && ctSub === "contacts";
-let ctSrvRe = { total: 0, eligible: 0, suppressed: 0, due: 0 }, ctSrvDq = [];
+// ---- Loading ----
+// Every view asks the database for just what it shows: the list one page of 100 at a time, and each other tab its own small summary. No tab downloads the whole contact list.
+let ctSrvRows = [], ctSrvTotal = 0, ctSrvEligible = 0, ctSrvCounts = null, ctSrvBusy = false, ctSrvReady = false, ctSrvSeq = 0, ctSrvRe = { total: 0, eligible: 0, suppressed: 0, due: 0 }, ctSrvDq = [];
+let ctFlagsReady = false, ctStats = null, ctNbQ = null, ctRev = { counts: {}, rows: [], titles: [] }, ctSegStatsMap = {}, ctSegCounts = new Map();
 const ctSpinner = (msg, sub = "") => `<div class="flex flex-col items-center justify-center gap-3 p-10 text-center" role="status" aria-live="polite"><svg class="h-9 w-9 animate-spin text-lalu-teal-700" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".2" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><div class="text-sm font-semibold text-slate-700">${esc(msg)}</div>${sub ? `<div class="max-w-md text-xs text-slate-500">${esc(sub)}</div>` : ""}</div>`;
 const ctSkeleton = () => `<div class="space-y-3" aria-hidden="true"><div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">${Array.from({ length: 6 }, () => '<div class="h-[76px] animate-pulse rounded-xl bg-slate-200/70"></div>').join("")}</div><div class="h-10 animate-pulse rounded-lg bg-slate-200/70"></div><div class="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">${Array.from({ length: 8 }, () => '<div class="flex items-center gap-4 px-3 py-3"><div class="h-4 w-4 animate-pulse rounded bg-slate-200"></div><div class="h-4 w-40 animate-pulse rounded bg-slate-200"></div><div class="h-4 w-56 animate-pulse rounded bg-slate-200"></div><div class="h-4 flex-1 animate-pulse rounded bg-slate-100"></div></div>').join("")}</div></div>`;
 const ctWrap = c => ({ c, p: byOds.get(c.ods_code), ev: { role: CT_ROLE[c.st_role] || CT_ROLE.other, quality: c.email_quality, name: [c.first_name, c.last_name].filter(Boolean).join(" ") || c.full_name || "", section: c.st_section, excluded: c.st_excluded || "", reasons: c.st_reasons || [], status: c.st_status } });
+
+const ctPageBox = f => ({ q: f.q, section: f.section, status: f.status, role: f.role, source: f.source, reason: f.reason, lifecycle: f.lifecycle, dq: ctMode === "reengage" ? f.dq : "" });
 async function ctLoadPage() {
   const seq = ++ctSrvSeq; ctSrvBusy = true; if (!ctSrvReady) $("ct-body").innerHTML = ctSkeleton(); else renderContacts();
   try {
-    const f = { q: ctF.q, section: ctF.section, status: ctF.status, role: ctF.role, source: ctF.source, reason: ctF.reason, lifecycle: ctF.lifecycle, dq: ctMode === "reengage" ? ctF.dq : "" };
-    const [page, counts, flags, ne] = await Promise.all([db.rpc("contacts_query", { p_f: f, p_mode: ctMode, p_what: "rows", p_limit: ctShown, p_offset: 0 }), ctSrvCounts ? null : db.rpc("contacts_counts"), ctSrvReady ? null : db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]),
-      ctSrvReady ? null : db.from("contact_noemail").select("ref", { count: "exact", head: true })]);
+    const [page, counts] = await Promise.all([db.rpc("contacts_query", { p_f: ctPageBox(ctF), p_mode: ctMode, p_what: "rows", p_limit: 100, p_offset: 0 }), ctSrvCounts ? null : db.rpc("contacts_counts")]);
     if (seq !== ctSrvSeq) return;   // a newer search or filter has replaced this one
     if (page.error) throw page.error;
     if (counts) { if (counts.error) throw counts.error; ctSrvCounts = counts.data; }
-    if (flags) { const f2 = Object.fromEntries((flags.data || []).map(r => [r.key, r.value])); ctSetRules(f2.contact_rules); ctSegments = (f2.contact_segments && f2.contact_segments.list) || []; }
-    if (ne) ctNoEmail = ne.count || 0;
-    const d = page.data || {}; ctSrvRows = (d.rows || []).map(ctWrap); ctSrvTotal = d.total || 0; ctSrvEligible = d.eligible || 0; ctSrvRe = { total: d.total || 0, eligible: d.eligible || 0, suppressed: d.suppressed || 0, due: d.due || 0 }; if (ctMode === "reengage") ctSrvDq = d.reasons || []; ctSrvReady = true; ctSrvBusy = false; const q = $("ct-q"), pos = q && document.activeElement === q ? q.selectionStart : null; renderContacts(); if (pos != null) { const n = $("ct-q"); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
+    const d = page.data || {}; ctSrvRows = (d.rows || []).map(ctWrap); ctSrvTotal = d.total || 0; ctSrvEligible = d.eligible || 0; ctSrvRe = { total: d.total || 0, eligible: d.eligible || 0, suppressed: d.suppressed || 0, due: d.due || 0 }; if (ctMode === "reengage") ctSrvDq = d.reasons || [];
+    ctSrvReady = true; ctSrvBusy = false; const q = $("ct-q"), pos = q && document.activeElement === q ? q.selectionStart : null; renderContacts(); if (pos != null) { const n = $("ct-q"); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
   } catch (e) { ctSrvBusy = false; $("ct-body").innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load contacts: ${esc(e.message || e)}</p>`; }
+}
+async function ctLoadMore() {   // exactly 100 more, added to the list: nothing already shown is fetched again
+  if (ctSrvBusy) return; ctSrvBusy = true; renderContacts();
+  try {
+    const { data, error } = await db.rpc("contacts_query", { p_f: ctPageBox(ctF), p_mode: ctMode, p_what: "rows", p_limit: 100, p_offset: ctSrvRows.length }); if (error) throw error;
+    ctSrvRows = ctSrvRows.concat((data.rows || []).map(ctWrap));
+  } catch (e) { alert("Could not load more: " + (e.message || e)); }
+  ctSrvBusy = false; renderContacts();
 }
 
 const ctQueryFilters = () => ({ q: ctF.q, section: ctF.section, status: ctF.status, role: ctF.role, source: ctF.source, reason: ctF.reason, lifecycle: ctF.lifecycle, dq: ctMode === "reengage" ? ctF.dq : "" });
@@ -60,78 +64,66 @@ async function ctExport(f, urns, name, off) {
   if (error) { alert(/restricted/.test(error.message || "") ? "Downloads are restricted to the account owner for now." : "Could not export: " + (error.message || error)); return; }
   ctCsv((data || []).map(ctWrap), name);
 }
-function ctEnsureAll() {
-  if (ctLoaded) return Promise.resolve();
-  if (!ctFullPromise) { $("ct-body").innerHTML = ctSpinner("Loading every contact…", `Needed for ${ctSub === "contacts" ? "ticking, saving or exporting" : "this tab"}. About ${ctSrvCounts ? ctSrvCounts.total.toLocaleString() : "56,000"} contacts: this takes a few seconds, once.`); ctFullPromise = loadContacts(true).finally(() => { ctFullPromise = null; }); }
-  return ctFullPromise;
-}
 
-async function loadContacts(force) {
-  if (ctLoaded && !force) { renderContacts(); return; }
-  if (!force && ctUseSrv()) { if (!ctSrvReady || ctDirtySrv) { ctDirtySrv = false; ctLoadPage(); } else renderContacts(); return; }
-  if (!ctFullPromise) $("ct-body").innerHTML = ctSpinner("Loading every contact…");
+async function ctLoadFlags() {   // the saved rules, saved filters and the count of contacts with no email: small, read once
+  if (ctFlagsReady) return;
+  const [flags, ne, run] = await Promise.all([db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]), db.from("contact_noemail").select("ref", { count: "exact", head: true }),
+    db.from("ingest_runs").select("stats").eq("status", "success").order("id", { ascending: false }).limit(1)]);
+  const f = Object.fromEntries((flags.data || []).map(r => [r.key, r.value]));
+  ctSetRules(f.contact_rules); ctSegments = (f.contact_segments && f.contact_segments.list) || []; ctNoEmail = ne.count || 0; ctHeld = ((run.data || [])[0] || {}).stats || null; ctFlagsReady = true;
+}
+async function ctLoadReview(more) {   // the Review tab: the four counts, and 100 rows (or titles) of the open tab; "more" adds the next 100
+  const tab = ctRevTab, off = more ? (tab === "titles" ? ctRev.titles.length : ctRev.rows.length) : 0;
+  const { data, error } = await db.rpc("contacts_review", { p_tab: tab, p_source: ctRevSource, p_limit: 100, p_offset: off }); if (error) throw error;
+  ctRev = { counts: data.counts || {}, rows: (more ? ctRev.rows : []).concat((data.rows || []).map(ctWrap)), titles: (more ? ctRev.titles : []).concat(data.titles || []) };
+}
+async function ctLoadNb() {
+  const [q, r] = await Promise.all([db.rpc("contacts_nb_queue"), db.from("neverbounce_runs").select("run_at,checked,passed,failed,created_in_hubspot,enrolled,credits_remaining,error").order("id", { ascending: false }).limit(5)]);
+  if (q.error) throw q.error; ctNbQ = { ...q.data, rows: (q.data.rows || []).map(ctWrap) }; ctRuns = r.data || [];
+}
+async function ctLoadSegments() {
+  const [s, st] = await Promise.all([db.from("hubspot_segments").select("list_id,name,processing_type,size,filter_text,tracked,criteria,synced_at").order("name"), db.rpc("contacts_segment_stats")]);
+  ctSegs = s.data || []; ctSegStatsMap = st.data || {}; ctSegCounts = new Map();
+  await Promise.all(ctSegments.map(async sg => {   // each saved filter set is counted by the database
+    const f = sg.members ? { urns: sg.members } : { ...ctPageBox({ q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", dq: "", ...sg.filters }), ...(sg.exclude && sg.exclude.length ? { exclude: sg.exclude } : {}) };
+    const { data } = await db.rpc("contacts_query", { p_f: f, p_mode: "standard", p_what: "rows", p_limit: 0, p_offset: 0 }); ctSegCounts.set(sg.id, { total: (data || {}).total || 0, eligible: (data || {}).eligible || 0 });
+  }));
+}
+// Which view is open: load only what it needs, then draw it.
+async function ctLoadTab() {
+  const box = $("ct-body"); if (!box) return;
   try {
-    const [rows, , flags, am, au, run] = await Promise.all([fetchAll("contacts_full", CT_COLS, "contact_urn"), ctLoadStatus(), db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]),
-      db.from("audience_members").select("audience_id,contact_id,state"), db.from("audiences").select("id,name").eq("archived", false), db.from("ingest_runs").select("stats").eq("status", "success").order("id", { ascending: false }).limit(1)]);
-    try { const ne = await db.from("contact_noemail").select("ref", { count: "exact", head: true }); ctNoEmail = ne.count || 0; } catch (e) { ctNoEmail = 0; }
-    const f = Object.fromEntries((flags.data || []).map(r => [r.key, r.value]));
-    ctSetRules(f.contact_rules); ctSegments = (f.contact_segments && f.contact_segments.list) || [];
-    const names = new Map((au.data || []).map(a => [a.id, a.name]));
-    ctLocked = new Map((am.data || []).filter(m => AUD_LOCKS.includes(m.state) && m.contact_id).map(m => [String(m.contact_id), names.get(m.audience_id) || "an audience"]));
-    ctHeld = ((run.data || [])[0] || {}).stats || null;
-    await ctLoadExtra(); ctRows = rows; ctLoaded = true; ctDirty = false; ctEvalAll(); renderContacts();
-  } catch (e) { $("ct-body").innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load contacts: ${esc(e.message || e)}</p>`; }
+    await ctLoadFlags();
+    if (ctSub === "contacts") { await ctLoadPage(); return; }
+    box.innerHTML = ctSpinner("Loading…");
+    if (ctSub === "review") await ctLoadReview(false);
+    else if (ctSub === "neverbounce") await ctLoadNb();
+    else if (ctSub === "segments") await ctLoadSegments();
+    else if (ctSub === "settings") { const { data, error } = await db.rpc("contacts_settings_stats"); if (error) throw error; ctStats = data; }
+    renderContacts();
+  } catch (e) { box.innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load: ${esc(e.message || e)}</p>`; }
 }
-let ctRows = [];
-// The database decides each contact's role, section and status (contact_status); the page only reads and shows it. The Re-engagement view lifts the lifecycle rule.
-let ctStatus = new Map(), ctTitleRole = new Map();
-const CT_STATUS_COLS = "contact_urn,status,section,excluded,reasons,role_id";
-async function ctLoadStatus() { ctStatus = new Map((await fetchAll("contact_status", CT_STATUS_COLS, "contact_urn")).map(x => [x.contact_urn, x])); }
-async function ctReloadStatus(urns) {   // after a review decision: the database has already recalculated these contacts
-  for (let i = 0; i < urns.length; i += 100) { const { data } = await db.from("contact_status").select(CT_STATUS_COLS).in("contact_urn", urns.slice(i, i + 100)); for (const x of data || []) ctStatus.set(x.contact_urn, x); }
-  ctEvalAll();
-}
-function ctEvalAll() {
-  ctTitleRole = new Map();
-  ctAll = ctRows.map(c => {
-    const p = byOds.get(c.ods_code), s = ctStatus.get(c.contact_urn), role = CT_ROLE[(s && s.role_id) || "none"] || CT_ROLE.other;
-    let reasons = s ? (s.reasons || []) : [], status = s ? s.status : "excluded";
-    if (ctMode !== "standard") { reasons = reasons.filter(x => x !== "lifecycle"); if (status === "suppressed" && !reasons.length) status = "eligible"; }
-    const t = String(c.job_title || c.title || "").trim().toLowerCase(); if (t && s && !ctTitleRole.has(t)) ctTitleRole.set(t, s.role_id);
-    return { c, p, ev: { role, quality: c.email_quality, name: [c.first_name, c.last_name].filter(Boolean).join(" ") || c.full_name || "", section: s ? s.section : null, excluded: s ? (s.excluded || "") : "not calculated yet", reasons, status } };
-  });
-}
+async function loadContacts(force) { if (force) { ctFlagsReady = false; ctSrvCounts = null; } await ctLoadTab(); }
 
 function setCtSub(which) {
   ctSub = which; ctShown = 100;
   $("ct-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.c === which ? "bg-white shadow-sm" : "text-slate-500"));
-  stateToUrl();
-  if (!ctLoaded && which !== "contacts") { ctEnsureAll(); return; }
-  if (ctUseSrv()) { ctLoadPage(); return; }
-  renderContacts();
+  stateToUrl(); ctLoadTab();
 }
 $("ct-sub").querySelectorAll("button").forEach(b => b.onclick = () => setCtSub(b.dataset.c));
 
-const ctMatch = r => {
-  const { c, p, ev } = r, f = ctF, q = f.q.trim().toLowerCase();
-  if (ctMode === "reengage" && (!(ctDqIn(c) || ctLostOn(c)) || (p && p.hubspot_customer))) return false;   // Re-engagement lists disqualified leads (reasons chosen in Settings), never customers
-  return (!f.section || ev.section === f.section) && (!f.status || ev.status === f.status) && (!f.role || ev.role.id === f.role) && (!f.source || (c.source || "oscar") === f.source) && (!f.reason || ev.reasons.includes(f.reason)) && (!f.lifecycle || c.hs_lifecycle === f.lifecycle) && (!f.dq || (f.dq === "any" ? ctReReasons(c).length > 0 : ctReReasons(c).includes(f.dq) || ("lost:" + c.hs_lost_reason) === f.dq))
-    && (!q || [ev.name, c.email, c.job_title, c.title, c.ods_code, p && p.practice_name, p && p.postcode].some(v => (v || "").toLowerCase().includes(q)));
-};
 const ctDue = c => !!c.hs_reengage_date && String(c.hs_reengage_date).slice(0, 10) <= new Date().toISOString().slice(0, 10);
-const ctSortKey = r => (ctMode === "reengage" ? (ctDue(r.c) ? -2 : -1) : 0) + (r.ev.status === "eligible" ? 0 : r.ev.status === "suppressed" ? 1 : 2) + (r.ev.section === "main" ? 0 : 0.5);
 const ctChip = ([l, cls], tip = "") => chip(l, cls, tip);
 const ctOptions = (items, cur, all) => `<option value="">${all}</option>` + items.map(([v, l]) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(l)}</option>`).join("");
 
 function ctTiles() {
   if (ctMode === "reengage") {
-    const srvT = ctUseSrv(), rows = srvT ? [] : ctAll.filter(ctMatch), t = (k, v, sub, cls = "") => `<div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-2xl font-bold ${cls}">${v.toLocaleString()}</div><div class="text-xs text-slate-500">${sub}</div></div>`;
-    return `<div class="grid grid-cols-2 gap-3 md:grid-cols-4">${t("Re-engagement candidates", srvT ? ctSrvRe.total : rows.length, "disqualified leads and lost deals")}${t("Due now", srvT ? ctSrvRe.due : rows.filter(r => ctDue(r.c)).length, "asked to hear again, date reached", "text-sky-700")}${t("Eligible", srvT ? ctSrvRe.eligible : rows.filter(r => r.ev.status === "eligible").length, "can be contacted now", "text-emerald-700")}${t("Held back", srvT ? ctSrvRe.suppressed : rows.filter(r => r.ev.status === "suppressed").length, "a suppression rule applies", "text-amber-700")}</div>`;
+    const t = (k, v, sub, cls = "") => `<div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-2xl font-bold ${cls}">${v.toLocaleString()}</div><div class="text-xs text-slate-500">${sub}</div></div>`;
+    return `<div class="grid grid-cols-2 gap-3 md:grid-cols-4">${t("Re-engagement candidates", ctSrvRe.total, "disqualified leads and lost deals")}${t("Due now", ctSrvRe.due, "asked to hear again, date reached", "text-sky-700")}${t("Eligible", ctSrvRe.eligible, "can be contacted now", "text-emerald-700")}${t("Held back", ctSrvRe.suppressed, "a suppression rule applies", "text-amber-700")}</div>`;
   }
-  const C = ctUseSrv() && ctMode === "standard" ? (ctSrvCounts || { total: 0, eligible: 0, main: 0, other: 0, suppressed: 0, excluded: 0 }) : null;
-  const n = s => C ? C[s] : ctAll.filter(r => r.ev.status === s).length, main = C ? C.main : ctAll.filter(r => r.ev.status === "eligible" && r.ev.section === "main").length, other = C ? C.other : ctAll.filter(r => r.ev.status === "eligible" && r.ev.section === "other").length;
+  const C = ctSrvCounts || { total: 0, eligible: 0, main: 0, other: 0, suppressed: 0, excluded: 0 }, n = s => C[s], main = C.main, other = C.other;
   const tile = (k, v, sub, cls = "") => `<div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-2xl font-bold ${cls}">${v.toLocaleString()}</div><div class="text-xs text-slate-500">${sub}</div></div>`;
-  return `<div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">${tile("Contacts", C ? C.total : ctAll.length, "held in Atlas")}${tile("Eligible", n("eligible"), "can be in a campaign now", "text-emerald-700")}${tile("Main", main, "decision-makers", "text-teal-700")}${tile("Other", other, "any role, direct address", "text-sky-700")}
+  return `<div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">${tile("Contacts", C.total, "held in Atlas")}${tile("Eligible", n("eligible"), "can be in a campaign now", "text-emerald-700")}${tile("Main", main, "decision-makers", "text-teal-700")}${tile("Other", other, "any role, direct address", "text-sky-700")}
     ${tile("Held back", n("suppressed"), "a suppression rule applies", "text-amber-700")}${tile("Not used", n("excluded"), "shared, partial or switched-off", "text-slate-600")}</div>`;
 }
 const ctModeBar = () => `<div class="flex flex-wrap items-center gap-2 text-xs"><span class="font-semibold text-slate-600">Campaign type</span><div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 font-semibold" role="group" aria-label="Campaign type">
@@ -149,28 +141,28 @@ function ctRow(r) {
     <td class="px-2 text-xs text-slate-600">${c.hs_lifecycle ? esc(CT_LIFECYCLE[c.hs_lifecycle] || c.hs_lifecycle) : '<span class="text-slate-300">not in HubSpot</span>'}</td>${ctMode === "reengage" ? `<td class="px-2 text-xs">${[c.hs_dq_reason ? chip("Disqualified: " + ctDqLabel(c.hs_dq_reason), "bg-rose-100 text-rose-800") : "", c.hs_lost_reason ? chip("Deal lost (" + (CT_LOST_KIND[c.hs_lost_kind] || "was a lead") + "): " + c.hs_lost_reason, "bg-amber-100 text-amber-800") : ""].join(" ") || '<span class="text-slate-300">–</span>'}</td><td class="max-w-[16rem] px-2 text-xs text-slate-600">${c.hs_dq_note ? esc(c.hs_dq_note) : c.hs_lost_deal ? `<span class="text-slate-500">${esc(c.hs_lost_deal)}${c.hs_lost_at ? " · lost " + esc(fmtDate(c.hs_lost_at)) : ""}</span>` : '<span class="text-slate-300">–</span>'}</td><td class="whitespace-nowrap px-2 text-xs">${c.hs_reengage_date ? `${esc(fmtDate(c.hs_reengage_date))}${ctDue(c) ? " " + chip("due", "bg-sky-100 text-sky-800") : ""}` : '<span class="text-slate-300">–</span>'}</td>` : ""}</tr>`;
 }
 function ctList() {
-  const srv = ctUseSrv(), rows = srv ? ctSrvRows : ctAll.filter(ctMatch).sort((a, b) => ctSortKey(a) - ctSortKey(b)), shown = srv ? rows : rows.slice(0, ctShown), total = srv ? ctSrvTotal : rows.length, elig = srv ? ctSrvEligible : rows.filter(r => r.ev.status === "eligible").length, nF = ["section", "status", "reason", "role", "source", "lifecycle", "dq"].filter(k => ctF[k]).length, dqOpts = (srv ? ctSrvDq : [...new Set(ctAll.flatMap(r => ctReReasons(r.c)))]).slice().sort().map(v => [v, ctDqLabel(v)]);
+  const rows = ctSrvRows, shown = rows, total = ctSrvTotal, elig = ctSrvEligible, nF = ["section", "status", "reason", "role", "source", "lifecycle", "dq"].filter(k => ctF[k]).length, dqOpts = ctSrvDq.slice().sort().map(v => [v, ctDqLabel(v)]);
   const roleOpts = CT_ROLES.map(r => [r[0], r[1]]), reasonOpts = CT_RULES.map(r => [r[0], r[1]]);
   return `${ctTiles()}<div class="mt-3 flex flex-wrap items-center justify-between gap-2">${ctModeBar()}${ctMode === "reengage" ? `<button type="button" id="ct-make-aud" class="rounded-lg bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Create audience from ${elig.toLocaleString()} eligible contacts</button>` : ""}</div>
     <div class="relative mt-3 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[220px] max-w-lg flex-1"><svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
         <input id="ct-q" type="search" value="${esc(ctF.q)}" placeholder="Search name, email, job title, practice, ODS code…" class="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm" aria-label="Search contacts"></div>
       <button id="ct-more-btn" type="button" aria-expanded="${ctMoreOpen}" aria-controls="ct-more" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"><svg class="h-4 w-4 text-slate-500" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h14M6 10h8M9 15h2"/></svg>Filters${nF ? ` <span class="rounded-full bg-lalu-teal-700 px-1.5 text-[11px] font-bold leading-5 text-white">${nF}</span>` : ""}</button>
-      <span class="ml-auto flex items-center gap-3"><span id="ct-count" class="text-sm text-slate-500">${ctSrvBusy && srv ? '<svg class="mr-1 inline h-3.5 w-3.5 animate-spin text-lalu-teal-700" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".25" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>' : ""}${total.toLocaleString()} contact${total === 1 ? "" : "s"} · ${elig.toLocaleString()} eligible${ctNoEmail ? ` · <span title="Contacts with no email address cannot be contacted, so they are counted here and not stored">${ctNoEmail.toLocaleString()} with no email (count only)</span>` : ""}${(ctPick ? ctPick.size > 0 : true) ? ` · <b class="text-slate-700">${ctPick ? ctPick.size.toLocaleString() + " picked" : ctOff.size ? ctOff.size.toLocaleString() + " left out" : "all selected"}</b> <button type="button" id="ct-pick-clear" class="font-semibold text-lalu-teal-700 hover:underline">back to the filters</button>` : ""}</span>
+      <span class="ml-auto flex items-center gap-3"><span id="ct-count" class="text-sm text-slate-500">${ctSrvBusy ? '<svg class="mr-1 inline h-3.5 w-3.5 animate-spin text-lalu-teal-700" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".25" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>' : ""}${total.toLocaleString()} contact${total === 1 ? "" : "s"} · ${elig.toLocaleString()} eligible${ctNoEmail ? ` · <span title="Contacts with no email address cannot be contacted, so they are counted here and not stored">${ctNoEmail.toLocaleString()} with no email (count only)</span>` : ""}${(ctPick ? ctPick.size > 0 : true) ? ` · <b class="text-slate-700">${ctPick ? ctPick.size.toLocaleString() + " picked" : ctOff.size ? ctOff.size.toLocaleString() + " left out" : "all selected"}</b> <button type="button" id="ct-pick-clear" class="font-semibold text-lalu-teal-700 hover:underline">back to the filters</button>` : ""}</span>
         ${ctEditing && ctSegments.find(x => x.id === ctEditing) ? `<button id="ct-seg-update" class="rounded-lg bg-lalu-navy px-3 py-2 text-sm font-semibold text-white hover:bg-lalu-navy-700">Update “${esc(ctSegments.find(x => x.id === ctEditing).name)}”</button>` : ""}<button id="ct-seg-save" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50">Save as segment</button><button id="ct-csv" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Export eligible</button></span>
       <div id="ct-more" class="${ctMoreOpen ? "" : "hidden"} absolute left-0 top-full z-20 mt-2 w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-4 shadow-xl" role="region" aria-label="Filters"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        ${[["ct-section", "Section", ctOptions([["main", "Main"], ["other", "Other"]], ctF.section, "Any section")], ["ct-status", "Status", ctOptions([["eligible", "Eligible"], ["suppressed", "Held back"], ["excluded", "Not used"]], ctF.status, "Any status")], ["ct-reason", "Held back by", ctOptions(reasonOpts, ctF.reason, "Any rule")], ["ct-role", "Job role", ctOptions(roleOpts, ctF.role, "Any job role")], ["ct-source", "Source", ctOptions([["oscar", "Oscar"], ["hubspot", "HubSpot"]], ctF.source, "Any source")], ["ct-lifecycle", "Lifecycle stage", ctOptions([...new Set(ctAll.map(r => r.c.hs_lifecycle).filter(Boolean))].sort().map(v => [v, CT_LIFECYCLE[v] || v]), ctF.lifecycle, "Any stage")], ...(ctMode === "reengage" ? [["ct-dq", "Disqualification reason", ctOptions([["any", "Any disqualified lead"], ...dqOpts], ctF.dq, "Any contact")]] : [])].map(([id, l, o]) => `<label class="block text-xs font-semibold text-slate-600">${l}<span class="mt-1 block"><select id="${id}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm">${o}</select></span></label>`).join("")}</div>
+        ${[["ct-section", "Section", ctOptions([["main", "Main"], ["other", "Other"]], ctF.section, "Any section")], ["ct-status", "Status", ctOptions([["eligible", "Eligible"], ["suppressed", "Held back"], ["excluded", "Not used"]], ctF.status, "Any status")], ["ct-reason", "Held back by", ctOptions(reasonOpts, ctF.reason, "Any rule")], ["ct-role", "Job role", ctOptions(roleOpts, ctF.role, "Any job role")], ["ct-source", "Source", ctOptions([["oscar", "Oscar"], ["hubspot", "HubSpot"]], ctF.source, "Any source")], ["ct-lifecycle", "Lifecycle stage", ctOptions(Object.entries(CT_LIFECYCLE), ctF.lifecycle, "Any stage")], ...(ctMode === "reengage" ? [["ct-dq", "Disqualification reason", ctOptions([["any", "Any disqualified lead"], ...dqOpts], ctF.dq, "Any contact")]] : [])].map(([id, l, o]) => `<label class="block text-xs font-semibold text-slate-600">${l}<span class="mt-1 block"><select id="${id}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm">${o}</select></span></label>`).join("")}</div>
         <div class="mt-3 text-right"><button id="ct-clear" type="button" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Clear filters</button></div></div></div>
-    <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white transition-opacity ${srv && ctSrvBusy ? "opacity-50" : ""}"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="w-8 py-2 pl-2 pr-1"><input type="checkbox" id="ct-pick-all" class="h-4 w-4 accent-lalu-teal-700" ${(srv ? (!ctPick && ctOff.size === 0) : rows.length && rows.every(ctInSel)) ? "checked" : ""} aria-label="Select or clear every contact in this list"></th><th class="px-2 py-2">Contact</th><th class="px-2">Job title</th><th class="px-2">Practice</th><th class="px-2">Section</th><th class="px-2">Status</th><th class="px-2">Lifecycle</th>${ctMode === "reengage" ? '<th class="px-2">Why (disqualified or deal lost)</th><th class="px-2">Lead disqualification note</th><th class="px-2">Hear again</th>' : ""}</tr></thead>
+    <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white transition-opacity ${ctSrvBusy ? "opacity-50" : ""}"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="w-8 py-2 pl-2 pr-1"><input type="checkbox" id="ct-pick-all" class="h-4 w-4 accent-lalu-teal-700" ${!ctPick && ctOff.size === 0 ? "checked" : ""} aria-label="Select or clear every contact in this list"></th><th class="px-2 py-2">Contact</th><th class="px-2">Job title</th><th class="px-2">Practice</th><th class="px-2">Section</th><th class="px-2">Status</th><th class="px-2">Lifecycle</th>${ctMode === "reengage" ? '<th class="px-2">Why (disqualified or deal lost)</th><th class="px-2">Lead disqualification note</th><th class="px-2">Hear again</th>' : ""}</tr></thead>
       <tbody>${shown.map(ctRow).join("") || '<tr><td colspan="7" class="p-6 text-center text-sm italic text-slate-500">No contact matches.</td></tr>'}</tbody></table></div>
     ${total > shown.length ? `<div class="pt-3 text-center"><button class="ct-more rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show more (${(total - shown.length).toLocaleString()} more)</button></div>` : ""}`;
 }
 
 /* ---------- Segments: saved filter sets ---------- */
 function ctSegmentsPanel() {
-  const cards = ctSegments.map(s => { const saved = ctF, tmp = s.filters; ctF = { ...ctF, ...tmp }; const pickSet = s.members ? new Set(s.members) : null, m = ctAll.filter(r => pickSet ? pickSet.has(r.c.contact_urn) : ctMatch(r)); ctF = saved;
+  const cards = ctSegments.map(s => { const cnt = ctSegCounts.get(s.id) || { total: 0, eligible: 0 }, tmp = s.filters;
     return `<div class="rounded-xl border border-slate-200 bg-white p-4"><div class="flex items-start justify-between gap-3"><div><div class="font-semibold">${esc(s.name)}</div><div class="text-xs text-slate-500">${s.members ? `${s.members.length.toLocaleString()} hand-picked contacts` : esc(ctFilterText(tmp))}</div></div>
-      <div class="text-right"><div class="text-xl font-bold text-emerald-700">${m.filter(r => r.ev.status === "eligible").length.toLocaleString()}</div><div class="text-xs text-slate-500">eligible of ${m.length.toLocaleString()}</div></div></div>
+      <div class="text-right"><div class="text-xl font-bold text-emerald-700">${cnt.eligible.toLocaleString()}</div><div class="text-xs text-slate-500">eligible of ${cnt.total.toLocaleString()}</div></div></div>
       <div class="mt-3 flex gap-2 text-xs font-semibold"><button class="ct-seg-open rounded-md border border-slate-300 px-3 py-1 hover:bg-slate-50" data-id="${esc(s.id)}">Open</button><button class="ct-seg-csv rounded-md border border-slate-300 px-3 py-1 hover:bg-slate-50" data-id="${esc(s.id)}">Download eligible (CSV)</button><button class="ct-seg-del ml-auto rounded-md px-3 py-1 text-rose-700 hover:bg-rose-50" data-id="${esc(s.id)}">Delete</button></div></div>`; }).join("");
   return `<div class="space-y-3"><p class="text-sm text-slate-600">A segment is a saved set of filters on All contacts. Its count follows the job-role and suppression settings, so it is always the people who may be contacted now. Set the filters on All contacts, then <b>Save as segment</b>.</p>
     <div class="grid gap-3 lg:grid-cols-2">${cards || '<p class="rounded-xl border border-dashed border-slate-300 p-6 text-sm italic text-slate-500">No segments yet.</p>'}</div></div>`;
@@ -180,8 +172,7 @@ const ctFilterText = f => [f.section && "section " + (CT_SECTION[f.section] || [
 /* ---------- Settings ---------- */
 
 function ctSettings() {
-  const counts = {}; for (const r of ctAll) counts[r.ev.role.id] = (counts[r.ev.role.id] || 0) + 1;
-  const held = {}; for (const r of ctAll) for (const x of r.ev.reasons) held[x] = (held[x] || 0) + 1;
+  const counts = (ctStats && ctStats.roles) || {}, held = (ctStats && ctStats.held) || {};
   const seg = (id, cur) => `<div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-xs font-semibold" role="group" aria-label="${esc(CT_ROLE[id].label)}">${[["main", "Main"], ["other", "Other"], ["off", "Off"]].map(([k, l]) => `<button type="button" class="ct-role-set rounded-md px-3 py-1 ${cur === k ? (k === "off" ? "bg-slate-500 text-white" : "bg-lalu-navy text-white") : "text-slate-600 hover:bg-slate-50"}" data-id="${id}" data-m="${k}" aria-pressed="${cur === k}">${l}</button>`).join("")}</div>`;
   const sw = (id, on, label, sub, extra = "") => `<label class="flex cursor-pointer items-start justify-between gap-4 rounded-lg border border-slate-200 px-3 py-2.5"><span class="min-w-0"><span class="block text-sm font-semibold">${label}${extra}</span><span class="block text-xs text-slate-500">${sub}</span></span>
     <span class="relative mt-0.5 shrink-0"><input type="checkbox" class="peer sr-only ct-rule-set" data-id="${id}" ${on ? "checked" : ""}><span class="block h-5 w-9 rounded-full bg-slate-300 transition peer-checked:bg-lalu-teal-700 peer-focus-visible:ring-2 peer-focus-visible:ring-lalu-teal-700"></span><span class="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4"></span></span></label>`;
@@ -193,8 +184,8 @@ function ctSettings() {
       ${sw("likely", ctRules.likely, "Accept likely-direct addresses", "Part of the person's name is in the address (for example jsmith@). Off by default.")}
       ${sw("strictValid", ctRules.strictValid, "NeverBounce: only Valid addresses", "Hold back Unknown and Accept-all results as well as Invalid and Disposable. Needs the NeverBounce rule below.")}</section>
     <section class="rounded-xl border border-slate-200 bg-white p-4 space-y-2"><h3 class="font-bold">Re-engagement: disqualified leads and lost deals</h3><p class="text-xs text-slate-500">The Re-engagement campaign type lists contacts whose latest lead was disqualified (HubSpot's Lead property Disqualification Reason) or whose latest deal was closed lost (UM Closed Lost Reasons) for a reason switched on here. Customers are never listed, and the suppression rules below still apply.</p>
-      ${Object.entries(CT_DQ).map(([v, l]) => sw("dq:" + v, ctDqOn(v), esc(l), "", `<span class="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">${ctAll.filter(r => r.c.hs_dq_reason === v).length.toLocaleString()} contacts</span>`)).join("")}
-      <h4 class="pt-2 text-sm font-bold">Deal lost because</h4>${CT_LOST.map(v => sw("dq:lost:" + v, ctDqOn("lost:" + v), esc(v), "", `<span class="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">${ctAll.filter(r => (r.c.hs_lost_reason || "") === v).length.toLocaleString()} contacts</span>`)).join("")}</section>
+      ${Object.entries(CT_DQ).map(([v, l]) => sw("dq:" + v, ctDqOn(v), esc(l), "", `<span class="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">${(((ctStats || {}).dq || {})[v] || 0).toLocaleString()} contacts</span>`)).join("")}
+      <h4 class="pt-2 text-sm font-bold">Deal lost because</h4>${CT_LOST.map(v => sw("dq:lost:" + v, ctDqOn("lost:" + v), esc(v), "", `<span class="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">${(((ctStats || {}).lost || {})[v] || 0).toLocaleString()} contacts</span>`)).join("")}</section>
     <section class="rounded-xl border border-slate-200 bg-white p-4 space-y-2"><h3 class="font-bold">Suppression rules</h3><p class="text-xs text-slate-500">A contact that is switched on here and matches is held back, whatever its role. These follow HubSpot's <i>Campaign Exclusion List</i>; Atlas keeps its own copy and writes nothing back to HubSpot.</p>
       ${CT_RULES.map(([id, label, sub]) => sw(id, ctRuleOn(id), esc(label), esc(sub), `<span class="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">${(held[id] || 0).toLocaleString()} held</span>`)).join("")}
       <div class="rounded-lg border border-slate-200 px-3 py-2.5"><label class="block text-sm font-semibold" for="ct-owners">Contact owners kept out of campaigns</label><input id="ct-owners" value="${esc(ctRules.owners.join(", "))}" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs" aria-describedby="ct-owners-h"><div id="ct-owners-h" class="mt-0.5 text-xs text-slate-500">HubSpot owner IDs, separated by commas. Used by the owner rule.</div></div>
@@ -203,21 +194,20 @@ function ctSettings() {
 
 function renderContacts() {
   const box = $("ct-body"); if (!box || currentTab !== "contacts") return;
-  if (!ctLoaded && !(ctSrvReady && ctUseSrv())) return;
   $("ct-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.c === ctSub ? "bg-white shadow-sm" : "text-slate-500"));
   box.innerHTML = ctSub === "review" ? ctReview() : ctSub === "segments" ? ctSegmentsHub() : ctSub === "neverbounce" ? ctNeverbounce() : ctSub === "settings" ? ctSettings() : ctList();
   }
 let ctQT = null;
-const ctRefilter = () => { ctShown = 100; if (ctUseSrv()) { clearTimeout(ctQT); ctQT = setTimeout(ctLoadPage, 250); return; } const q = $("ct-q"), pos = q && document.activeElement === q ? q.selectionStart : null; renderContacts(); if (pos != null) { const n = $("ct-q"); n.focus(); n.setSelectionRange(pos, pos); } };
-const ctRulesChanged = () => { ctDirty = true; ctEvalAll(); renderContacts(); };
+const ctRefilter = () => { ctShown = 100; clearTimeout(ctQT); ctQT = setTimeout(ctLoadPage, 250); };
+const ctRulesChanged = () => { ctDirty = true; renderContacts(); };
 async function ctSave() {
   ctSaving = true; renderContacts();
   try {
     const { error } = await db.from("app_flags").upsert([{ key: "contact_rules", value: ctRules, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) throw error; ctDirty = false;
     for (let b = 0; b < 8; b++) { const r = await db.rpc("refresh_contact_status_bucket", { p_bucket: b, p_buckets: 8 }); if (r.error) throw r.error; }   // the database recalculates every contact with the new rules, in slices so no request runs long
-    await ctLoadStatus(); ctEvalAll();
+    ctSrvCounts = null;
   } catch (e) { alert("Could not save: " + (e.message || e)); }
-  ctSaving = false; renderContacts();
+  ctSaving = false; ctLoadTab();
 }
 async function ctSaveSegments() { const { error } = await db.from("app_flags").upsert([{ key: "contact_segments", value: { list: ctSegments }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) alert("Could not save: " + (error.message || error)); }
 function ctCsv(rows, name) {
@@ -240,14 +230,14 @@ document.addEventListener("click", e => {
   if (t.closest("#ct-make-aud")) { ctMakeAudience(); return; }
   const ts = t.closest(".ct-title-set"); if (ts) { ctRules.titleModes = { ...(ctRules.titleModes || {}), [ts.dataset.t.toLowerCase()]: ts.dataset.m }; ctRulesChanged(); return; }
   if (t.closest("#ct-title-more")) { ctTitleShown += 200; renderContacts(); return; }
-  const md = t.closest(".ct-mode"); if (md) { ctMode = md.dataset.m; if (ctLoaded) ctEvalAll(); if (ctUseSrv()) { ctShown = 100; ctLoadPage(); } else renderContacts(); return; }
+  const md = t.closest(".ct-mode"); if (md) { ctMode = md.dataset.m; ctShown = 100; ctLoadPage(); return; }
   const rs = t.closest(".ct-role-set"); if (rs) { ctRules.roles[rs.dataset.id] = rs.dataset.m; ctRulesChanged(); return; }
   if (t.closest("#ct-more-btn")) { ctMoreOpen = !ctMoreOpen; renderContacts(); return; }
-  if (t.closest("#ct-clear")) { ctF = { ...ctF, section: "", status: "", reason: "", role: "", source: "", lifecycle: "", dq: "" }; ctShown = 100; if (ctUseSrv()) ctLoadPage(); else renderContacts(); return; }
+  if (t.closest("#ct-clear")) { ctF = { ...ctF, section: "", status: "", reason: "", role: "", source: "", lifecycle: "", dq: "" }; ctShown = 100; ctLoadPage(); return; }
   if (ctMoreOpen && !t.closest("#ct-more")) { ctMoreOpen = false; renderContacts(); }
   if (t.closest("#ct-save")) { ctSave(); return; }
   if (t.closest("#ct-reset")) { if (confirm("Reset job roles and suppression rules to the defaults?")) { ctSetRules(null); ctRulesChanged(); } return; }
-  if (t.closest(".ct-more")) { ctShown += 200; if (ctUseSrv()) ctLoadPage(); else renderContacts(); return; }
+  if (t.closest(".ct-more")) { ctLoadMore(); return; }
   if (t.closest("#ct-csv")) { ctExport(ctQueryFilters(), ctPick && ctPick.size ? ctPick : null, "atlas-eligible-contacts.csv", ctPick ? null : ctOff); return; }
   if (t.closest("#ct-pick-clear")) { ctPick = new Set(); ctOff = new Set(); ctEditing = null; ctKeepScroll(); return; }
   if (t.closest("#ct-seg-save")) { const name = (prompt("Name this segment") || "").trim(); if (name) { ctSegments.push({ id: "s" + Date.now().toString(36), name, filters: { ...ctF }, ...(!ctPick && ctOff.size ? { exclude: [...ctOff] } : {}), ...(ctPick && ctPick.size ? { members: [...ctPick] } : {}) }); ctSaveSegments(); setCtSub("segments"); } return; }
