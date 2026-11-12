@@ -327,6 +327,7 @@ async function hsWrite(checks) {
   } catch (e) { msg.innerHTML = `<p class="text-rose-700">${esc(e.message)}</p>`; $("hs-write").disabled = false; $("hs-write").textContent = "Push pricing"; }
 }
 
+const HS_PER_YEAR = { weekly: 52, biweekly: 26, monthly: 12, quarterly: 4, per_six_months: 2, annually: 1 };   // payments a year for each billing frequency
 // Read the deal back until HubSpot's calculated fields match the tool (or give up after `tries` reads), then show the comparison.
 // The Re-check button runs it again, in case HubSpot is slower than usual.
 async function hsValidate(tries) {
@@ -341,17 +342,25 @@ async function hsValidate(tries) {
       if (Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6 && (hsNum(last.actual_value_per_patient_calculated) == null ? i >= 2 : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4)) break;
       if (i < tries - 1) await new Promise(r => setTimeout(r, window.__hsPoll ?? 4000));
     }
+    // HubSpot rolls the line item up into the deal Amount some time after it recalculates the other fields (about two minutes on 10 Nov), so a mismatch is only reported once it has had time.
+    const amountOff = () => { const l = hsOurLine(lastFull), py = l ? HS_PER_YEAR[l.recurringbillingfrequency] : null, a = hsNum(last.amount), la = l && py ? hsNum(l.amount) * py : null; return a != null && la != null && !Number.isNaN(la) && Math.abs(a - la) >= 0.5; };
+    for (let n = 0; amountOff() && n < 15; n++) {   // up to 15 reads, 10 seconds apart
+      msg.innerHTML = `<p class="text-slate-500">Waiting for HubSpot to update the deal Amount… (${n * 10}s)</p>`;
+      await new Promise(r => setTimeout(r, window.__hsPoll ?? 10000));
+      lastFull = await hsCall({ action: "read", companyId: company.id, dealId: deal.id }); last = lastFull.deal;
+      if (!hs) return;
+    }
     const okT = Math.abs(hsNum(last.total_discount) - expectTotal) < 1e-6, blankV = hsNum(last.actual_value_per_patient_calculated) == null;
     const okV = blankV ? null : Math.abs(hsNum(last.actual_value_per_patient_calculated) - want.rate) < 5e-4;   // null: HubSpot has not filled it in
     const line = (ok, label, got, exp) => `<div class="flex items-center justify-between rounded-lg border ${ok === null ? "border-amber-300 bg-amber-50 text-amber-900" : ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"} px-3 py-2"><span>${ok === null ? "?" : ok ? "✓" : "✗"} ${label}</span><span class="font-mono">HubSpot ${got} · tool ${exp}</span></div>`;
     const lineNow = hsOurLine(lastFull), lw = want.line;   // the last poll already read the line items
     const lineNet = lineNow ? Number(lineNow.price) * (1 - hsLineDiscPct(lineNow) / 100) : null, okL = lineNow == null ? null : Math.abs(lineNet - lw.netUnit) < 0.0006 && Number(lineNow.quantity) === lw.quantity;
-    const PER_YEAR = { weekly: 52, biweekly: 26, monthly: 12, quarterly: 4, per_six_months: 2, annually: 1 }, perYear = lineNow ? PER_YEAR[lineNow.recurringbillingfrequency] : null;
-    const amt = hsNum(last.amount), lineAmt = lineNow && perYear && hsNum(lineNow.amount) != null ? hsNum(lineNow.amount) * perYear : null, okA = amt == null || lineAmt == null || Number.isNaN(lineAmt) ? null : Math.abs(amt - lineAmt) < 0.5;      // HubSpot puts the line item's yearly value in the deal Amount: a monthly line of £352.25 gives £4,227      // the deal's Amount should be the line item's amount (HubSpot sums line items), not something a workflow wrote
+    const perYear = lineNow ? HS_PER_YEAR[lineNow.recurringbillingfrequency] : null;
+    const amt = hsNum(last.amount), lineAmt = lineNow && perYear ? hsNum(lineNow.amount) * perYear : null, okA = amt == null || lineAmt == null || Number.isNaN(lineAmt) ? null : Math.abs(amt - lineAmt) < 0.5;      // HubSpot puts the line item's yearly value in the deal Amount: a monthly line of £352.25 gives £4,227      // the deal's Amount should be the line item's amount (HubSpot sums line items), not something a workflow wrote
     const done = okT && okV && okL !== false && okA !== false;
     hsCall({ action: "log_check", ...(hs.p.net ? { network: true } : { ods: hs.p.ods_code }), dealId: deal.id, dealName: deal.dealname, ok: okT && okV !== false && okL !== false && okA !== false,
       note: !okT ? "Total Discount % does not match the tool" : okV === false ? "Actual Value per Patient (Calculated) does not match the tool" : okA === false ? "The deal Amount does not follow the line item (a workflow may be rewriting it)" : "HubSpot does not match the tool",
-      hubspot: { total_discount: last.total_discount, actual_value: last.actual_value_per_patient_calculated, amount: last.amount, line_amount: lineNow ? lineNow.amount : null, billing: lineNow ? lineNow.recurringbillingfrequency : null }, tool: { total_discount: want.total, actual_value: want.rate } }).catch(() => {});
+      hubspot: { total_discount: last.total_discount, actual_value: last.actual_value_per_patient_calculated }, tool: { total_discount: want.total, actual_value: want.rate } }).catch(() => {});
     msg.innerHTML = `<div class="space-y-2">${line(okT, "Total Discount %", last.total_discount == null ? "not set" : pct(hsNum(last.total_discount) / HS_PCT), pct(want.total))}
       ${line(okV, "Actual Value per Patient (Calculated)", blankV ? "not set" : "£" + rate3(last.actual_value_per_patient_calculated), "£" + rate3(want.rate))}
       ${okA === null ? "" : line(okA, "Deal amount = line item per year", "£" + amt.toLocaleString(undefined, { maximumFractionDigits: 2 }), "£" + lineAmt.toLocaleString(undefined, { maximumFractionDigits: 2 }))}
