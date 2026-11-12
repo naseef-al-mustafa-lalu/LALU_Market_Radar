@@ -14,10 +14,11 @@ function renderDiscountRules() {
     ${card("Price floor and monthly plans", "bg-slate-500", `<p>All reports never drop below <b>£${rate3(floor)}</b> per patient per month, whatever the discounts add up to. SAR only has no floor. Monthly plans pay the monthly rate and take no discount.</p>`)}
   </div>`;
 }
+let dataAt = 0;   // when the Data page was last drawn
 async function renderData() {
+  dataAt = Date.now();
   renderDiscountRules();
   renderHubspotPanel();
-  $("d-fresh").innerHTML = $("d-fresh").innerHTML || '<p class="text-sm text-slate-500">Loading…</p>'; $("d-runs").innerHTML = $("d-runs").innerHTML || '<p class="text-sm text-slate-500">Loading…</p>';   // say so while the three small queries below are in flight
   const runsQ = Promise.resolve(db.from("ingest_runs").select("id,started_at,finished_at,status,error,stats").order("id", { ascending: false }).limit(6)), hsrQ = Promise.resolve(db.from("hubspot_activity").select("at,ok,summary").eq("kind", "sync_run").order("id", { ascending: false }).limit(6));   // started together, not one after another
   const row = await latestCountRow(), withCounts = practices.filter(p => p.total_patients > 0).length, withCqc = practices.filter(p => p.cqc_location_id).length;
   renderUploads();

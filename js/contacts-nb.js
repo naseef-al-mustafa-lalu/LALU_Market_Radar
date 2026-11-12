@@ -40,7 +40,7 @@ async function ctNbApprove(urns, approve) {
   if (!urns.length) return;
   const { error } = await db.rpc("set_neverbounce_approval", { p_urns: urns, p_approve: approve });
   if (error) { ctMsg = "Could not save: " + (error.message || error); renderContacts(); return; }
-  ctNbSel.clear(); await ctLoadNb(); ctMsg = approve ? `${urns.length} approved. They are checked on Monday morning.` : `${urns.length} taken back to waiting.`; renderContacts();
+  ctNbSel.clear(); ctTabReady.contacts = false; await ctLoadNb(); ctMsg = approve ? `${urns.length} approved. They are checked on Monday morning.` : `${urns.length} taken back to waiting.`; renderContacts();
 }
 
 /* ---------- Segments ---------- */
@@ -84,7 +84,7 @@ function ctReview() {
 async function ctReviewAct(urns, action) {
   const { error } = await db.rpc("review_contact", { p_urns: urns, p_action: action });
   if (error) { ctMsg = "Could not save: " + (error.message || error); renderContacts(); return; }
-  ctSrvCounts = null; await ctLoadReview(false); ctMsg = `${urns.length} ${action === "accept" ? "accepted" : "rejected"}.`; renderContacts();
+  ctSrvCounts = null; ctTabReady = {}; await ctLoadReview(false); ctTabReady.review = true; ctMsg = `${urns.length} ${action === "accept" ? "accepted" : "rejected"}.`; renderContacts();
 }
 
 /* ---------- events ---------- */
@@ -93,7 +93,7 @@ document.addEventListener("click", async e => {
   if (t.id === "nb-approve") return ctNbApprove([...ctNbSel], true);
   if (t.id === "nb-approve-all") return db.from("contact_nb").select("contact_urn").eq("nb_state", "pending").then(({ data }) => ctNbApprove((data || []).map(x => x.contact_urn), true));
   if (t.id === "nb-takeback") return ctNbApprove([...ctNbSel], false);
-  const tab = t.closest(".rv-tab"); if (tab) { ctRevTab = tab.dataset.t; ctMsg = ""; return ctLoadTab(); }
+  const tab = t.closest(".rv-tab"); if (tab) { ctRevTab = tab.dataset.t; ctMsg = ""; ctTabReady.review = false; return ctLoadTab(); }
   if (t.closest(".rv-more")) { return ctLoadReview(true).then(renderContacts); }
   const tm = t.closest(".rv-title-set"); if (tm) { ctRules.titleModes = { ...(ctRules.titleModes || {}), [tm.dataset.t.toLowerCase()]: tm.dataset.m }; ctMsg = ""; ctSave(); return; }
   const act = t.closest(".rv-act, .rv-bulk"); if (act) { act.disabled = true; const urns = act.dataset.u.split(",").map(Number); try { if (act.dataset.a === "accept") await ctSaveNames(urns); } catch (err) { ctMsg = "Could not save a name: " + (err.message || err); act.disabled = false; return renderContacts(); } return ctReviewAct(urns, act.dataset.a); }
@@ -113,6 +113,6 @@ document.addEventListener("change", async e => {
   if (t.id === "seg-others-open") { ctLoadSegOthers(false).then(renderContacts); return; }
   if (t.id === "seg-others-more") { ctLoadSegOthers(true).then(renderContacts); return; }
   if (t.classList.contains("seg-track")) { const { error } = await db.rpc("set_segment_tracked", { p_list: t.dataset.list, p_tracked: true }); if (!error) { const keep = ctSegOthers.length; await ctLoadSegments(); if (keep) await ctLoadSegOthers(false); renderContacts(); } return; }
-  if (t.id === "rv-source") { ctRevSource = t.value; return ctLoadTab(); }
+  if (t.id === "rv-source") { ctRevSource = t.value; ctTabReady.review = false; return ctLoadTab(); }
   if (t.classList.contains("rv-role-pick") && t.value) { ctRules.titles = { ...(ctRules.titles || {}), [t.dataset.t.toLowerCase()]: t.value }; ctMsg = ""; ctSave(); }
 });

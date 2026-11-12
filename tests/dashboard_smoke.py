@@ -96,7 +96,7 @@ with sync_playwright() as p:
     pg.goto(INDEX)
     pg.wait_for_selector("#loading:not(.hidden)", timeout=3000)       # the pop-up is there while data loads
     assert "Loading" in pg.inner_text("#loading") and pg.is_visible("#load-spin")
-    pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000); pg.wait_for_function("secondaryLoaded", timeout=15000)
+    pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     pg.evaluate("window.__slow = 0")
     pg.evaluate("discountsDefault = true")      # profiles open at list price; the discount paths below are tested with Discounted on (the list-price default has its own test)
     assert pg.locator("#rows tr").count() == 11, pg.locator("#rows tr").count()   # 12 fixtures, one merged and hidden by default
@@ -565,7 +565,7 @@ with sync_playwright() as p:
     # the Data tab always opens on Overview
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=pricing]"); pg.click("#tab-practices"); pg.click("#tab-data"); assert pg.is_visible("#dp-overview")
     # mergers: status filter, profile status card, review tab
-    pg.goto("about:blank"); pg.goto(INDEX); pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000); pg.wait_for_function("secondaryLoaded", timeout=15000)
+    pg.goto("about:blank"); pg.goto(INDEX); pg.wait_for_selector("#rows tr", timeout=15000); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     assert "Test Old Surgery" not in pg.inner_text("#rows") and "May have closed or merged" in pg.inner_text("#rows")   # merged hidden by default, suggestions flagged
     pg.click("#f-more-btn"); pg.select_option("#f-status", "merged", force=True); pg.click("#f-done"); assert pg.locator("#rows tr").count() == 1 and "Merged → Test Surgery 1" in pg.inner_text("#rows") and "status" not in pg.evaluate("location.search") and "st=merged" in pg.evaluate("location.search")
     pg.click("#rows tr"); pg.wait_for_selector("#drawer:not(.translate-x-full)"); card = pg.inner_text("#dr-body")
@@ -591,7 +591,7 @@ with sync_playwright() as p:
     pg.goto("about:blank"); pg.add_init_script("window.__fail = true"); pg.goto(INDEX)
     pg.wait_for_selector("#load-retry:not(.hidden)", timeout=8000)
     assert "Could not load the data" in pg.inner_text("#load-step") and pg.is_hidden("#load-spin")
-    pg.evaluate("window.__fail = false"); pg.click("#load-retry"); pg.wait_for_selector("#loading", state="hidden", timeout=8000); pg.wait_for_function("secondaryLoaded", timeout=15000)
+    pg.evaluate("window.__fail = false"); pg.click("#load-retry"); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     # invite link: lands on the set-password screen, not the dashboard
     pg.goto("about:blank"); pg.goto(INDEX + "#access_token=abc&type=invite")
     pg.wait_for_selector("#setpw:not(.hidden)"); assert "new@lalu.co.uk" in pg.inner_text("#setpw-who") and pg.is_hidden("#app")
@@ -601,7 +601,7 @@ with sync_playwright() as p:
     assert "type=invite" not in pg.evaluate("location.href")
     pg.goto("about:blank"); pg.goto(INDEX + "#error=access_denied&error_description=Email+link+is+invalid+or+has+expired")
     # Contacts tab: rules decide who is eligible; settings switch roles and suppression rules and save to app_flags
-    pg.goto("about:blank"); pg.add_init_script("window.__fail = false"); pg.goto(INDEX); pg.wait_for_selector("#app:not(.hidden)"); pg.wait_for_selector("#loading", state="hidden", timeout=8000); pg.wait_for_function("secondaryLoaded", timeout=15000)
+    pg.goto("about:blank"); pg.add_init_script("window.__fail = false"); pg.goto(INDEX); pg.wait_for_selector("#app:not(.hidden)"); pg.wait_for_selector("#loading", state="hidden", timeout=8000)
     sb = pg.evaluate("""(() => { const c = { email: 'jane.smith@nhs.net', first_name: 'Jane', last_name: 'Smith', job_title: 'Practice Manager', hs_in_sequence: true, hs_neverbounce: 'Valid', email_opt_out: true }; return [ctBadges(c)]; })()""")
     assert "In sequence" in sb[0] and "NB: Valid" in sb[0] and "Unsubscribed" in sb[0], sb      # one set of badges for every list that shows a contact
     assert pg.evaluate("[new Date(ukLastEight(new Date('2026-11-11T19:59:00Z'))).toISOString(), new Date(ukLastEight(new Date('2026-11-11T20:01:00Z'))).toISOString(), new Date(ukLastEight(new Date('2026-07-11T19:01:00Z'))).toISOString()]") == ["2026-11-10T20:00:00.000Z", "2026-11-11T20:00:00.000Z", "2026-07-11T19:00:00.000Z"], "the 8pm cut-off follows UK time, winter and summer"
@@ -659,7 +659,7 @@ with sync_playwright() as p:
     pg.evaluate("showTab('networks'); openNetworkProfile(networks.find(n => n.network_tier && n.practices > 1) || networks[0])"); pg.wait_for_selector("#dr-body tfoot"); gt = pg.inner_text("#dr-body")
     assert "MRR in network" in gt.replace("\n", " ") or "MRR IN NETWORK" in gt, gt[:200]; assert "Total (" in gt      # a network's practices are priced at the network rate on their own list sizes, with totals that a group deal should equal
     pg.keyboard.press("Escape")
-    pg.evaluate("showTab('contacts'); ctF.section = ''; ctMode = 'reengage'; setCtSub('contacts')"); pg.wait_for_function("document.querySelector('#ct-body').innerText.toLowerCase().includes('deal lost')")
+    pg.evaluate("showTab('contacts'); ctF.section = ''; ctMode = 'reengage'; ctLoadPage()"); pg.wait_for_function("document.querySelector('#ct-body').innerText.toLowerCase().includes('deal lost')")
     assert "Bad Timing" in pg.inner_text("#ct-body") and "Ask again in Q1" in pg.inner_text("#ct-body") and "was a customer" in pg.inner_text("#ct-body"), pg.inner_text("#ct-body")[:300]     # Re-engagement lists the database's candidates, with the Lead Disqualification Note and the lost-deal reason
     assert "Create audience from" in pg.inner_text("#ct-body")      # a Re-engagement list can become a custom audience
     pg.evaluate("ctMakeAudience()"); pg.wait_for_selector("#aud-modal-ok, #aud-modal-cancel"); assert "Create audience" in pg.inner_text("#aud-modal"); pg.keyboard.press("Escape")
