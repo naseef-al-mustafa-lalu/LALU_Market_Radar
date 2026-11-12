@@ -37,8 +37,9 @@ const ctPageBox = f => ({ q: f.q, section: f.section, status: f.status, role: f.
 async function ctLoadPage() {
   const seq = ++ctSrvSeq; ctSrvBusy = true; if (!ctSrvReady) $("ct-body").innerHTML = ctSkeleton(); else renderContacts();
   try {
+    const flags = ctLoadFlags();   // read alongside the first page, not before it
     const [page, counts] = await Promise.all([db.rpc("contacts_query", { p_f: ctPageBox(ctF), p_mode: ctMode, p_what: "rows", p_limit: 100, p_offset: 0 }), ctSrvCounts ? null : db.rpc("contacts_counts")]);
-    if (seq !== ctSrvSeq) return;   // a newer search or filter has replaced this one
+    await flags; if (seq !== ctSrvSeq) return;   // a newer search or filter has replaced this one
     if (page.error) throw page.error;
     if (counts) { if (counts.error) throw counts.error; ctSrvCounts = counts.data; }
     const d = page.data || {}; ctSrvRows = (d.rows || []).map(ctWrap); ctSrvTotal = d.total || 0; ctSrvEligible = d.eligible || 0; ctSrvRe = { total: d.total || 0, eligible: d.eligible || 0, suppressed: d.suppressed || 0, due: d.due || 0 }; if (ctMode === "reengage") ctSrvDq = d.reasons || [];
@@ -65,8 +66,9 @@ async function ctExport(f, urns, name, off) {
   ctCsv((data || []).map(ctWrap), name);
 }
 
-async function ctLoadFlags() {   // the saved rules, saved filters and the count of contacts with no email: small, read once
-  if (ctFlagsReady) return;
+let ctFlagsP = null;
+function ctLoadFlags() { return ctFlagsReady ? Promise.resolve() : (ctFlagsP = ctFlagsP || ctLoadFlagsNow().finally(() => { ctFlagsP = null; })); }
+async function ctLoadFlagsNow() {   // the saved rules, saved filters and the count of contacts with no email: small, read once
   const [flags, ne, run] = await Promise.all([db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]), db.from("contact_noemail").select("ref", { count: "exact", head: true }),
     db.from("ingest_runs").select("stats").eq("status", "success").order("id", { ascending: false }).limit(1)]);
   const f = Object.fromEntries((flags.data || []).map(r => [r.key, r.value]));
@@ -92,10 +94,10 @@ async function ctLoadSegments() {
 // Which view is open: load only what it needs, then draw it.
 async function ctLoadTab() {
   const box = $("ct-body"); if (!box) return;
+  box.innerHTML = ctSub === "contacts" ? ctSkeleton() : ctSpinner("Loading…");   // something is on screen the moment the tab opens, never a blank page
   try {
+    if (ctSub === "contacts") { ctSrvReady = false; await ctLoadPage(); return; }
     await ctLoadFlags();
-    if (ctSub === "contacts") { await ctLoadPage(); return; }
-    box.innerHTML = ctSpinner("Loading…");
     if (ctSub === "review") await ctLoadReview(false);
     else if (ctSub === "neverbounce") await ctLoadNb();
     else if (ctSub === "segments") await ctLoadSegments();
