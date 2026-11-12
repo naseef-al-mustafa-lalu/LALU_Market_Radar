@@ -42,7 +42,7 @@ function openNetworkProfile(n) {
   const saving = n.arr_single != null && n.arr_network != null ? n.arr_single - n.arr_network : null;
   const price = !row || base == null ? '<div class="text-sm italic text-slate-500">No price route is configured for this kind of network (edit <code>pricing_tiers</code>).</div>' :
     priceCard({ patients: Number(n.patients), tierRow: row, route: n.kind, arr: n.arr_network, who: "the network" }) +
-    `<div class="net-disc ${discountsOn ? "" : "hidden"}"><div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><div class="flex justify-between"><span class="text-slate-600">The same ${n.practices} practices signed separately</span><span class="font-mono">${gbpFull(n.arr_single)}</span></div>
+    `<div class="net-disc ${discountsOn ? "" : "hidden"}"><div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><div class="flex justify-between"><span class="text-slate-600">The same ${n.practices} ${n.practices === 1 ? "practice" : "practices"} signed separately</span><span class="font-mono">${gbpFull(n.arr_single)}</span></div>
       <div class="flex justify-between mt-0.5"><span class="text-slate-600">Network price</span><span class="font-mono font-semibold">${gbpFull(n.arr_network)}</span></div>
       <div class="flex justify-between mt-0.5 border-t border-slate-200 pt-1"><span class="font-medium">${saving > 0 ? "Network discount" : "Difference"}</span><span class="font-mono font-semibold ${saving > 0 ? "text-emerald-700" : ""}">${saving == null ? "–" : (saving > 0 ? "−" : "+") + gbpFull(Math.abs(saving))} <span class="text-xs font-normal text-slate-500">${n.arr_single && saving != null ? "(" + pct(Math.abs(saving) / n.arr_single) + ")" : ""}</span></span></div></div>
     ${n.arr_network_sar != null ? `<div class="mt-2 flex justify-between text-sm text-slate-600"><span>SAR only: network price (signed separately ${gbpFull(n.arr_single_sar)})</span><span class="font-mono">${gbpFull(n.arr_network_sar)}</span></div>` : ""}
@@ -174,10 +174,10 @@ function renderRevenue() {
   const pct = v => tam ? (v / tam * 100).toFixed(1) + "% of TAM" : "";
   const inDeal = p => Number(p.hubspot_pipeline) > 0 || Number(p.hubspot_conversion_pipeline) > 0;
   $("rev-bridge").innerHTML = card("TAM (estimate)", gbp(tam), `${act.length.toLocaleString()} active practices, priced from list size`) +
-    card("Contracted ARR", gbp(cSum), `${contracted.length.toLocaleString()} practices · ${pct(cSum)}${fromDeals.length ? ` · ${fromDeals.length} from deals, unverified` : ""}`, "text-teal-700") +
-    card("New-business pipeline", gbp(sum(pipe, p => p.hubspot_pipeline)), `${pipe.length.toLocaleString()} practices · open Sales deals, raw amounts`) +
-    card("Freemium conversion", gbp(sum(conv, p => p.hubspot_conversion_pipeline)), `${conv.length.toLocaleString()} practices · open Conversion deals moving Freemium to ReportSure`) +
-    card("Open renewals", gbp(sum(ren, p => p.hubspot_renewal_pipeline)), `${ren.length.toLocaleString()} practices · already inside contracted ARR`) +
+    card("Contracted ARR", gbp(cSum), `${contracted.length.toLocaleString()} ${contracted.length === 1 ? "practice" : "practices"} · ${pct(cSum)}${fromDeals.length ? ` · ${fromDeals.length} from deals, unverified` : ""}`, "text-teal-700") +
+    card("New-business pipeline", gbp(sum(pipe, p => p.hubspot_pipeline)), `${pipe.length.toLocaleString()} ${pipe.length === 1 ? "practice" : "practices"} · open Sales deals, raw amounts`) +
+    card("Freemium conversion", gbp(sum(conv, p => p.hubspot_conversion_pipeline)), `${conv.length.toLocaleString()} ${conv.length === 1 ? "practice" : "practices"} · open Conversion deals moving Freemium to ReportSure`) +
+    card("Open renewals", gbp(sum(ren, p => p.hubspot_renewal_pipeline)), `${ren.length.toLocaleString()} ${ren.length === 1 ? "practice" : "practices"} · already inside contracted ARR`) +
     card("Remaining headroom", gbp(Math.max(0, tam - sum(contracted, est) - sum(act.filter(p => !(Number(p.hubspot_contracted_arr) > 0) && inDeal(p)), est))), "TAM minus the estimate for contracted practices and practices with an open deal", "text-slate-700");
   const cmpEst = sum(contracted, est);
   $("rev-bridge-info").innerHTML = infoIcon(`Single-practice route, with real HubSpot values beside the estimate. Contracted practices are estimated at ${gbp(cmpEst)} but contract at ${gbp(cSum)} (${cmpEst ? ((cSum / cmpEst - 1) * 100).toFixed(0) : 0}%), so the estimate ${cSum < cmpEst ? "overstates" : "understates"} what customers actually pay.` +
@@ -187,7 +187,7 @@ function renderRevenue() {
     ["freemium", "Freemium: to convert", HS_CLS.freemium, act.filter(p => hsState(p) === "freemium"), est, m => `estimated · ${m.filter(p => Number(p.hubspot_conversion_pipeline) > 0).length} with an open conversion deal`],
     ...["engaged", "imported", "company", "none"].map(st => [st, HS_LABEL[st], HS_CLS[st], act.filter(p => hsState(p) === st), est, () => "estimated"])];
   $("rev-pipeline").innerHTML = tiles.map(([, label, cls, m, val, subf]) =>
-    `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(label, cls)}</div><div class="text-xl font-bold mt-1">${gbp(sum(m, val))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} practices · ${subf(m)}</div></div>`).join("");
+    `<div class="rounded-lg border border-slate-200 p-3"><div>${chip(label, cls)}</div><div class="text-xl font-bold mt-1">${gbp(sum(m, val))}</div><div class="text-xs text-slate-500">${m.length.toLocaleString()} ${m.length === 1 ? "practice" : "practices"} · ${subf(m)}</div></div>`).join("");
 }
 
 // A group, federation or PCN deal in HubSpot against what Atlas works out: practices priced at the network rate on their own list sizes, added up. Contracted size and MRR should match the deal.

@@ -7,6 +7,7 @@ async function loadSignalSettings() {
 }
 function setSigSub(which) {
   sigSub = which;
+  $("sig-head").classList.toggle("hidden", which !== "feed");   // the feed's own title and filters belong to the feed only; the other sub tabs have their own
   $("sig-feed").classList.toggle("hidden", which !== "feed"); $("sig-jobs").classList.toggle("hidden", which !== "jobs"); $("sig-mergers").classList.toggle("hidden", which !== "mergers");
   $("s-type").classList.toggle("hidden", which !== "feed"); $("sig-settings-link").classList.toggle("hidden", which !== "feed"); $("s-search").classList.toggle("hidden", which !== "feed"); $("s-count").classList.toggle("hidden", which !== "feed"); $("s-status").classList.toggle("hidden", which !== "feed"); $("s-export").classList.toggle("hidden", which !== "feed");
   sigStripSync(); stateToUrl();
@@ -45,16 +46,16 @@ function fillNetList() {
 function renderJobMatches() {
   const adv = new Map();
   const LABEL = { review: "To review", network: "PCNs / federations (not linked)", auto: "Auto-matched", confirmed: "Confirmed", rejected: "Rejected" };
-  const cur = $("jm-status").value || "auto";   // opens on the auto-matched employers
   jobAdverts.forEach(j => (adv.get(j.employer_code) || adv.set(j.employer_code, []).get(j.employer_code)).push(j));
   // Employers with no current advert have nothing to act on, so only confirmed / rejected ones (which can be reopened) show without one.
   const relevant = e => adv.has(e.employer_code) || e.match_status === "confirmed" || e.match_status === "rejected", count = k => jobEmployers.filter(e => e.match_status === k && relevant(e)).length;
+  const cur = $("jm-status").value || (count("review") ? "review" : "auto");   // opens on what needs a decision, or on the auto-matched ones when nothing does
   $("jm-status").innerHTML = Object.entries(LABEL).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${v} (${count(k).toLocaleString()})</option>`).join("");
   const st = $("jm-status").value, q = $("jm-search").value.trim().toLowerCase();
   jmList = jobEmployers.filter(e => e.match_status === st && (!q || e.employer_name.toLowerCase().includes(q)) && relevant(e))
     .sort((a, b) => (adv.get(b.employer_code) || []).length - (adv.get(a.employer_code) || []).length || a.employer_name.localeCompare(b.employer_name));
   jmShown = 0; $("jm-rows").innerHTML = ""; $("jm-rows").dataset.adv = ""; window.__adv = adv; renderMoreJobMatches();
-  $("jm-count").textContent = `${jmList.length.toLocaleString()} employers with a report / records advert`;
+  $("jm-count").textContent = `${jmList.length.toLocaleString()} ${jmList.length === 1 ? "employer" : "employers"} with a report / records advert`;
 }
 function renderMoreJobMatches() {
   const slice = jmList.slice(jmShown, jmShown + 50); jmShown += slice.length; const adv = window.__adv;

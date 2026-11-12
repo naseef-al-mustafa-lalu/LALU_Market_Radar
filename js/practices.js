@@ -50,7 +50,7 @@ function applyFilters() {
   filtered.sort(by);
   renderChips(); renderSortHeaders();
   shown = 0; $("rows").innerHTML = ""; renderMore();
-  $("count").textContent = `${filtered.length.toLocaleString()} practices`;
+  $("count").textContent = `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "practice" : "practices"}`;
   stateToUrl();
 }
 // Branch records that are not a site or repeat of a practice we hold (hospitals, urgent care, shared buildings, unconfirmed matches): shown above the table so they can still be found

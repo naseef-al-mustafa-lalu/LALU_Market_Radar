@@ -441,7 +441,8 @@ with sync_playwright() as p:
     pg.click("#sig-settings-link"); pg.wait_for_selector("#view-data:not(.hidden)"); assert "NHS ODS (daily)" in pg.inner_text("#sig-types-rows")
     pg.uncheck("input[data-t=NEW_PRACTICE]"); pg.wait_for_function("document.querySelector('#sig-types-msg').textContent.includes('disabled')")
     pg.click("#tab-signals"); pg.click("#sig-sub button[data-s=jobs]"); pg.wait_for_selector("#jm-rows tr[data-c]")
-    assert pg.input_value("#jm-status") == "auto" and "Auto Surgery" in pg.inner_text("#jm-rows")   # opens on the auto-matched employers
+    assert pg.input_value("#jm-status") == "review" and "Little Common Surgery" in pg.inner_text("#jm-rows")   # opens on what needs a decision
+    pg.select_option("#jm-status", "auto"); assert "Auto Surgery" in pg.inner_text("#jm-rows")
     pg.select_option("#jm-status", "review"); pg.wait_for_selector("#jm-rows .jm-pick")
     assert "Little Common Surgery" in pg.inner_text("#jm-rows") and pg.is_visible("#jm-rows .jm-pick") and "1" in pg.inner_text("#jobs-badge")
     pg.click("#jm-rows .jm-act[data-a=confirm]"); assert "Choose a practice" in pg.inner_text("#jm-msg")     # nothing is linked until you choose
@@ -561,7 +562,7 @@ with sync_playwright() as p:
     assert "Linked practices" in open(dl2.value.path(), encoding="utf-8-sig").read()
     # job matches: the review list is visible without ticking anything, with honest counts
     pg.click("#tab-signals"); pg.click("#sig-sub button[data-s=jobs]"); pg.wait_for_selector("#jm-status option", state="attached", timeout=8000); assert "To review (1)" in pg.inner_html("#jm-status"), pg.inner_html("#jm-status")
-    assert "1 employers, 1 with a report" in pg.inner_text("#jm-count") or "employers" in pg.inner_text("#jm-count")
+    assert "employer" in pg.inner_text("#jm-count")
     # the Data tab always opens on Overview
     pg.click("#tab-data"); pg.click("#data-sub button[data-d=pricing]"); pg.click("#tab-practices"); pg.click("#tab-data"); assert pg.is_visible("#dp-overview")
     # mergers: status filter, profile status card, review tab
