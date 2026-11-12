@@ -623,7 +623,7 @@ with sync_playwright() as p:
     ev = pg.evaluate("(() => { const r = ctWrap({ contact_urn: 1, first_name: 'A', last_name: 'B', st_status: 'suppressed', st_section: 'main', st_reasons: ['sequence'], st_role: 'pm', st_excluded: null }); return [r.ev.name, r.ev.status, r.ev.reasons.join(), r.ev.role.id]; })()")
     assert ev == ["A B", "suppressed", "sequence", "pm"], ev      # the page shows the database's answer as it is
     pg.click("#ct-sub button[data-c=settings]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Suppression rules') && document.querySelector('#ct-body').innerText.includes('Job titles')")
-    assert "not evaluated yet" in pg.inner_text("#ct-body") and pg.is_disabled("#ct-save")
+    assert "Changes take effect when you press Save" in pg.inner_text("#ct-body") and pg.is_disabled("#ct-save")
     pg.click("summary:has-text('Group defaults')"); pg.click(".ct-role-set[data-id=clinical][data-m=off]"); assert pg.is_enabled("#ct-save")
     pg.click(".ct-title-set[data-m=off] >> nth=0"); assert pg.evaluate("Object.values(ctRules.titleModes).includes('off')"), "a job title can be set on its own"; pg.click("#ct-save")
     pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'contact_rules')")
