@@ -678,5 +678,10 @@ with sync_playwright() as p:
     pg.evaluate("ctPick = new Set(); ctOff = new Set(); ctEditing = null; ctSegments = []; setCtSub('contacts')")
     dp = pg.evaluate("[hsLineDiscPct({ price: '0.08', discount: '0.008' }), hsLineDiscPct({ hs_discount_percentage: '10', discount: '0.5' }), hsWantDiscPct({ listUnit: 0.1, netUnit: 0.09 }), hsPctText(hsWantDiscPct({ listUnit: 0.08, netUnit: 0.0712 }))]")
     assert abs(dp[0] - 10) < 1e-9 and dp[1] == 10 and abs(dp[2] - 10) < 1e-9 and dp[3] == "11%", dp      # line item discounts are read and shown as percentages, as HubSpot holds them (an old flat £ discount reads as its percentage)
+    ns = pg.evaluate("""(() => { const saved = networks; networks = [{ id: 'a', kind: 'pcn', name: 'Alpha', practices: 5, patients: 50, engaged: 1, customers: 0, arr_customers: 0 }, { id: 'b', kind: 'pcn', name: 'Bravo', practices: 5, patients: 40, engaged: 4, customers: 1, arr_customers: 100 }, { id: 'c', kind: 'pcn', name: 'Charlie', practices: 5, patients: 30, engaged: 3, customers: 3, arr_customers: 50 }];
+      showTab('networks'); netKind = 'pcn'; $('n-multi').checked = false; $('n-search').value = ''; const out = {};
+      for (const k of ['engaged', 'customers', 'open']) { $('n-sort').value = k; renderNetworks(); out[k] = netList.map(n => n.name).join(); }
+      networks = saved; renderNetworks(); return out; })()""")
+    assert ns == {"engaged": "Bravo,Charlie,Alpha", "customers": "Charlie,Bravo,Alpha", "open": "Alpha,Charlie,Bravo"}, ns      # Networks sort by most engaged, most customers and most still to approach
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

@@ -88,8 +88,15 @@ function renderNetworks() {
   $("net-kinds").querySelectorAll("button").forEach(b => b.onclick = () => { netKind = b.dataset.k; renderNetworks(); stateToUrl(); });
   const q = $("n-search").value.trim().toLowerCase(), srt = $("n-sort").value, multi = $("n-multi").checked;
   netList = networks.filter(n => n.kind === netKind && (!multi || n.practices >= 3) && (!q || n.name.toLowerCase().includes(q)))
-    .sort((a, b) => srt === "patients" ? b.patients - a.patients : srt === "arr" ? (b.arr_network || b.arr_single) - (a.arr_network || a.arr_single) : srt === "practices" ? b.practices - a.practices
-      : ((b.practices - b.engaged) - (a.practices - a.engaged)) || b.patients - a.patients);
+    .sort((a, b) => {
+      const num = v => Number(v) || 0, ties = num(b.patients) - num(a.patients) || String(a.name).localeCompare(String(b.name));
+      if (srt === "patients") return num(b.patients) - num(a.patients) || ties;
+      if (srt === "arr") return num(b.arr_network || b.arr_single) - num(a.arr_network || a.arr_single) || ties;
+      if (srt === "practices") return num(b.practices) - num(a.practices) || ties;
+      if (srt === "engaged") return num(b.engaged) - num(a.engaged) || ties;
+      if (srt === "customers") return num(b.customers) - num(a.customers) || num(b.arr_customers) - num(a.arr_customers) || ties;
+      return (num(b.practices) - num(b.engaged)) - (num(a.practices) - num(a.engaged)) || ties;   // most practices still to approach
+    });
   netShown = 0; $("net-rows").innerHTML = ""; renderMoreNetworks();
   const one = { pcn: "PCN", group: "group", federation: "federation", icb: "ICB" }[netKind];
   $("n-count").textContent = `${netList.length.toLocaleString()} ${netList.length === 1 ? one : NET_KINDS[netKind].replace("Provider groups", "groups").replace("Federations", "federations")}`;
