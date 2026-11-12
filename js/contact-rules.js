@@ -37,13 +37,15 @@ const CT_RULES = [
   ["neverbounce", "NeverBounce says Invalid or Disposable", "The address failed verification. Unknown results are allowed unless 'only Valid' is ticked.", true],
 ];
 const CT_LIFECYCLE = { lead: "New", "2207373534": "Engaged", marketingqualifiedlead: "MQL", "5640141025": "Prospecting", salesqualifiedlead: "SQL", opportunity: "Opportunity", customer: "Customer", "4726262995": "Past customer", evangelist: "Evangelist", other: "Other", "4025181418": "Client services" };
-const CT_DEFAULTS = () => ({ roles: {}, titles: {}, titleModes: {}, dq: {}, suppression: {}, likely: false, strictValid: false, owners: ["78343211", "34750167", "34750166", "9112363"] });
+// Bounce types as HubSpot records them (Email hard bounce reason); NO_REASON is a bounce after a marketing email was sent with no reason given.
+const CT_BOUNCE_TYPES = [["UNKNOWN_USER", "Unknown user (the address does not exist)"], ["OTHER", "Other hard bounce"], ["POLICY", "Policy (the recipient's server refused it)"], ["NO_REASON", "Bounced after a send, no reason given"]];
+const CT_DEFAULTS = () => ({ roles: {}, titles: {}, titleModes: {}, dq: {}, bounceHold: CT_BOUNCE_TYPES.map(x => x[0]), suppression: {}, likely: false, strictValid: false, owners: ["78343211", "34750167", "34750166", "9112363"] });
 let ctRules = CT_DEFAULTS(), ctMode = "standard";   // ctMode: standard campaigns, or re-engagement (lifts the lifecycle rule)
 const ctRoleMode = id => (ctRules.roles[id] === "main" || ctRules.roles[id] === "other" || ctRules.roles[id] === "off") ? ctRules.roles[id] : CT_ROLE[id].def;
 // A job title can be set on its own: Main, Other or Off, ahead of the group default it falls into.
 const ctTitleMode = t => { const m = ctRules.titleModes && ctRules.titleModes[String(t || "").trim().toLowerCase()]; return m === "main" || m === "other" || m === "off" ? m : null; };
 const ctRuleOn = id => ctRules.suppression[id] === undefined ? (CT_RULES.find(r => r[0] === id) || [])[3] !== false : !!ctRules.suppression[id];
-function ctSetRules(v) { const d = CT_DEFAULTS(); ctRules = { ...d, ...(v || {}), roles: { ...(v || {}).roles }, titles: { ...(v || {}).titles }, titleModes: { ...(v || {}).titleModes }, dq: { ...(v || {}).dq }, suppression: { ...(v || {}).suppression }, owners: Array.isArray((v || {}).owners) ? v.owners.map(String) : d.owners }; }
+function ctSetRules(v) { const d = CT_DEFAULTS(); ctRules = { ...d, ...(v || {}), roles: { ...(v || {}).roles }, titles: { ...(v || {}).titles }, titleModes: { ...(v || {}).titleModes }, dq: { ...(v || {}).dq }, bounceHold: Array.isArray((v || {}).bounceHold) ? v.bounceHold : d.bounceHold, suppression: { ...(v || {}).suppression }, owners: Array.isArray((v || {}).owners) ? v.owners.map(String) : d.owners }; }
 
 // One set of status badges everywhere a contact appears (Contacts, Audiences, Signals): NeverBounce result, unsubscribes, marketing consent, bounce and HubSpot sequence membership.
 function ctBadges(c) {

@@ -626,6 +626,7 @@ with sync_playwright() as p:
     assert ev == ["A B", "suppressed", "sequence", "pm"], ev      # the page shows the database's answer as it is
     pg.click("#ct-sub button[data-c=settings]"); pg.wait_for_function("document.querySelector('#ct-body').innerText.includes('Suppression rules') && document.querySelector('#ct-body').innerText.includes('Job titles')")
     assert "Changes take effect when you press Save" in pg.inner_text("#ct-body") and pg.is_disabled("#ct-save")
+    pg.evaluate("document.querySelector('.ct-bounce-set[value=POLICY]').click()"); assert pg.is_enabled("#ct-save") and pg.evaluate("!ctRules.bounceHold.includes('POLICY') && ctRules.bounceHold.length === 3"), "a bounce type can be let through in Settings"; pg.evaluate("document.querySelector('.ct-bounce-set[value=POLICY]').click()"); assert pg.evaluate("ctRules.bounceHold.length === 4")
     pg.click("summary:has-text('Group defaults')"); pg.click(".ct-role-set[data-id=clinical][data-m=off]"); assert pg.is_enabled("#ct-save")
     pg.click(".ct-title-set[data-m=off] >> nth=0"); assert pg.evaluate("Object.values(ctRules.titleModes).includes('off')"), "a job title can be set on its own"; pg.click("#ct-save")
     pg.wait_for_function("window.__rpc.some(c => c[0] === 'upsert:app_flags' && c[1][0].key === 'contact_rules')")
