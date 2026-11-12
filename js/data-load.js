@@ -87,7 +87,9 @@ function loadFailed(err) {
 $("load-retry").onclick = () => startApp();
 /* What the first screen needs (the practice list with its pricing and HubSpot status, the price list and the last refresh date) loads before the popup closes. Everything else (signals,
    merge and closure suggestions, networks, jobs) loads straight afterwards in the background, or first when the page was opened on another tab or on one practice. */
-let secondaryLoaded = false;   // true once the signals, suggestions, networks and jobs are in
+let secondaryLoaded = false, secondaryP = null;   // secondaryLoaded: the signals, suggestions, networks and jobs are in
+const ensureSecondary = () => secondaryP || (secondaryP = loadSecondary().catch(e => { secondaryP = null; throw e; }));
+const SECONDARY_TABS = new Set(["networks", "revenue", "signals", "audiences", "data"]);   // tabs that read networks or signals
 async function loadSecondary() {
   netPrefetch = netPrefetch || fetchAll("network_summary", NET_COLS, "id").catch(() => null);
   await Promise.all([(async () => { await loadSignals(); await loadSignalSettings(); loadJobs().catch(() => {}); })(), (async () => { await loadMergeSuggestions(); renderMergers(); })(), netPrefetch]);
@@ -105,10 +107,10 @@ async function startApp() {
     lastRunDate = run && run[0] ? fmtDate(run[0].finished_at) : null;
     $("refresh-badge").textContent = "Refreshed " + (lastRunDate || "never");
     const openCode = stateFromUrl(), deepLinked = currentTab !== "practices" || !!openCode;   // a deep link needs the rest before it can draw
-    if (deepLinked) { loadStep("Loading networks and signals…"); await loadSecondary(); }
+    if (deepLinked) { loadStep("Loading networks and signals…"); await ensureSecondary(); }
     loadStep("Preparing the dashboard…"); applyFilters(); showTab(currentTab, true); loading(false);
     if (openCode && byOds.get(openCode)) openDrawer(byOds.get(openCode));
-    if (!deepLinked) setTimeout(() => loadSecondary().then(() => applyFilters()).catch(e => { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }), 100);   // after the first screen has painted
+    if (!deepLinked) setTimeout(() => ensureSecondary().then(() => applyFilters()).catch(e => { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }), 100);   // after the first screen has painted
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signals.unshift(p.new); indexSignals(); renderSignals(); if (currentTab === "practices") applyFilters(); })
       .subscribe(s => { $("sig-live").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); $("refresh-badge").classList.remove("hidden"); loadFailed(err); }
@@ -166,6 +168,14 @@ function showTab(which, fromUrl) {
   const strip = SUBNAV[which]; $("subnav").classList.toggle("hidden", !strip);      // each tab with sub tabs shows its own strip in the second row
   for (const id of Object.values(SUBNAV)) $(id).classList.toggle("hidden", id !== strip);
   if (strip) $("subnav").style.top = document.querySelector("#app > nav").offsetHeight + "px";
+  document.querySelectorAll(".sec-loading").forEach(e => e.remove());
+  if (!secondaryLoaded && SECONDARY_TABS.has(which) && !fromUrl) {   // opened before the background load finished: say so, and draw the tab properly the moment it is in
+    const v = $("view-" + which), b = document.createElement("div"); b.className = "sec-loading mb-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"; b.setAttribute("role", "status");
+    b.innerHTML = '<svg class="h-4 w-4 animate-spin text-lalu-teal-700" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".25" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>Still loading networks and signals…'; v.prepend(b);
+    ensureSecondary().then(() => { document.querySelectorAll(".sec-loading").forEach(e => e.remove()); if (currentTab === which) showTab(which, true); }).catch(() => b.remove());
+    if (!fromUrl) stateToUrl(changed);
+    return;
+  }
   if (which === "revenue") { renderRevenue(); if (revSub === "pum") renderPum(); }
   if (which === "audiences") loadAudiences();
   if (typeof sigStripSync === "function") sigStripSync();

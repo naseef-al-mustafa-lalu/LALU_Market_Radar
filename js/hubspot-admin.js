@@ -122,14 +122,14 @@ function hsTimingHtml() {
 async function renderHubspotPanel() {
   const box = $("d-hubspot"); if (!box) return;
   if (!box.innerHTML) box.innerHTML = '<p class="text-sm text-slate-500">Loading HubSpot status…</p>';
-  const [{ data: act }, { data: links }, { data: flags }] = await Promise.all([db.from("hubspot_activity").select("*").order("at", { ascending: false }).limit(300), fetchAll("hubspot_network_links", "org_id", "org_id").then(data => ({ data })), db.from("app_flags").select("key,value")]);   // all rows: a plain select stops at 1,000
+  const [{ data: act }, { data: links }, { data: flags }, { data: pcnAudit }] = await Promise.all([db.from("hubspot_activity").select("*").order("at", { ascending: false }).limit(300), fetchAll("hubspot_network_links", "org_id", "org_id").then(data => ({ data })), db.from("app_flags").select("key,value"), db.from("hubspot_audit").select("id").eq("issue", "pcn_association")]);   // all rows: a plain select stops at 1,000
   const sizeFlag = ((flags || []).find(f => f.key === "list_size_sync") || {}).value || {}; hsSizeOn = sizeFlag.enabled === true; hsSizeLast = sizeFlag.last_month || ""; hsSizeCust = sizeFlag.include_customers === true; hsAlignFlag = ((flags || []).find(f => f.key === "alignment_sync") || {}).value || {};
   hsLog = act || [];
   const run = hsLog.find(r => r.kind === "sync_run"), st = (run && run.detail) || {}, ok = run ? run.ok : null;
   const eligible = practices.filter(p => p.status === "Active" && p.total_patients > 0), missing = eligible.filter(p => !p.hubspot_company_id);
   const linkedIds = new Set((links || []).map(l => l.org_id));
   const eng = kind => networks.filter(n => n.kind === kind && n.patients > 0 && (kind === "pcn" ? /^ods:U\d{5}$/.test(n.source_key) : /ICB/i.test(n.name)));
-  const pcnUnlinkOn = (((flags || []).find(f => f.key === "pcn_unlink") || {}).value || {}).run_once === true, pcnConflicts = ((await db.from("hubspot_audit").select("id").eq("issue", "pcn_association")).data || []).length;
+  const pcnUnlinkOn = (((flags || []).find(f => f.key === "pcn_unlink") || {}).value || {}).run_once === true, pcnConflicts = (pcnAudit || []).length;
   const pcnMiss = eng("pcn").filter(n => !linkedIds.has(n.id)), icbMiss = eng("icb").filter(n => !linkedIds.has(n.id));
   const latestCheck = new Map(); for (const r of hsLog) if (r.kind === "push_check" && r.ods_code && !latestCheck.has(r.ods_code)) latestCheck.set(r.ods_code, r);
   const badChecks = [...latestCheck.values()].filter(r => !r.ok);
