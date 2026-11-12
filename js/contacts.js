@@ -28,9 +28,9 @@ const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other
 // ---- Loading ----
 // Every view asks the database for just what it shows: the list one page of 100 at a time, and each other tab its own small summary. No tab downloads the whole contact list.
 let ctSrvRows = [], ctSrvTotal = 0, ctSrvEligible = 0, ctSrvCounts = null, ctSrvBusy = false, ctSrvReady = false, ctSrvSeq = 0, ctSrvRe = { total: 0, eligible: 0, suppressed: 0, due: 0 }, ctSrvDq = [];
-let ctOscar = null, ctFlagsReady = false, ctStats = null, ctNbQ = null, ctRev = { counts: {}, rows: [], titles: [] }, ctSegStatsMap = {}, ctSegCounts = new Map();
+let ctSegOthers = [], ctSegOthersTotal = 0, ctSegOthersOpen = false, ctOscar = null, ctFlagsReady = false, ctStats = null, ctNbQ = null, ctRev = { counts: {}, rows: [], titles: [] }, ctSegStatsMap = {}, ctSegCounts = new Map();
 const ctSpinner = (msg, sub = "") => `<div class="flex flex-col items-center justify-center gap-3 p-10 text-center" role="status" aria-live="polite"><svg class="h-9 w-9 animate-spin text-lalu-teal-700" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".2" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><div class="text-sm font-semibold text-slate-700">${esc(msg)}</div>${sub ? `<div class="max-w-md text-xs text-slate-500">${esc(sub)}</div>` : ""}</div>`;
-const ctSkeleton = () => `<div class="space-y-3" aria-hidden="true"><div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">${Array.from({ length: 6 }, () => '<div class="h-[76px] animate-pulse rounded-xl bg-slate-200/70"></div>').join("")}</div><div class="h-10 animate-pulse rounded-lg bg-slate-200/70"></div><div class="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">${Array.from({ length: 8 }, () => '<div class="flex items-center gap-4 px-3 py-3"><div class="h-4 w-4 animate-pulse rounded bg-slate-200"></div><div class="h-4 w-40 animate-pulse rounded bg-slate-200"></div><div class="h-4 w-56 animate-pulse rounded bg-slate-200"></div><div class="h-4 flex-1 animate-pulse rounded bg-slate-100"></div></div>').join("")}</div></div>`;
+const ctSkeleton = () => `<div class="space-y-3" aria-hidden="true"><div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">${Array.from({ length: 6 }, () => '<div class="h-20 animate-pulse rounded-xl bg-slate-200/70"></div>').join("")}</div><div class="h-10 animate-pulse rounded-lg bg-slate-200/70"></div><div class="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">${Array.from({ length: 8 }, () => '<div class="flex items-center gap-4 px-3 py-3"><div class="h-4 w-4 animate-pulse rounded bg-slate-200"></div><div class="h-4 w-40 animate-pulse rounded bg-slate-200"></div><div class="h-4 w-56 animate-pulse rounded bg-slate-200"></div><div class="h-4 flex-1 animate-pulse rounded bg-slate-100"></div></div>').join("")}</div></div>`;
 const ctWrap = c => ({ c, p: byOds.get(c.ods_code), ev: { role: CT_ROLE[c.st_role] || CT_ROLE.other, quality: c.email_quality, name: [c.first_name, c.last_name].filter(Boolean).join(" ") || c.full_name || "", section: c.st_section, excluded: c.st_excluded || "", reasons: c.st_reasons || [], status: c.st_status } });
 
 const ctPageBox = f => ({ q: f.q, section: f.section, status: f.status, role: f.role, source: f.source, reason: f.reason, lifecycle: f.lifecycle, dq: ctMode === "reengage" ? f.dq : "" });
@@ -80,22 +80,33 @@ async function ctLoadReview(more) {   // the Review tab: the four counts, and 10
   const { data, error } = await db.rpc("contacts_review", { p_tab: tab, p_source: ctRevSource, p_limit: 100, p_offset: off }); if (error) throw error;
   ctRev = { counts: data.counts || {}, rows: (more ? ctRev.rows : []).concat((data.rows || []).map(ctWrap)), titles: (more ? ctRev.titles : []).concat(data.titles || []) };
 }
-async function ctLoadNb() {
-  const [q, r] = await Promise.all([db.rpc("contacts_nb_queue"), db.from("neverbounce_runs").select("run_at,checked,passed,failed,created_in_hubspot,enrolled,credits_remaining,error").order("id", { ascending: false }).limit(5)]);
-  if (q.error) throw q.error; ctNbQ = { ...q.data, rows: (q.data.rows || []).map(ctWrap) }; ctRuns = r.data || [];
+async function ctLoadNb() {   // the queue counts and the first 100 rows; "Show more" adds the next 100
+  const [q, rows, r] = await Promise.all([db.rpc("contacts_nb_queue"), db.rpc("contacts_nb_rows", { p_limit: 100, p_offset: 0 }), db.from("neverbounce_runs").select("run_at,checked,passed,failed,created_in_hubspot,enrolled,credits_remaining,error").order("id", { ascending: false }).limit(5)]);
+  if (q.error) throw q.error; if (rows.error) throw rows.error; ctNbQ = { ...q.data, rows: (rows.data || []).map(ctWrap) }; ctRuns = r.data || [];
 }
-async function ctLoadSegments() {
-  const [s, st] = await Promise.all([db.from("hubspot_segments").select("list_id,name,processing_type,size,filter_text,tracked,criteria,synced_at").order("name"), db.rpc("contacts_segment_stats")]);
-  ctSegs = s.data || []; ctSegStatsMap = st.data || {}; ctSegCounts = new Map();
+async function ctLoadNbMore() {
+  const { data, error } = await db.rpc("contacts_nb_rows", { p_limit: 100, p_offset: ctNbQ.rows.length }); if (error) { ctMsg = "Could not load more: " + (error.message || error); return; }
+  ctNbQ.rows = ctNbQ.rows.concat((data || []).map(ctWrap));
+}
+const CT_SEG_COLS = "list_id,name,processing_type,size,filter_text,tracked,criteria,synced_at";
+async function ctLoadSegments() {   // the tracked segments in full; the other HubSpot segments only as a count until you ask to see them
+  const [s, st, oc] = await Promise.all([db.from("hubspot_segments").select(CT_SEG_COLS).eq("tracked", true).order("name"), db.rpc("contacts_segment_stats"), db.from("hubspot_segments").select("list_id", { count: "exact", head: true }).eq("tracked", false)]);
+  ctSegs = s.data || []; ctSegStatsMap = st.data || {}; ctSegOthersTotal = oc.count || 0; ctSegOthers = []; ctSegOthersOpen = false; ctSegCounts = new Map();
   await Promise.all(ctSegments.map(async sg => {   // each saved filter set is counted by the database
     const f = sg.members ? { urns: sg.members } : { ...ctPageBox({ q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", dq: "", ...sg.filters }), ...(sg.exclude && sg.exclude.length ? { exclude: sg.exclude } : {}) };
     const { data } = await db.rpc("contacts_query", { p_f: f, p_mode: "standard", p_what: "rows", p_limit: 0, p_offset: 0 }); ctSegCounts.set(sg.id, { total: (data || {}).total || 0, eligible: (data || {}).eligible || 0 });
   }));
 }
+async function ctLoadSegOthers(more) {   // 100 of the other segments at a time
+  const from = more ? ctSegOthers.length : 0, { data, error } = await db.from("hubspot_segments").select(CT_SEG_COLS).eq("tracked", false).order("name").range(from, from + 99);
+  if (error) { ctMsg = "Could not load segments: " + (error.message || error); return; }
+  ctSegOthers = (more ? ctSegOthers : []).concat(data || []); ctSegOthersOpen = true;
+}
 // Which view is open: load only what it needs, then draw it.
 async function ctLoadTab() {
   const box = $("ct-body"); if (!box) return;
   box.innerHTML = ctSub === "contacts" ? ctSkeleton() : ctSpinner("Loading…");   // something is on screen the moment the tab opens, never a blank page
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));   // let the browser paint it before any work starts, even while other loading is busy
   try {
     if (ctSub === "contacts") { ctSrvReady = false; await ctLoadPage(); return; }
     await ctLoadFlags();

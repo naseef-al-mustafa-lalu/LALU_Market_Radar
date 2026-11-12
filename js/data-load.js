@@ -108,7 +108,7 @@ async function startApp() {
     if (deepLinked) { loadStep("Loading networks and signals…"); await loadSecondary(); }
     loadStep("Preparing the dashboard…"); applyFilters(); showTab(currentTab, true); loading(false);
     if (openCode && byOds.get(openCode)) openDrawer(byOds.get(openCode));
-    if (!deepLinked) loadSecondary().then(() => applyFilters()).catch(e => { $("n-count").textContent = "Networks unavailable: " + (e.message || e); });
+    if (!deepLinked) setTimeout(() => loadSecondary().then(() => applyFilters()).catch(e => { $("n-count").textContent = "Networks unavailable: " + (e.message || e); }), 100);   // after the first screen has painted
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signals.unshift(p.new); indexSignals(); renderSignals(); if (currentTab === "practices") applyFilters(); })
       .subscribe(s => { $("sig-live").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); $("refresh-badge").classList.remove("hidden"); loadFailed(err); }
