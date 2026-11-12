@@ -9,6 +9,14 @@ async function fetchAll(table, columns, order, hint = "planned") {
   const first = await page(0, hint); if (first.error) throw first.error;
   const out = [...(first.data || [])];
   if (out.length < PAGE_N) return out;
+  if (hint === "exact" && typeof first.count === "number") {   // the count is exact: ask for exactly the pages that exist, in waves of 6, never beyond the end
+    const pages = Math.ceil(first.count / PAGE_N);
+    for (let from = 1; from < pages; from += 6) {
+      const rs = await Promise.all(Array.from({ length: Math.min(6, pages - from) }, (_, i) => page((from + i) * PAGE_N)));
+      for (const r of rs) { if (r.error) throw r.error; out.push(...r.data); }
+    }
+    return out;
+  }
   let next = 1, wave = typeof first.count === "number" ? Math.min(6, Math.max(1, Math.ceil(first.count / PAGE_N) - 1)) : 4;
   for (;;) {
     const rs = await Promise.all(Array.from({ length: wave }, (_, i) => page((next + i) * PAGE_N)));
