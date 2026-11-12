@@ -101,11 +101,14 @@ async function ctLoadSegOthers(more) {   // 100 of the other segments at a time
   ctSegOthers = (more ? ctSegOthers : []).concat(data || []); ctSegOthersOpen = true;
 }
 // Which view is open: load only what it needs, then draw it.
+// The animated loading box shown the first time Review, Segments, NeverBounce or Settings is opened (they are fetched on that first click, once).
+const CT_SUB_NAME = { review: "review", segments: "segments", neverbounce: "NeverBounce", settings: "settings" };
+const ctLoadingBox = msg => `<div class="flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white p-12 text-center" role="status" aria-live="polite"><svg class="h-9 w-9 animate-spin text-lalu-teal-700" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".2" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><div class="text-sm font-semibold text-slate-700">${esc(msg)}</div></div>`;
 let ctTabReady = {};   // the views already loaded: switching back to one draws it again without asking the database, until something changes its data
 async function ctLoadTab(force) {
   const box = $("ct-body"); if (!box) return;
   if (!force && ctTabReady[ctSub]) { renderContacts(); return; }
-  box.innerHTML = 'Loading…';
+  box.innerHTML = ctSub === "contacts" ? '<p class="p-6 text-sm text-slate-500">Loading contacts…</p>' : ctLoadingBox("Loading " + (CT_SUB_NAME[ctSub] || "") + "…");
   try {
     if (ctSub === "contacts") { ctSrvReady = false; await ctLoadPage(); ctTabReady.contacts = true; return; }
     await ctLoadFlags();
@@ -115,6 +118,10 @@ async function ctLoadTab(force) {
     else if (ctSub === "settings") { const { data, error } = await db.rpc("contacts_settings_stats"); if (error) throw error; ctStats = data; }
     ctTabReady[ctSub] = true; renderContacts();
   } catch (e) { box.innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load: ${esc(e.message || e)}</p>`; }
+}
+async function ctPreload() {   // while the sign-in pop-up is up: only the default All contacts list; the other views load on their first click
+  const keep = ctSub; ctSub = "contacts";
+  try { await ctLoadTab(); } finally { ctSub = keep; }
 }
 async function loadContacts(force) { if (force) { ctFlagsReady = false; ctSrvCounts = null; ctOscar = null; ctTabReady = {}; } await ctLoadTab(force); }
 

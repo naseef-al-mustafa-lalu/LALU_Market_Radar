@@ -101,7 +101,7 @@ async function startApp() {
     $("refresh-badge").textContent = "Refreshed " + (lastRunDate || "never");
     await loadNetworks(await netPrefetch);
     loadStep("Loading contacts and data…"); const openCode = stateFromUrl();
-    await Promise.all([loadContacts().catch(() => {}), renderData().catch(() => {})]);   // the first Contacts page and the Data page are ready before the pop-up goes
+    await Promise.all([ctPreload().catch(() => {}), renderData().catch(() => {})]);   // the first Contacts page and the Data page are ready before the pop-up goes
     loadStep("Preparing the dashboard…"); applyFilters(); showTab(currentTab, true); loading(false);
     if (openCode && byOds.get(openCode)) openDrawer(byOds.get(openCode));
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signals.unshift(p.new); indexSignals(); renderSignals(); if (currentTab === "practices") applyFilters(); })
