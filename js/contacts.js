@@ -28,7 +28,7 @@ const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other
 // ---- Loading ----
 // Every view asks the database for just what it shows: the list one page of 100 at a time, and each other tab its own small summary. No tab downloads the whole contact list.
 let ctSrvRows = [], ctSrvTotal = 0, ctSrvEligible = 0, ctSrvCounts = null, ctSrvBusy = false, ctSrvReady = false, ctSrvSeq = 0, ctSrvRe = { total: 0, eligible: 0, suppressed: 0, due: 0 }, ctSrvDq = [];
-let ctFlagsReady = false, ctStats = null, ctNbQ = null, ctRev = { counts: {}, rows: [], titles: [] }, ctSegStatsMap = {}, ctSegCounts = new Map();
+let ctOscar = null, ctFlagsReady = false, ctStats = null, ctNbQ = null, ctRev = { counts: {}, rows: [], titles: [] }, ctSegStatsMap = {}, ctSegCounts = new Map();
 const ctSpinner = (msg, sub = "") => `<div class="flex flex-col items-center justify-center gap-3 p-10 text-center" role="status" aria-live="polite"><svg class="h-9 w-9 animate-spin text-lalu-teal-700" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".2" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><div class="text-sm font-semibold text-slate-700">${esc(msg)}</div>${sub ? `<div class="max-w-md text-xs text-slate-500">${esc(sub)}</div>` : ""}</div>`;
 const ctSkeleton = () => `<div class="space-y-3" aria-hidden="true"><div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">${Array.from({ length: 6 }, () => '<div class="h-[76px] animate-pulse rounded-xl bg-slate-200/70"></div>').join("")}</div><div class="h-10 animate-pulse rounded-lg bg-slate-200/70"></div><div class="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">${Array.from({ length: 8 }, () => '<div class="flex items-center gap-4 px-3 py-3"><div class="h-4 w-4 animate-pulse rounded bg-slate-200"></div><div class="h-4 w-40 animate-pulse rounded bg-slate-200"></div><div class="h-4 w-56 animate-pulse rounded bg-slate-200"></div><div class="h-4 flex-1 animate-pulse rounded bg-slate-100"></div></div>').join("")}</div></div>`;
 const ctWrap = c => ({ c, p: byOds.get(c.ods_code), ev: { role: CT_ROLE[c.st_role] || CT_ROLE.other, quality: c.email_quality, name: [c.first_name, c.last_name].filter(Boolean).join(" ") || c.full_name || "", section: c.st_section, excluded: c.st_excluded || "", reasons: c.st_reasons || [], status: c.st_status } });
@@ -38,10 +38,11 @@ async function ctLoadPage() {
   const seq = ++ctSrvSeq; ctSrvBusy = true; if (!ctSrvReady) $("ct-body").innerHTML = ctSkeleton(); else renderContacts();
   try {
     const flags = ctLoadFlags();   // read alongside the first page, not before it
-    const [page, counts] = await Promise.all([db.rpc("contacts_query", { p_f: ctPageBox(ctF), p_mode: ctMode, p_what: "rows", p_limit: 100, p_offset: 0 }), ctSrvCounts ? null : db.rpc("contacts_counts")]);
+    const [page, counts, osc] = await Promise.all([db.rpc("contacts_query", { p_f: ctPageBox(ctF), p_mode: ctMode, p_what: "rows", p_limit: 100, p_offset: 0 }), ctSrvCounts ? null : db.rpc("contacts_counts"), ctOscar ? null : db.rpc("contacts_oscar_summary")]);
     await flags; if (seq !== ctSrvSeq) return;   // a newer search or filter has replaced this one
     if (page.error) throw page.error;
     if (counts) { if (counts.error) throw counts.error; ctSrvCounts = counts.data; }
+    if (osc && !osc.error) ctOscar = osc.data;
     const d = page.data || {}; ctSrvRows = (d.rows || []).map(ctWrap); ctSrvTotal = d.total || 0; ctSrvEligible = d.eligible || 0; ctSrvRe = { total: d.total || 0, eligible: d.eligible || 0, suppressed: d.suppressed || 0, due: d.due || 0 }; if (ctMode === "reengage") ctSrvDq = d.reasons || [];
     ctSrvReady = true; ctSrvBusy = false; const q = $("ct-q"), pos = q && document.activeElement === q ? q.selectionStart : null; renderContacts(); if (pos != null) { const n = $("ct-q"); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
   } catch (e) { ctSrvBusy = false; $("ct-body").innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load contacts: ${esc(e.message || e)}</p>`; }
@@ -105,7 +106,7 @@ async function ctLoadTab() {
     renderContacts();
   } catch (e) { box.innerHTML = `<p class="p-6 text-sm text-rose-700">Could not load: ${esc(e.message || e)}</p>`; }
 }
-async function loadContacts(force) { if (force) { ctFlagsReady = false; ctSrvCounts = null; } await ctLoadTab(); }
+async function loadContacts(force) { if (force) { ctFlagsReady = false; ctSrvCounts = null; ctOscar = null; } await ctLoadTab(); }
 
 function setCtSub(which) {
   ctSub = which; ctShown = 100;
@@ -125,8 +126,9 @@ function ctTiles() {
   }
   const C = ctSrvCounts || { total: 0, eligible: 0, main: 0, other: 0, suppressed: 0, excluded: 0 }, n = s => C[s], main = C.main, other = C.other;
   const tile = (k, v, sub, cls = "") => `<div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-2xl font-bold ${cls}">${v.toLocaleString()}</div><div class="text-xs text-slate-500">${sub}</div></div>`;
-  return `<div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">${tile("Contacts", C.total, "held in Atlas")}${tile("Eligible", n("eligible"), "can be in a campaign now", "text-emerald-700")}${tile("Main", main, "decision-makers", "text-teal-700")}${tile("Other", other, "any role, direct address", "text-sky-700")}
-    ${tile("Held back", n("suppressed"), "a suppression rule applies", "text-amber-700")}${tile("Not used", n("excluded"), "shared, partial or switched-off", "text-slate-600")}</div>`;
+  const O = ctOscar, oscarTile = O ? `<div class="col-span-2 rounded-xl border border-slate-200 bg-white p-3" title="From Oscar's latest file (${esc(String(O.run_at || "").slice(0, 10))}). Contacts with no email address, or at a practice Atlas does not hold, are not imported."><div class="text-xs uppercase tracking-wider text-slate-500">Oscar contacts</div><div class="flex flex-wrap items-baseline gap-x-3"><span class="text-2xl font-bold">${O.total.toLocaleString()}</span><span class="text-xs text-slate-500">${O.stored.toLocaleString()} imported · <b class="text-slate-700">${Math.max(O.total - O.stored, 0).toLocaleString()} not imported</b></span></div>
+    <div class="mt-0.5 text-xs text-slate-500"><span class="font-semibold text-emerald-700">${O.eligible.toLocaleString()}</span> eligible · <span class="font-semibold text-amber-700">${O.suppressed.toLocaleString()}</span> held back · <span class="font-semibold text-slate-600">${O.excluded.toLocaleString()}</span> not used</div></div>` : "";
+  return `<div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">${tile("Contacts", C.total, "held in Atlas")}${tile("Eligible", n("eligible"), `Main ${main.toLocaleString()} · Other ${other.toLocaleString()}`, "text-emerald-700")}${tile("Held back", n("suppressed"), "a suppression rule applies", "text-amber-700")}${tile("Not used", n("excluded"), "shared, partial or switched-off", "text-slate-600")}${oscarTile}</div>`;
 }
 const ctModeBar = () => `<div class="flex flex-wrap items-center gap-2 text-xs"><span class="font-semibold text-slate-600">Campaign type</span><div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 font-semibold" role="group" aria-label="Campaign type">
   ${[["standard", "Standard"], ["reengage", "Re-engagement"]].map(([k, l]) => `<button type="button" class="ct-mode rounded-md px-3 py-1 ${ctMode === k ? "bg-lalu-navy text-white" : "text-slate-600 hover:bg-slate-50"}" data-m="${k}" aria-pressed="${ctMode === k}">${l}</button>`).join("")}</div>
@@ -207,7 +209,7 @@ async function ctSave() {
   try {
     const { error } = await db.from("app_flags").upsert([{ key: "contact_rules", value: ctRules, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) throw error; ctDirty = false;
     for (let b = 0; b < 8; b++) { const r = await db.rpc("refresh_contact_status_bucket", { p_bucket: b, p_buckets: 8 }); if (r.error) throw r.error; }   // the database recalculates every contact with the new rules, in slices so no request runs long
-    ctSrvCounts = null;
+    ctSrvCounts = null; ctOscar = null;
   } catch (e) { alert("Could not save: " + (e.message || e)); }
   ctSaving = false; ctLoadTab();
 }
