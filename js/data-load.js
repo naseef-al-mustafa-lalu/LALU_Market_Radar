@@ -85,20 +85,30 @@ function loadFailed(err) {
   $("load-step").textContent = "Could not load the data: " + (err && err.message ? err.message : err) + ". Check your connection and try again."; $("load-retry").classList.remove("hidden");
 }
 $("load-retry").onclick = () => startApp();
+/* What the first screen needs (the practice list with its pricing and HubSpot status, the price list and the last refresh date) loads before the popup closes. Everything else (signals,
+   merge and closure suggestions, networks, jobs) loads straight afterwards in the background, or first when the page was opened on another tab or on one practice. */
+let secondaryLoaded = false;   // true once the signals, suggestions, networks and jobs are in
+async function loadSecondary() {
+  netPrefetch = netPrefetch || fetchAll("network_summary", NET_COLS, "id").catch(() => null);
+  await Promise.all([(async () => { await loadSignals(); await loadSignalSettings(); loadJobs().catch(() => {}); })(), (async () => { await loadMergeSuggestions(); renderMergers(); })(), netPrefetch]);
+  await loadNetworks(await netPrefetch); secondaryLoaded = true;
+}
 async function startApp() {
   $("login").classList.add("hidden"); $("app").classList.remove("hidden"); applyDownloadRight();
   loading(true, "Checking your sign-in and loading the price list…");
   try {
-    loadStep("Loading practices, networks and the price list…"); await Promise.all([loadConfig(), loadPractices(), netPrefetch = fetchAll("network_summary", NET_COLS, "id").catch(() => null)]); loadStep("Loading signals…");
+    loadStep("Loading practices and the price list…");
+    const [, , run] = await Promise.all([loadConfig(), loadPractices(), db.from("ingest_runs").select("finished_at").eq("status", "success").order("id", { ascending: false }).limit(1).then(r => r.data)]);
     if (!practices.length) $("rows").innerHTML = '<tr><td colspan="8" class="p-6 text-center text-slate-500 italic">No data yet, or your account is not authorised.</td></tr>';
     const icbs = [...new Set(practices.map(p => p.icb_name))].sort();
     $("f-icb").innerHTML = '<option value="">All ICBs</option>' + icbs.map(i => `<option>${esc(i)}</option>`).join("");
-    await loadSignals(); await loadSignalSettings(); loadJobs().catch(() => {}); await loadMergeSuggestions(); renderMergers();
-    const { data: run } = await db.from("ingest_runs").select("finished_at").eq("status", "success").order("id", { ascending: false }).limit(1);
     lastRunDate = run && run[0] ? fmtDate(run[0].finished_at) : null;
     $("refresh-badge").textContent = "Refreshed " + (lastRunDate || "never");
-    await loadNetworks(await netPrefetch); loadStep("Preparing the dashboard…"); const openCode = stateFromUrl(); applyFilters(); showTab(currentTab, true); loading(false);
+    const openCode = stateFromUrl(), deepLinked = currentTab !== "practices" || !!openCode;   // a deep link needs the rest before it can draw
+    if (deepLinked) { loadStep("Loading networks and signals…"); await loadSecondary(); }
+    loadStep("Preparing the dashboard…"); applyFilters(); showTab(currentTab, true); loading(false);
     if (openCode && byOds.get(openCode)) openDrawer(byOds.get(openCode));
+    if (!deepLinked) loadSecondary().then(() => applyFilters()).catch(e => { $("n-count").textContent = "Networks unavailable: " + (e.message || e); });
     channel = db.channel("signals").on("postgres_changes", { event: "INSERT", schema: "public", table: "sales_triggers" }, p => { signals.unshift(p.new); indexSignals(); renderSignals(); if (currentTab === "practices") applyFilters(); })
       .subscribe(s => { $("sig-live").textContent = s === "SUBSCRIBED" ? "● live" : "offline"; });
   } catch (err) { $("refresh-badge").textContent = "Failed to load data: " + (err.message || err); $("refresh-badge").classList.remove("hidden"); loadFailed(err); }
