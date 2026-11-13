@@ -1,4 +1,4 @@
--- NOT YET APPLIED (the confirmation prompt timed out). Apply this first, then add cqc_registered_date to FIELDS/summarise in src/cqc.py.
+-- APPLIED 2026-11-13 (run through execute_sql in parts). One signal for a customer merger or closure, a new CQC registration signal; src/cqc.py reads registrationDate.
 -- One signal for a customer that merges or closes (replaces CUSTOMER_MERGER), and a new signal for a practice newly registered with CQC.
 alter table public.gp_practices add column if not exists cqc_registered_date date;
 

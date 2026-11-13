@@ -14,7 +14,7 @@ import requests
 from .common import norm_ods
 
 BASE = "https://api.service.cqc.org.uk/public/v1"
-FIELDS = ["cqc_location_id", "cqc_provider_id", "cqc_status", "cqc_rating", "cqc_last_inspection", "cqc_manager_absent_date", "cqc_brand_name", "address", "town", "county"]
+FIELDS = ["cqc_location_id", "cqc_provider_id", "cqc_status", "cqc_rating", "cqc_last_inspection", "cqc_manager_absent_date", "cqc_registered_date", "cqc_brand_name", "address", "town", "county"]
 GROUP_FIELDS = ["group_name", "group_size"]
 PROVIDER_NAME_CAP = 300
 BACKFILL_BUDGET_SECONDS = 25 * 60
@@ -52,6 +52,7 @@ def summarise(detail):
             "cqc_status": detail.get("registrationStatus"), "cqc_rating": overall.get("rating"),
             "cqc_last_inspection": _date((detail.get("lastInspection") or {}).get("date")),
             "cqc_manager_absent_date": _date(detail.get("registeredManagerAbsentDate")),
+            "cqc_registered_date": _date(detail.get("registrationDate")),
             "cqc_brand_name": (detail.get("brandName") or "").removeprefix("BRAND ").strip() or None,
             "address": ", ".join(x.strip() for x in (detail.get("postalAddressLine1"), detail.get("postalAddressLine2")) if x and x.strip()) or None,
             "town": (detail.get("postalAddressTownCity") or "").strip() or None, "county": (detail.get("postalAddressCounty") or "").strip() or None}

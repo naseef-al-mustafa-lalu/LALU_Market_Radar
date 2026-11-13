@@ -7,7 +7,7 @@ from tests.conftest import make_oscar, make_patients
 
 class FakeRest:
     def __init__(self):
-        self.t = {"gp_practices": {}, "contacts": {}, "patient_counts": {}, "kv_state": {}, "ingest_runs": [], "ingest_rejects": [], "practice_branches": {}}
+        self.t = {"gp_practices": {}, "contacts": {}, "patient_counts": {}, "kv_state": {}, "ingest_runs": [], "ingest_rejects": [], "practice_branches": {}, "contact_review": {}, "contact_nb": {}, "contact_hubspot": {}}
 
     def select_all(self, table, columns="*", order="id", params=None, page=1000):
         rows = self.t[table]
