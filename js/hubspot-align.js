@@ -17,7 +17,7 @@ function hsCase(p) {
   if (par) { const m = siteMove(p); return { mode: "merged", parent: par, site: m && m.branch.practice_code === par.ods_code ? m.branch : null }; }      // site: the merged practice's site goes on as a branch of its successor, so its company is a Branch (Site)
   const m = siteMove(p); return m ? { mode: "branch", parent: m.parent, branch: m.branch } : null;
 }
-const atlasOpStatus = p => p.merged_into ? "merged" : (isClosed(p) || p.status !== "Active") ? "closed" : "active";
+const atlasOpStatus = p => (p.merged_into || siteMove(p)) ? "merged" : (isClosed(p) || p.status !== "Active") ? "closed" : "active";
 const atlasOrgType = p => { const c = hsCase(p); return c && c.mode === "merged" && c.site ? "branch_site" : "practice"; };
 
 function alignOf(p) {      // null when the practice is not in HubSpot
@@ -70,7 +70,7 @@ function alignEntityOpen(p) {
   if (zero) lines.push(row("List size", Number(p.hubspot_list_size).toLocaleString(), "0"));
   if (br) lines.push(row("Branch company", "none yet", `${esc(br.branch_name)} (${esc(br.branch_code)}), Branch (Site), Active, under ${esc(par.practice_name)}; created if HubSpot does not have it, and linked to this company`));
   const why = c.mode === "merged" ? (c.site ? `${esc(p.practice_name)} merged into ${esc(par.practice_name)} and its site goes on as ${esc(c.site.branch_name)} (${esc(c.site.branch_code)}), a branch of ${esc(par.practice_name)}. Its company stays in HubSpot with its code and history, marked Merged and as a Branch (Site), linked to ${esc(par.practice_name)} with the Successor Practice and Parent Practice labels.` : `${esc(p.practice_name)} merged into ${esc(par.practice_name)}. Its company stays in HubSpot with its code and history, marked Merged, linked to ${esc(par.practice_name)} with the Successor Practice label.`)
-    : `${esc(p.practice_name)}'s code (${esc(p.ods_code)}) has closed but its site goes on as ${esc(br.branch_name)} (${esc(br.branch_code)}), a branch of ${esc(par.practice_name)}. This company stays as the closed record and keeps its history. The branch gets its own company, and the two are linked to each other and to ${esc(par.practice_name)}.`;
+    : `${esc(p.practice_name)}'s code (${esc(p.ods_code)}) has closed but its site goes on as ${esc(br.branch_name)} (${esc(br.branch_code)}), a branch of ${esc(par.practice_name)}. This company is marked Merged and keeps its history. The branch gets its own company, and the two are linked to each other and to ${esc(par.practice_name)}.`;
   audModal("Update " + p.practice_name + " in HubSpot", `<p class="text-sm">${why}</p><div class="mt-2">${lines.join("")}</div>
     ${br ? '<label class="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" id="ent-contacts" class="mt-0.5 h-4 w-4 accent-lalu-teal-700" checked><span>Also associate this company\'s contacts with the branch company, so their emails and activity show on both records</span></label>' : ""}
     <p class="mt-2 text-xs text-slate-500">A note is added to each company explaining the change${zero ? ", including the old list size" : ""}. No ODS code is changed.</p>
@@ -80,8 +80,8 @@ function alignEntityOpen(p) {
       const r = await hsCall({ action: "entity_change", mode: c.mode, orgType: a.org.atlas, zeroSize: zero, ods: p.ods_code, companyId: String(p.hubspot_company_id), parentOds: par.ods_code, parentCompanyId: String(par.hubspot_company_id),
         ...(br ? { branch: { code: br.branch_code, name: br.branch_name, address: br.address || "", town: br.town || "", postcode: br.postcode || "", phone: br.phone || "" }, moveContacts: !!$("ent-contacts").checked } : {}) });
       const day = new Date().toISOString().slice(0, 10), me = await audMe();
-      p.hubspot_operating_status = c.mode === "merged" ? "merged" : "closed"; p.hubspot_org_type = a.org.atlas; if (zero) p.hubspot_list_size = 0; p.hubspot_successor_company_id = String(par.hubspot_company_id);
-      p.hubspot_change_note = (c.mode === "merged" ? `Merged into ${par.practice_name} (${par.ods_code}); marked Merged and linked to its successor in HubSpot` : `Closed; site continues as ${br.branch_code}, a branch of ${par.practice_name} (${par.ods_code}); marked Closed in HubSpot and linked to the parent and the branch company`) + ` on ${day} by ${me}`;
+      p.hubspot_operating_status = "merged"; p.hubspot_org_type = a.org.atlas; if (zero) p.hubspot_list_size = 0; p.hubspot_successor_company_id = String(par.hubspot_company_id);
+      p.hubspot_change_note = (c.mode === "merged" ? `Merged into ${par.practice_name} (${par.ods_code}); marked Merged and linked to its successor in HubSpot` : `Closed; site continues as ${br.branch_code}, a branch of ${par.practice_name} (${par.ods_code}); marked Merged in HubSpot and linked to the parent and the branch company`) + ` on ${day} by ${me}`;
       audModalClose(); if (r.warnings && r.warnings.length) alert(r.warnings.join("\n")); openDrawer(p); if (typeof renderHubspotPanel === "function") renderHubspotPanel();
     } : null, "Update HubSpot");
 }
