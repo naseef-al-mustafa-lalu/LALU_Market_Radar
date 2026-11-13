@@ -54,8 +54,12 @@ async function loadSignals() {
 function indexSignals() {
   signalCodes = new Set(signals.map(s => s.ods_code)); signalCounts = new Map();
   signals.forEach(s => signalCounts.set(s.ods_code, (signalCounts.get(s.ods_code) || 0) + 1));
-  const recent = signals.filter(s => (s.status || "new") === "new" && Date.now() - new Date(s.detected_at) < 7 * 864e5).length;
-  $("sig-badge").textContent = recent; $("sig-badge").classList.toggle("hidden", !recent);
+  refreshSigBadge();
+}
+async function refreshSigBadge() {   // every signal still marked new, counted in the database (the page only holds the newest 500)
+  const { count } = await db.from("sales_triggers").select("id", { count: "exact", head: true }).or("status.is.null,status.eq.new");
+  const n = count || 0;
+  $("sig-badge").textContent = n.toLocaleString("en-GB"); $("sig-badge").classList.toggle("hidden", !n);
 }
 let netPrefetch = null;
 // Federations and operating groups defined in HubSpot (association labels), and the HubSpot company behind each network
