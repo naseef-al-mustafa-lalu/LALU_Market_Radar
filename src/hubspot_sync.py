@@ -52,7 +52,7 @@ def fetch_companies(hub):
     out, after = [], None
     while True:
         body = {"filterGroups": [{"filters": [{"propertyName": "partner_organisation_code", "operator": "HAS_PROPERTY"}]}], "limit": 100,
-                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate", "patient_list_size", "org_type", "operating_status", "website", "hs_parent_company_id"], "sorts": ["createdate"]}
+                "properties": ["name", "partner_organisation_code", "lifecyclestage", "company_status", "current_subscription", "zip", "createdate", "patient_list_size", "org_type", "operating_status", "merger_date", "website", "hs_parent_company_id"], "sorts": ["createdate"]}
         if after:
             body["after"] = after
         d = hub.call("POST", "/crm/v3/objects/companies/search", json=body)
@@ -499,6 +499,36 @@ def push_alignment(rest, hub, auto):
         rest.upsert("gp_practices", [{"ods_code": c["ods"], "practice_name": c["name"], **{"hubspot_" + k: v for k, v in c["props"].items() if k != "closure_date"}} for c in ch], "ods_code")
         labels = {"org_type": "Org Type", "operating_status": "Operating status", "closure_date": "Closure date"}
         add_notes(hub, "companies", [(c["id"], note_text("set from NHS data by the daily sync", [change_line(labels[k], (c.get("was") or {}).get(k), v) for k, v in c["props"].items()])) for c in ch])
+        done += ch
+    return done, err
+
+
+HOLD_MERGER_DATE = {"current customer", "in pilot"}   # a customer's merger date is set by the merge button (it can start the customer alert), never silently by the sync
+
+
+def plan_merger_dates(practices, rows, hs_props):
+    """Companies already Merged in HubSpot that have no Merger date: the date the practice stopped (NHS end date, else when the merger was recorded in Atlas). Customers are left for a person."""
+    out = []
+    for r in rows:
+        p, cid = practices.get(r["ods_code"]), str(r.get("hubspot_company_id") or "")
+        cur = hs_props.get(cid) or {}
+        if not p or not cid or (cur.get("operating_status") or "").lower() != "merged" or cur.get("merger_date") or (cur.get("company_status") or "").lower() in HOLD_MERGER_DATE:
+            continue
+        day = str(p.get("operational_end_date") or "")[:10] or str(p.get("merged_at") or "")[:10]
+        if day:
+            out.append({"ods": r["ods_code"], "id": cid, "name": p["practice_name"], "date": day})
+    return out
+
+
+def push_merger_dates(hub, todo):
+    done, err = [], None
+    for ch in chunks(todo, 100):
+        try:
+            hub.call("POST", "/crm/v3/objects/companies/batch/update", json={"inputs": [{"id": c["id"], "properties": {"merger_date": c["date"]}} for c in ch]})
+        except Exception as e:  # noqa: BLE001
+            err = str(e)[:300]
+            break
+        add_notes(hub, "companies", [(c["id"], note_text("Merger date filled in by the daily sync", [change_line("Merger date", None, c["date"])])) for c in ch])
         done += ch
     return done, err
 
@@ -1217,7 +1247,7 @@ def record(rest, rows, actor):
 
 def sync(rest, hub, now=None, actor="daily sync"):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,data_month,postcode,status,merged_into,closure_confirmed_at,operational_end_date,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
+    practices = {p["ods_code"]: p for p in rest.select_all("gp_practices", "ods_code,practice_name,total_patients,data_month,postcode,status,merged_into,merged_at,closure_confirmed_at,operational_end_date,pcn_code,hubspot_company_id,hubspot_company_imported_at,hubspot_stage,hubspot_engaged,hubspot_customer", order="ods_code")}
     raw, total = fetch_companies(hub)
     by_ods = {}
     for c in raw:
@@ -1296,6 +1326,13 @@ def sync(rest, hub, now=None, actor="daily sync"):
                        "detail": {"changes": written[:300], "error": err, "cases": cases}}], actor)
     elif flag2.get("enabled") is True and len(todo) > ALIGN_MAX:
         sizes["alignment_held"] = len(todo)   # the Data panel offers "approve this run"
+    if flag2.get("enabled") is True:   # merged companies that never got a Merger date (merged before Atlas wrote one) are filled in, except customers
+        dates = plan_merger_dates(practices, rows, {str(c["id"]): c.get("properties", {}) for c in raw})
+        sizes["merger_dates_pending"] = len(dates)
+        if 0 < len(dates) <= ALIGN_MAX:
+            written, err = push_merger_dates(hub, dates)
+            sizes["merger_dates_written"] = len(written)
+            record(rest, [{"kind": "merger_dates", "ok": not err, "summary": f"Filled in the Merger date on {len(written):,} merged HubSpot companies" + (f"; stopped: {err}" if err else ""), "detail": {"changes": written[:100], "error": err}}], actor)
     audit_all = audit_rows(raw, practices, now) + life_audit
     conflicts = []
 

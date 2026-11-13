@@ -1116,6 +1116,18 @@ def test_neverbounce_settings_choose_days_auto_push_and_manual_push():
     assert nb.run(rest, hub, "k", tue, push_only=True, settings={"enabled": False, "days": [], "auto_push": False})["push_only"]      # a manual push ignores the switches and days
 
 
+def test_merger_dates_fill_only_merged_companies_without_one_and_never_customers():
+    from src import hubspot_sync as hsn
+    practices = {c: {"practice_name": c + " Surgery", "operational_end_date": e, "merged_at": m} for c, e, m in [
+        ("A1", "2026-09-30", "2026-11-13"), ("A2", None, "2026-11-05T09:00:00+00:00"), ("A3", None, None), ("A4", None, "2026-10-01"), ("A5", None, "2026-10-02"), ("A6", None, "2026-10-03"), ("A7", None, "2026-10-04")]}
+    rows = [{"ods_code": c, "hubspot_company_id": str(i)} for i, c in enumerate(practices, 1)]
+    hs = {"1": {"operating_status": "merged"}, "2": {"operating_status": "merged", "company_status": "Ex-Customer"}, "3": {"operating_status": "merged"},
+          "4": {"operating_status": "merged", "merger_date": "2026-10-01"}, "5": {"operating_status": "merged", "company_status": "Current Customer"},
+          "6": {"operating_status": "active"}, "7": {"operating_status": "merged", "company_status": "In Pilot"}}
+    got = hsn.plan_merger_dates(practices, rows, hs)
+    assert [(g["ods"], g["date"]) for g in got] == [("A1", "2026-09-30"), ("A2", "2026-11-05")], got      # NHS end date first, else the day it was recorded; customers, already dated, not merged and no date at all are all left alone
+
+
 def test_segments_sync_tracks_two_campaign_lists_and_reads_their_criteria():
     from src import segments as sg
 
