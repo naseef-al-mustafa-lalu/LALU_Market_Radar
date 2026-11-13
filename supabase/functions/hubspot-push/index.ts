@@ -14,7 +14,7 @@ const reply = (body: unknown, status = 200) =>
 
 const COMPANY_READ = ["name", "partner_organisation_code", "patient_list_size", "domain"];
 const COMPANY_FIND = [...COMPANY_READ, "zip", "address", "city", "website"];
-const COMPANY_CREATE = new Set(["name", "partner_organisation_code", "patient_list_size", "address", "city", "county", "zip", "phone", "website", "country", "company_status"]);
+const COMPANY_CREATE = new Set(["name", "partner_organisation_code", "patient_list_size", "address", "city", "county", "zip", "phone", "website", "country", "company_status", "org_type", "operating_status"]);
 const COMPANY_STATUS = new Set(["Prospective Customer"]);   // the only status a new company may be created with
 const NETWORK_TYPES = new Set(["p145802630_pcns", "p145802630_icbs"]);
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -468,6 +468,7 @@ Deno.serve(async (req) => {
         if (!props.name || String(props.partner_organisation_code ?? "").toUpperCase() !== ods) throw new Fail("A name and the matching GP ODS Code are required");
         if (props.company_status && !COMPANY_STATUS.has(String(props.company_status))) throw new Fail("Unsupported Company Status for a new company");
         props.partner_organisation_code = ods;
+        props.org_type = "practice"; props.operating_status = "active";   // a practice Atlas adds is an active practice: fixed here, whatever the browser sent (the sync's alignment check expects these)
         companyId = String((await hs(`/crm/v3/objects/companies`, { method: "POST", body: JSON.stringify({ properties: props }) })).id);
         await noteOn("companies", companyId, noteBody(who, "company created from the practice profile", changes({}, props)), warnings);
       }
@@ -485,7 +486,7 @@ Deno.serve(async (req) => {
         catch (e) { warnings.push(`Association to ${n.type === "p145802630_pcns" ? "PCN" : "ICB"} record: ${(e as Error).message}`); }
       }
       const now = new Date().toISOString();
-      await admin.from("gp_practices").update({ hubspot_company_id: companyId, hubspot_company_imported_at: now, hubspot_synced_at: now }).eq("ods_code", ods);
+      await admin.from("gp_practices").update({ hubspot_company_id: companyId, hubspot_company_imported_at: now, hubspot_synced_at: now, ...(b.action === "create_company" ? { hubspot_org_type: "practice", hubspot_operating_status: "active" } : {}) }).eq("ods_code", ods);
       await log({ actor: who, kind: b.action, ods_code: ods, target: String((b.company ?? {}).name ?? ""), hubspot_type: "company", hubspot_id: companyId,
         summary: b.action === "create_company" ? `Created company ${(b.company ?? {}).name ?? ods} with ${done.contacts.length} contact(s) and ${done.networks.length} PCN/ICB association(s)` : `Linked existing company ${companyId} to ${ods}`,
         detail: { done, warnings, company: b.company ?? null } });
