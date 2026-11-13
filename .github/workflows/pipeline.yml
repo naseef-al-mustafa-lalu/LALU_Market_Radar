@@ -34,6 +34,8 @@ jobs:
           FORCE_INGEST: ${{ inputs.force && '1' || '' }}
         run: python -m src.ingest
       - name: Post new signals to Slack
+        id: slack
+        continue-on-error: true   # a Slack problem must not mark a successful data load as failed; nothing is marked sent, so the next run posts them
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -46,3 +48,6 @@ jobs:
           SLACK_MODE: ${{ vars.SLACK_MODE || 'ON' }}    # ON or DISABLED
           MIN_TIER_ALERT: ${{ vars.MIN_TIER_ALERT || 'Tier 3' }}  # Tier 1..5 (1 = 20,000+ patients, 3 = 10,000+, 5 = all)
         run: python -m src.notify
+      - name: Warn if Slack failed
+        if: steps.slack.outcome == 'failure'
+        run: echo "::warning title=Slack post failed::Data loaded, but signals were not posted to Slack (check SLACK_BOT_TOKEN). They will post on the next run once it works."
