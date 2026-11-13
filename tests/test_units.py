@@ -1068,8 +1068,52 @@ def test_neverbounce_queue_run_and_results():
     ok = [p for p in rest.patched if p[1] == {"contact_urn": "eq.1"}][0][2]
     nbrows = {r[1][0]["contact_urn"]: r[1][0] for r in rest.upserted if r[0] == "contact_nb"}
     assert nbrows[1]["nb_result"] == "Accept All (Unverifiable)" and nbrows[1]["nb_state"] == "checked" and "nb_result" not in ok and ok["hubspot_contact_id"] == "555" and {r[1][0]["contact_urn"]: r[1][0]["hs_neverbounce"] for r in rest.upserted if r[0] == "contact_hubspot"}[2] == "Invalid"
-    assert nb.run(rest, hub, "k", datetime(2026, 11, 10, 7, 0, tzinfo=timezone.utc), get=get) == {"skipped": "outside Monday before 09:00 UK"}
+    assert nb.run(rest, hub, "k", datetime(2026, 11, 10, 7, 0, tzinfo=timezone.utc), get=get) == {"skipped": "outside the chosen days before 09:00 UK"}
     assert "2 checked" in nb.report(out)
+
+
+def test_neverbounce_settings_choose_days_auto_push_and_manual_push():
+    from datetime import datetime, timezone
+    from src import neverbounce as nb
+    mon, tue = datetime(2026, 11, 9, 7, 0, tzinfo=timezone.utc), datetime(2026, 11, 10, 7, 0, tzinfo=timezone.utc)
+    assert nb.run(None, None, "k", mon, settings={"enabled": False, "days": [0], "auto_push": True}) == {"skipped": "NeverBounce checks are switched off"}
+    assert nb.run(None, None, "k", tue, settings={"enabled": True, "days": [0], "auto_push": True})["skipped"].startswith("outside")
+    assert nb.uk_window(tue, [1, 3]) and not nb.uk_window(tue, [0, 2])
+    class R:
+        def __init__(self, v=None): self.v, self.patched, self.tables = v, [], {
+            "contacts_full": [dict(contact_urn=1, ods_code="A1", full_name="Jane Doe", first_name="Jane", last_name="Doe", job_title="Practice Manager", email="jane.doe@nhs.net", phone=None, nb_result="Valid", role_tier="A"),
+                              dict(contact_urn=2, ods_code="A1", full_name="Bad One", first_name="Bad", last_name="One", job_title="Practice Manager", email="bad.one@nhs.net", phone=None, nb_result="Invalid", role_tier="A")],
+            "gp_practices": [dict(ods_code="A1", hubspot_company_id="77")], "app_flags": [dict(key="neverbounce_settings", value=v)] if v else []}
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "contacts_full" and params and params.get("nb_state") == "eq.approved": return self.tables["contacts_full"]
+            if table == "contacts_full" and params and params.get("nb_state") == "eq.checked": return self.tables["contacts_full"][:1]      # only the passing one is waiting
+            return self.tables[table]
+        def patch(self, table, filters, values): self.patched.append((table, filters, values))
+        def upsert(self, table, rows, on_conflict): pass
+        def rpc(self, name, args=None): return None
+    assert nb.load_settings(R()) == {"enabled": True, "days": [0], "auto_push": True}
+    assert nb.load_settings(R({"enabled": False, "days": [2, 4, 9], "auto_push": False})) == {"enabled": False, "days": [2, 4], "auto_push": False}
+    class H:
+        def __init__(self): self.calls = []
+        def call(self, method, path, **kw):
+            self.calls.append((method, path))
+            if path.endswith("/contacts/search"): return {"results": []}
+            if method == "POST" and path == "/crm/v3/objects/contacts": return {"id": "555"}
+            return {}
+    answers = {"jane.doe@nhs.net": "valid", "bad.one@nhs.net": "invalid"}
+    def get(url, params=None, timeout=0):
+        class J:
+            def json(self_inner):
+                if url.endswith("/account/info"): return {"credits_info": {"paid_credits_remaining": 90, "free_credits_remaining": 10}}
+                return {"status": "success", "result": answers[params["email"]]}
+        return J()
+    rest, hub = R(), H()
+    out = nb.run(rest, hub, "k", mon, get=get, settings={"enabled": True, "days": [0], "auto_push": False})
+    assert out["checked"] == 2 and out["passed"] == 1 and out["waiting_push"] == 1 and out["created"] == 0 and not hub.calls and not [p for p in rest.patched if p[0] == "contacts"], out      # auto-push off: checked, nothing sent to HubSpot
+    pushed = nb.push_waiting(rest, hub, mon)
+    assert pushed["pushed"] == 1 and pushed["created"] == 1 and ("PUT", "/crm/v4/objects/contacts/555/associations/default/companies/77") in hub.calls
+    assert [p for p in rest.patched if p[0] == "contacts"][0][2]["hubspot_contact_id"] == "555"
+    assert nb.run(rest, hub, "k", tue, push_only=True, settings={"enabled": False, "days": [], "auto_push": False})["push_only"]      # a manual push ignores the switches and days
 
 
 def test_segments_sync_tracks_two_campaign_lists_and_reads_their_criteria():

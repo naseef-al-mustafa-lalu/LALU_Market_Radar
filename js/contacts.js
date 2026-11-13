@@ -1,5 +1,6 @@
 /* Contacts tab: every contact Atlas holds, who may be contacted and why not, saved segments, and the settings that switch job roles and suppression rules on and off.
    The rules live in contact-rules.js. Loaded after contact-rules.js. Contacts are read from public.contacts; their HubSpot state (lifecycle, sequence, bounce...) is kept there by the daily HubSpot sync. */
+let ctNbSet = { enabled: true, days: [0], auto_push: true }, ctNbWaiting = 0, ctNbMsg = "";   // NeverBounce schedule (saved on its own, the moment a choice changes)
 let ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctHeld = null, ctSaving = false;
 let ctMoreOpen = false, ctF = { dq: "", q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "" };
 // Hand-picking: null while the filters decide who is in; once a box is ticked or unticked it is the explicit set of contact urns (a saved segment keeps it as its members).
@@ -68,9 +69,10 @@ async function ctExport(f, urns, name, off) {
 let ctFlagsP = null;
 function ctLoadFlags() { return ctFlagsReady ? Promise.resolve() : (ctFlagsP = ctFlagsP || ctLoadFlagsNow().finally(() => { ctFlagsP = null; })); }
 async function ctLoadFlagsNow() {   // the saved rules, saved filters and the count of contacts with no email: small, read once
-  const [flags, ne, run] = await Promise.all([db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments"]), db.from("contact_noemail").select("ref", { count: "exact", head: true }),
+  const [flags, waiting, ne, run] = await Promise.all([db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments", "neverbounce_settings"]), db.rpc("contacts_nb_waiting"), db.from("contact_noemail").select("ref", { count: "exact", head: true }),
     db.from("ingest_runs").select("stats").eq("status", "success").order("id", { ascending: false }).limit(1)]);
   const f = Object.fromEntries((flags.data || []).map(r => [r.key, r.value]));
+  const nbs = f.neverbounce_settings || {}; ctNbSet = { enabled: nbs.enabled !== false, days: Array.isArray(nbs.days) ? nbs.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [0], auto_push: nbs.auto_push !== false }; ctNbWaiting = Number(waiting.data) || 0;
   ctSetRules(f.contact_rules); ctSegments = (f.contact_segments && f.contact_segments.list) || []; ctNoEmail = ne.count || 0; ctHeld = ((run.data || [])[0] || {}).stats || null; ctFlagsReady = true;
 }
 async function ctLoadReview(more) {   // the Review tab: the four counts, and 100 rows (or titles) of the open tab; "more" adds the next 100
@@ -203,7 +205,13 @@ function ctSettings() {
       <div class="mt-2 divide-y divide-slate-100">${CT_ROLES.map(([id, label, , , locked]) => `<div class="flex flex-wrap items-center justify-between gap-2 py-2"><div class="min-w-0"><div class="text-sm font-medium">${esc(label)}</div><div class="text-xs text-slate-500">${(counts[id] || 0).toLocaleString()} contact${(counts[id] || 0) === 1 ? "" : "s"}</div></div>${locked ? '<span class="text-xs text-slate-400">always off</span>' : seg(id, ctRoleMode(id))}</div>`).join("")}</div></details>
     <section class="rounded-xl border border-slate-200 bg-white p-4 space-y-2"><h3 class="font-bold">Email addresses</h3>
       ${sw("likely", ctRules.likely, "Accept likely-direct addresses", "Part of the person's name is in the address (for example jsmith@). Off by default.")}
-      ${sw("strictValid", ctRules.strictValid, "NeverBounce: only Valid addresses", "Hold back Unknown and Accept-all results as well as Invalid and Disposable. Needs the NeverBounce rule below.")}</section>
+      ${sw("strictValid", ctRules.strictValid, "NeverBounce: only Valid addresses", "Hold back Unknown and Accept-all results as well as Invalid and Disposable. Needs the NeverBounce rule below.")}
+      <fieldset class="rounded-lg border border-slate-200 px-3 py-2.5"><legend class="px-1 text-sm font-semibold">NeverBounce checks <span class="text-xs font-normal text-slate-500">(saved as soon as you change them)</span></legend>
+        <label class="flex cursor-pointer items-center justify-between gap-4 py-1"><span class="text-sm"><b>Run checks</b><span class="block text-xs text-slate-500">Off: no addresses are checked on any day. Contacts you approve wait in the queue.</span></span><input type="checkbox" class="ct-nbs h-4 w-4 accent-lalu-teal-700" data-k="enabled" ${ctNbSet.enabled ? "checked" : ""}></label>
+        <div class="py-1"><div class="text-sm font-semibold">Days the check runs</div><div class="text-xs text-slate-500">It runs early on each ticked day (before 09:00 UK) and checks every approved contact, up to 1,500 a run.</div><div class="mt-1 flex flex-wrap gap-1.5">${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) => `<label class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 text-xs"><input type="checkbox" class="ct-nbs h-3.5 w-3.5 accent-lalu-teal-700" data-k="day" value="${i}" ${ctNbSet.days.includes(i) ? "checked" : ""}>${d}</label>`).join("")}</div></div>
+        <label class="flex cursor-pointer items-center justify-between gap-4 py-1"><span class="text-sm"><b>Push passing contacts to HubSpot automatically</b><span class="block text-xs text-slate-500">On: a contact that passes is created in HubSpot straight away. Off: the result is kept in Atlas and the contact waits here until you push it.</span></span><input type="checkbox" class="ct-nbs h-4 w-4 accent-lalu-teal-700" data-k="auto_push" ${ctNbSet.auto_push ? "checked" : ""}></label>
+        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"><span class="text-sm"><b>${ctNbWaiting.toLocaleString()}</b> contact${ctNbWaiting === 1 ? "" : "s"} passed and ${ctNbWaiting === 1 ? "is" : "are"} waiting to be pushed to HubSpot</span><button id="ct-nb-push" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50" ${ctNbWaiting ? "" : "disabled"}>Push to HubSpot now</button></div>
+        <div id="ct-nbs-msg" class="min-h-[1rem] pt-1 text-xs text-slate-500" role="status">${esc(ctNbMsg)}</div></fieldset></section>
     <details class="rounded-xl border border-slate-200 bg-white p-4"><summary class="cursor-pointer font-bold">Re-engagement: disqualified leads and lost deals <span class="text-xs font-normal text-slate-500">(which reasons put a contact in the Re-engagement list)</span></summary><div class="mt-2 space-y-2"><p class="text-xs text-slate-500">The Re-engagement campaign type lists contacts whose latest lead was disqualified (HubSpot's Lead property Disqualification Reason) or whose latest deal was closed lost (UM Closed Lost Reasons) for a reason switched on here. Customers are never listed, and the suppression rules below still apply.</p>
       ${Object.entries(CT_DQ).map(([v, l]) => sw("dq:" + v, ctDqOn(v), esc(l), "", `<span class="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">${(((ctStats || {}).dq || {})[v] || 0).toLocaleString()} contacts</span>`)).join("")}
       <h4 class="pt-2 text-sm font-bold">Deal lost because</h4>${CT_LOST.map(v => sw("dq:lost:" + v, ctDqOn("lost:" + v), esc(v), "", `<span class="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">${(((ctStats || {}).lost || {})[v] || 0).toLocaleString()} contacts</span>`)).join("")}</div></details>
@@ -232,6 +240,21 @@ async function ctSave() {
   } catch (e) { alert("Could not save: " + (e.message || e)); }
   ctSaving = false; ctTabReady = {}; ctLoadTab(true);
 }
+async function ctSaveNbSettings(el) {   // the schedule is not a contact rule: it saves at once and needs no recalculation
+  const was = JSON.stringify(ctNbSet), k = el.dataset.k;
+  if (k === "day") ctNbSet.days = [...document.querySelectorAll('.ct-nbs[data-k="day"]:checked')].map(x => Number(x.value)).sort(); else ctNbSet[k] = el.checked;
+  const msg = $("ct-nbs-msg"); if (msg) msg.textContent = "Saving…";
+  const { error } = await db.from("app_flags").upsert([{ key: "neverbounce_settings", value: ctNbSet, updated_by: await audMe(), updated_at: new Date().toISOString() }]);
+  if (error) { ctNbSet = JSON.parse(was); ctNbMsg = "Could not save: " + (error.message || error); }
+  else ctNbMsg = !ctNbSet.enabled ? "Saved. No checks will run." : !ctNbSet.days.length ? "Saved. No days are ticked, so no checks will run." : "Saved.";
+  renderContacts();
+}
+async function ctNbPush(btn) {
+  if (!confirm(`Create the ${ctNbWaiting.toLocaleString()} waiting contact${ctNbWaiting === 1 ? "" : "s"} in HubSpot now?`)) return;
+  btn.disabled = true; const { data, error } = await db.functions.invoke("neverbounce-trigger");
+  ctNbMsg = error || (data && data.error) ? "Could not start the push: " + ((data && data.error) || (error && error.message)) : "Push started. It takes a few minutes; reopen Settings afterwards to see the count drop.";
+  renderContacts();
+}
 async function ctSaveSegments() { ctTabReady.segments = false; const { error } = await db.from("app_flags").upsert([{ key: "contact_segments", value: { list: ctSegments }, updated_by: await audMe(), updated_at: new Date().toISOString() }]); if (error) alert("Could not save: " + (error.message || error)); }
 function ctCsv(rows, name) {
   const cell = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -244,6 +267,7 @@ document.addEventListener("change", e => {
   if (m) { ctF[m] = e.target.value; ctRefilter(); return; }
   if (e.target.id === "ct-title-f") { ctTitleF = e.target.value; ctTitleShown = 100; renderContacts(); return; }
   if (e.target.classList && e.target.classList.contains("ct-bounce-set")) { ctRules.bounceHold = [...document.querySelectorAll(".ct-bounce-set:checked")].map(x => x.value); ctRulesChanged(); return; }
+  if (e.target.classList && e.target.classList.contains("ct-nbs")) { ctSaveNbSettings(e.target); return; }
   if (e.target.id === "ct-owners") { ctRules.owners = e.target.value.split(/[\s,;]+/).filter(Boolean); ctRulesChanged(); return; }
   if (e.target.classList.contains("ct-rule-set")) { const k = e.target.dataset.id; if (k.startsWith("dq:")) ctRules.dq[k.slice(3)] = e.target.checked; else if (k === "likely") ctRules.likely = e.target.checked; else if (k === "strictValid") ctRules.strictValid = e.target.checked; else ctRules.suppression[k] = e.target.checked; ctRulesChanged(); }
 });
@@ -260,6 +284,7 @@ document.addEventListener("click", e => {
   if (t.closest("#ct-clear")) { ctF = { ...ctF, section: "", status: "", reason: "", role: "", source: "", lifecycle: "", dq: "" }; ctShown = 100; ctLoadPage(); return; }
   if (ctMoreOpen && !t.closest("#ct-more")) { ctMoreOpen = false; renderContacts(); }
   if (t.closest("#ct-save")) { ctSave(); return; }
+  if (t.closest("#ct-nb-push")) { ctNbPush(t.closest("#ct-nb-push")); return; }
   if (t.closest("#ct-reset")) { if (confirm("Reset job roles and suppression rules to the defaults?")) { ctSetRules(null); ctRulesChanged(); } return; }
   if (t.closest(".ct-more")) { ctLoadMore(); return; }
   if (t.closest("#ct-csv")) { ctExport(ctQueryFilters(), ctPick && ctPick.size ? ctPick : null, "atlas-eligible-contacts.csv", ctPick ? null : ctOff); return; }

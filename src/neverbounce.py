@@ -28,10 +28,25 @@ def standard_role(title):
     return next((role for role, rx in ROLE_RULES if re.search(rx, t)), "Other")
 
 
-def uk_monday_morning(now):
-    """The run window: Monday before 09:00 UK time (UTC in winter, UTC+1 in summer, so 08:00 UTC is the latest safe start)."""
+DEFAULT_SETTINGS = {"enabled": True, "days": [0], "auto_push": True}   # days: 0 = Monday ... 6 = Sunday; auto_push: create passing contacts in HubSpot as soon as they are checked
+
+
+def load_settings(rest):
+    """The Contacts > Settings choices (app_flags.neverbounce_settings), over the defaults."""
+    rows = rest.select_all("app_flags", "key,value", order="key", params={"key": "eq.neverbounce_settings"})
+    v = (rows[0].get("value") if rows else None) or {}
+    days = [d for d in v.get("days", DEFAULT_SETTINGS["days"]) if isinstance(d, int) and 0 <= d <= 6]
+    return {"enabled": v.get("enabled", True) is not False, "days": days, "auto_push": v.get("auto_push", True) is not False}
+
+
+def uk_window(now, days):
+    """The run window: one of the chosen days, before 09:00 UK time (UTC in winter, UTC+1 in summer, so 08:00 UTC is the latest safe start)."""
     uk = now + timedelta(hours=1) if 3 < now.month < 11 else now
-    return uk.weekday() == 0 and uk.hour < 9
+    return uk.weekday() in days and uk.hour < 9
+
+
+def uk_monday_morning(now):
+    return uk_window(now, [0])
 
 
 def verify(email, key, get=requests.get):
@@ -86,10 +101,39 @@ def hubspot_contact(hub, c, company_id, status):
     return cid, created
 
 
-def run(rest, hub, key, now=None, get=requests.get, force=False):
+def push_waiting(rest, hub, now=None):
+    """Create in HubSpot every contact that passed NeverBounce but is not there yet (checks done with auto-push off, or a HubSpot error last time). Returns the counts."""
     now = now or datetime.now(timezone.utc)
-    if not force and not uk_monday_morning(now):
-        return {"skipped": "outside Monday before 09:00 UK"}
+    rows = rest.select_all("contacts_full", "contact_urn,ods_code,full_name,first_name,last_name,job_title,email,phone,nb_result", order="contact_urn",
+                           params={"nb_state": "eq.checked", "nb_result": f"in.({','.join(chr(34) + x + chr(34) for x in sorted(PASS))})", "hubspot_contact_id": "is.null", "email": "not.is.null"})
+    companies = {r["ods_code"]: r.get("hubspot_company_id") for r in rest.select_all("gp_practices", "ods_code,hubspot_company_id", order="ods_code")}
+    out = {"pushed": 0, "created": 0, "errors": 0}
+    for c in rows:
+        try:
+            cid, created = hubspot_contact(hub, c, companies.get(c["ods_code"]), c["nb_result"])
+        except Exception as e:  # noqa: BLE001  it stays waiting for the next push
+            out["errors"] += 1
+            out["last_error"] = str(e)[:200]
+            if out["errors"] >= 5:
+                break
+            continue
+        rest.patch("contacts", {"contact_urn": f"eq.{c['contact_urn']}"}, {"hubspot_contact_id": cid, "hubspot_status": "Imported", "hubspot_imported_at": now.isoformat()})
+        out["pushed"] += 1
+        out["created"] += int(created)
+    if out["pushed"]:
+        out.update(refresh_contact_status(rest))
+    return out
+
+
+def run(rest, hub, key, now=None, get=requests.get, force=False, settings=None, push_only=False):
+    now = now or datetime.now(timezone.utc)
+    if push_only:
+        return {"push_only": True, **push_waiting(rest, hub, now)}
+    settings = settings or DEFAULT_SETTINGS
+    if not force and not settings["enabled"]:
+        return {"skipped": "NeverBounce checks are switched off"}
+    if not force and not uk_window(now, settings["days"]):
+        return {"skipped": "outside the chosen days before 09:00 UK"}
     approved = rest.select_all("contacts_full", "contact_urn,ods_code,full_name,first_name,last_name,job_title,email,phone", order="contact_urn", params={"nb_state": "eq.approved"})
     if not approved:
         return {"checked": 0}
@@ -112,13 +156,16 @@ def run(rest, hub, key, now=None, get=requests.get, force=False):
         patch = {}
         if status in PASS:
             out["passed"] += 1
-            try:
-                cid, created = hubspot_contact(hub, c, companies.get(c["ods_code"]), status)
-                patch.update(hubspot_contact_id=cid, hubspot_status="Imported", hubspot_imported_at=now.isoformat())
-                out["created"] += int(created)
-            except Exception as e:  # noqa: BLE001  the result is still recorded in Atlas; HubSpot is retried by hand
-                out["errors"] += 1
-                out["last_error"] = str(e)[:200]
+            if not settings["auto_push"]:   # the result is kept; the contact waits in Atlas until someone pushes it
+                out["waiting_push"] = out.get("waiting_push", 0) + 1
+            else:
+                try:
+                    cid, created = hubspot_contact(hub, c, companies.get(c["ods_code"]), status)
+                    patch.update(hubspot_contact_id=cid, hubspot_status="Imported", hubspot_imported_at=now.isoformat())
+                    out["created"] += int(created)
+                except Exception as e:  # noqa: BLE001  the result is still recorded in Atlas; HubSpot is retried by hand
+                    out["errors"] += 1
+                    out["last_error"] = str(e)[:200]
         else:
             out["failed"] += 1
         rest.upsert("contact_nb", [nb_row], "contact_urn")   # the NeverBounce result is written to its own table only
@@ -143,7 +190,10 @@ def report(out, link=""):
     if out.get("skipped"):
         return None
     st = ", ".join(f"{k} {v}" for k, v in sorted(out.get("by_status", {}).items())) or "nothing checked"
+    if out.get("push_only"):
+        return f":white_check_mark: *NeverBounce push*: {out.get('pushed', 0)} contacts pushed to HubSpot ({out.get('created', 0)} new there){'; ' + str(out['errors']) + ' errors, last: ' + slack.mrkdwn(out.get('last_error', '')) if out.get('errors') else ''}{' ' + link if link else ''}"
     return (f":white_check_mark: *NeverBounce run*: {out.get('checked', 0)} checked ({st}); {out.get('created', 0)} created in HubSpot (not added to any list: they wait for review in Atlas)"
+            f"{'; ' + str(out['waiting_push']) + ' passed and wait to be pushed to HubSpot' if out.get('waiting_push') else ''}"
             f"{'; ' + str(out['waiting']) + ' still waiting' if out.get('waiting') else ''}{'; credits left ' + str(out['credits_remaining']) if out.get('credits_remaining') is not None else ''}"
             f"{'; ' + str(out['errors']) + ' errors, last: ' + slack.mrkdwn(out.get('last_error', '')) if out.get('errors') else ''}{' ' + link if link else ''}")
 
@@ -157,9 +207,14 @@ def main():
             sys.exit(2)
     rest, hub = Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), Hub(env["HUBSPOT_TOKEN"])
     now = datetime.now(timezone.utc)
-    out = run(rest, hub, env["NEVERBOUNCE_API_KEY"], now, force=env.get("NB_FORCE") == "1")
+    push_only = env.get("NB_PUSH_ONLY") == "1"
+    out = run(rest, hub, env["NEVERBOUNCE_API_KEY"], now, force=env.get("NB_FORCE") == "1", settings=load_settings(rest), push_only=push_only)
     print(out)
-    if out.get("skipped") or not out.get("checked") and not out.get("errors"):
+    if not push_only and load_settings(rest)["auto_push"]:   # contacts that passed earlier but never reached HubSpot (auto-push was off, or HubSpot failed) go now
+        late = push_waiting(rest, hub, now)
+        for k in ("pushed", "created", "errors"):
+            out[k + "_late"] = late[k]
+    if out.get("skipped") or not out.get("checked") and not out.get("errors") and not out.get("pushed") and not out.get("pushed_late"):
         return
     rest.insert("neverbounce_runs", [{"kind": "weekly", "checked": out.get("checked", 0), "passed": out.get("passed", 0), "failed": out.get("failed", 0), "created_in_hubspot": out.get("created", 0),
                                       "enrolled": 0, "credits_remaining": out.get("credits_remaining"), "summary": out, "error": out.get("last_error")}])

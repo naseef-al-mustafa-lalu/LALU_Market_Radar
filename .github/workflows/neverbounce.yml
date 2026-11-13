@@ -1,11 +1,15 @@
-name: NeverBounce weekly check
+name: NeverBounce check
 on:
   schedule:
-    - cron: '0 6 * * 1'     # Mondays 06:00 UTC: 06:00 UK in winter, 07:00 in summer, always before 09:00
+    - cron: '0 6 * * *'     # every day 06:00 UTC (06:00 UK in winter, 07:00 in summer, before 09:00); the days that actually check are chosen in Atlas > Contacts > Settings
   workflow_dispatch:
     inputs:
       force:
-        description: 'Run even outside Monday before 09:00 UK (1 = yes)'
+        description: 'Run even on a day that is not chosen or after 09:00 UK (1 = yes)'
+        required: false
+        default: '0'
+      push_only:
+        description: 'Only push contacts that already passed to HubSpot, no new checks (1 = yes)'
         required: false
         default: '0'
 
@@ -30,4 +34,5 @@ jobs:
           SLACK_ATLAS_WEBHOOK_URL: ${{ secrets.SLACK_ATLAS_WEBHOOK_URL }}
           SLACK_ATLAS_CHANNEL: ${{ vars.SLACK_ATLAS_CHANNEL }}
           NB_FORCE: ${{ inputs.force }}
+          NB_PUSH_ONLY: ${{ inputs.push_only }}
         run: python -m src.neverbounce
