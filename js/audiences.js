@@ -25,11 +25,12 @@ const audLock = (a, id) => { const m = audMembers.find(x => x.contact_id === id 
 const audApproved = a => audMembers.filter(m => m.audience_id === a.id && AUD_LOCKS.includes(m.state)).length;
 let audSlackChannels = [];   // channels the Atlas bot is in, refreshed by the daily HubSpot sync
 async function loadAudiences() {
-  const [a, m] = await Promise.all([db.from("audiences").select("*").eq("archived", false).order("created_at"), db.from("audience_members").select("*"), audLoadTests()]);
-  audiences = a.data || []; audMembers = m.data || [];
+  const [a, m] = await Promise.all([db.from("audiences").select("*").order("created_at"), db.from("audience_members").select("*"), audLoadTests()]);
+  const all = a.data || []; audiences = all.filter(x => !x.archived); audMembers = m.data || [];
   try { audSlackChannels = (await db.from("slack_channels").select("id,name,is_private").order("name")).data || []; } catch (e) { audSlackChannels = []; }
-  const missing = [...new Set(signals.map(s => s.trigger_type))].filter(t => t && !audiences.some(x => x.signal_type === t));
-  if (missing.length) {   // a signal type that appeared after the audiences were created
+  const have = new Set(all.filter(x => x.kind === "signal").map(x => x.signal_type));   // archived tiles count: an archived one is not brought back
+  const missing = [...new Set([...sigSettings.filter(t => t.enabled).map(t => t.trigger_type), ...signals.map(s => s.trigger_type)])].filter(t => t && !have.has(t));
+  if (missing.length) {   // every enabled signal type has a tile, even before its first signal; a type that appeared after the audiences were created gets one too
     const labels = new Map(sigSettings.map(t => [t.trigger_type, t.label]));
     const { data } = await db.from("audiences").insert(missing.map(t => ({ kind: "signal", signal_type: t, name: labels.get(t) || t }))).select();
     audiences = audiences.concat(data || []);

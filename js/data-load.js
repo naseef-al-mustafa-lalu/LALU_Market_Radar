@@ -146,9 +146,9 @@ function stateFromUrl() {
     const nf = (u.get("net") || "").split("|"); netFilter = nf.length === 3 && nf[0] ? { kind: nf[0], key: nf[1], label: nf[2] } : null;
     netKind = ["pcn", "group", "federation", "icb"].includes(u.get("nk")) ? u.get("nk") : "pcn";
     currentTab = TABS.includes(u.get("tab")) ? u.get("tab") : "practices";
-    setDataSub(["overview", "sources", "audit", "branches", "signals", "pricing"].includes(u.get("ds")) ? u.get("ds") : "overview");
+    setDataSub(["overview", "sources", "audit", "branches", "pricing"].includes(u.get("ds")) ? u.get("ds") : "overview");
     ctSub = ["contacts", "review", "segments", "neverbounce", "settings"].includes(u.get("cs")) ? u.get("cs") : "contacts";
-    setSigSub(["feed", "mergers", "jobs"].includes(u.get("ss")) ? u.get("ss") : "feed");
+    setSigSub(["feed", "mergers", "jobs", "settings"].includes(u.get("ss")) ? u.get("ss") : "feed");
   } finally { restoringUrl = false; }
   return u.get("open");
 }

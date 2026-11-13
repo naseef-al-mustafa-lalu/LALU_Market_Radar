@@ -438,7 +438,7 @@ with sync_playwright() as p:
     pg.click("#tab-signals"); assert pg.is_visible("#s-count")
     pg.screenshot(path=SHOTS + "/signals.png"); sr = pg.inner_text("#s-rows"); assert "unlinked" in sr.lower() and "network" in sr.lower() and "Little Common Surgery" in sr, sr
     pg.hover("#s-rows tr:has-text('Little Common') .info-i"); pg.wait_for_selector("#info-pop:not(.hidden)"); assert "Offer cover for reports." in pg.inner_text("#info-pop") and "http" not in sr and pg.locator("#s-rows a[href*=jobadvert]").count() == 1
-    pg.click("#sig-settings-link"); pg.wait_for_selector("#view-data:not(.hidden)"); assert "NHS ODS (daily)" in pg.inner_text("#sig-types-rows")
+    pg.click("#sig-settings-link"); pg.wait_for_selector("#sig-settings:not(.hidden)"); assert pg.evaluate("[...document.querySelectorAll('#sig-sub button')].pop().textContent.trim()") == "Signal settings" and not pg.query_selector("#data-sub button[data-d=signals]"), "Signal settings is the last Signals sub page, no longer under Data"; assert "NHS ODS (daily)" in pg.inner_text("#sig-types-rows")
     pg.uncheck("input[data-t=NEW_PRACTICE]"); pg.wait_for_function("document.querySelector('#sig-types-msg').textContent.includes('disabled')")
     pg.click("#tab-signals"); pg.click("#sig-sub button[data-s=jobs]"); pg.wait_for_selector("#jm-rows tr[data-c]")
     assert pg.input_value("#jm-status") == "review" and "Little Common Surgery" in pg.inner_text("#jm-rows")   # opens on what needs a decision

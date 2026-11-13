@@ -8,14 +8,14 @@ async function loadSignalSettings() {
 function setSigSub(which) {
   sigSub = which;
   $("sig-head").classList.toggle("hidden", which !== "feed");   // the feed's own title and filters belong to the feed only; the other sub tabs have their own
-  $("sig-feed").classList.toggle("hidden", which !== "feed"); $("sig-jobs").classList.toggle("hidden", which !== "jobs"); $("sig-mergers").classList.toggle("hidden", which !== "mergers");
+  $("sig-feed").classList.toggle("hidden", which !== "feed"); $("sig-jobs").classList.toggle("hidden", which !== "jobs"); $("sig-mergers").classList.toggle("hidden", which !== "mergers"); $("sig-settings").classList.toggle("hidden", which !== "settings");
   $("s-type").classList.toggle("hidden", which !== "feed"); $("sig-settings-link").classList.toggle("hidden", which !== "feed"); $("s-search").classList.toggle("hidden", which !== "feed"); $("s-count").classList.toggle("hidden", which !== "feed"); $("s-status").classList.toggle("hidden", which !== "feed"); $("s-export").classList.toggle("hidden", which !== "feed");
   sigStripSync(); stateToUrl();
 }
 // Audiences are the second sub page of Signals: its view is its own tab underneath, but the Signals tab and strip stay lit.
 function sigStripSync() { const cur = currentTab === "audiences" ? "audiences" : sigSub; $("sig-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.s === cur ? "bg-white shadow-sm" : "text-slate-500")); }
 $("sig-sub").querySelectorAll("button").forEach(b => b.onclick = () => { if (b.dataset.s === "audiences") showTab("audiences"); else { if (currentTab === "audiences") showTab("signals"); setSigSub(b.dataset.s); } });
-$("sig-settings-link").onclick = () => { showTab("data"); setDataSub("signals"); };
+$("sig-settings-link").onclick = () => setSigSub("settings");
 function renderSignalTypes() {
   const cut = Date.now() - 30 * 864e5, tot = new Map(), rec = new Map();
   for (const s of signals) { tot.set(s.trigger_type, (tot.get(s.trigger_type) || 0) + 1); if (new Date(s.detected_at) > cut) rec.set(s.trigger_type, (rec.get(s.trigger_type) || 0) + 1); }

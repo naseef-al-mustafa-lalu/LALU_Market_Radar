@@ -12,8 +12,8 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.bare{background:transparent;padding:0}.atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}.atlas-chip.bare,.atlas-chip.lg.bare{background:transparent;padding:0}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261113c"></script>
-<link rel="stylesheet" href="assets/tailwind.css?v=20261113c">
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261113d"></script>
+<link rel="stylesheet" href="assets/tailwind.css?v=20261113d">
 <style>.no-dl #btn-export,.no-dl #s-export,.no-dl #au-csv,.no-dl #hsp-csv,.no-dl #ct-csv,.no-dl .ct-seg-csv{display:none!important}</style>
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
@@ -76,10 +76,10 @@
 
   <div id="subnav" class="hidden sticky z-10 border-b border-slate-200 bg-white px-4 shadow-sm lg:px-6" aria-label="Sections">
     <div id="net-kinds" class="hidden flex flex-wrap"></div>
-    <div id="sig-sub" class="hidden flex flex-wrap"><button data-s="feed" class="px-3 py-1 rounded-md bg-white shadow-sm">Feed</button><button data-s="audiences" class="px-3 py-1 rounded-md text-slate-500">Audiences</button><button data-s="mergers" class="px-3 py-1 rounded-md text-slate-500">Closures &amp; mergers <span id="merge-badge" title="Practices that look closed or merged and need a decision" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-s="jobs" class="px-3 py-1 rounded-md text-slate-500">Job matches <span id="jobs-badge" title="Employers waiting for a link that have a report / records advert" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button></div>
+    <div id="sig-sub" class="hidden flex flex-wrap"><button data-s="feed" class="px-3 py-1 rounded-md bg-white shadow-sm">Feed</button><button data-s="audiences" class="px-3 py-1 rounded-md text-slate-500">Audiences</button><button data-s="mergers" class="px-3 py-1 rounded-md text-slate-500">Closures &amp; mergers <span id="merge-badge" title="Practices that look closed or merged and need a decision" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-s="jobs" class="px-3 py-1 rounded-md text-slate-500">Job matches <span id="jobs-badge" title="Employers waiting for a link that have a report / records advert" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-s="settings" class="px-3 py-1 rounded-md text-slate-500">Signal settings</button></div>
     <div id="rev-sub" class="hidden flex flex-wrap"><button data-r="est" class="px-3 py-1 rounded-md bg-white shadow-sm">Estimates</button><button data-r="pum" class="px-3 py-1 rounded-md text-slate-500">Patients under management</button></div>
     <div id="ct-sub" class="hidden flex flex-wrap"><button data-c="contacts" class="px-3 py-1 rounded-md bg-white shadow-sm">All contacts</button><button data-c="review" class="px-3 py-1 rounded-md text-slate-500">Review</button><button data-c="segments" class="px-3 py-1 rounded-md text-slate-500">Segments</button><button data-c="neverbounce" class="px-3 py-1 rounded-md text-slate-500">NeverBounce</button><button data-c="settings" class="px-3 py-1 rounded-md text-slate-500">Settings</button></div>
-    <div id="data-sub" class="hidden flex flex-wrap"><button data-d="overview" class="px-3 py-1 rounded-md bg-white shadow-sm">Overview</button><button data-d="sources" class="px-3 py-1 rounded-md text-slate-500">Data sources</button><button data-d="audit" class="px-3 py-1 rounded-md text-slate-500">HubSpot audit</button><button data-d="branches" class="px-3 py-1 rounded-md text-slate-500">Branch sites <span id="br-badge" title="ODS branch matches waiting for a decision" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-d="signals" class="px-3 py-1 rounded-md text-slate-500">Signal settings</button><button data-d="pricing" class="px-3 py-1 rounded-md text-slate-500">Pricing &amp; rate card</button></div>
+    <div id="data-sub" class="hidden flex flex-wrap"><button data-d="overview" class="px-3 py-1 rounded-md bg-white shadow-sm">Overview</button><button data-d="sources" class="px-3 py-1 rounded-md text-slate-500">Data sources</button><button data-d="audit" class="px-3 py-1 rounded-md text-slate-500">HubSpot audit</button><button data-d="branches" class="px-3 py-1 rounded-md text-slate-500">Branch sites <span id="br-badge" title="ODS branch matches waiting for a decision" class="hidden text-xs bg-amber-200 text-amber-900 rounded-full px-1.5"></span></button><button data-d="pricing" class="px-3 py-1 rounded-md text-slate-500">Pricing &amp; rate card</button></div>
   </div>
 
   <main class="max-w-[1600px] mx-auto p-4 lg:p-6">
@@ -212,6 +212,14 @@
         <p id="jm-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
       </div>
       
+      <div id="sig-settings" class="hidden p-4">
+      <div id="sig-types" class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <h2 class="font-bold">Signal settings <span class="text-xs font-normal text-slate-500">(which signals the radar raises)</span></h2>
+        <p class="text-sm text-slate-500 my-2">Every signal the tool can raise, where its data comes from and the rule that triggers it. Switching one off stops new signals of that type being recorded (existing ones stay in the feed). It takes effect on the next data load.</p>
+        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Signal</th><th class="pr-3">Data source</th><th class="pr-3 min-w-[16rem]">Rule</th><th class="pr-3 min-w-[12rem]">Why it matters</th><th class="pr-3 text-right">Last 30 days</th><th class="pr-3 text-right">Total</th><th class="text-center">Enabled</th></tr></thead><tbody id="sig-types-rows" class="divide-y divide-slate-100"></tbody></table></div>
+        <p id="sig-types-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
+      </div>
+      </div>
       <div id="sig-feed"><div class="overflow-x-auto max-h-[80vh]"><table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr><th class="px-3 py-2.5 whitespace-nowrap">Date</th><th class="px-3 py-2.5 whitespace-nowrap">Type</th><th class="px-3 py-2.5 min-w-[13rem] max-w-[16rem]">Practice</th><th class="px-3 py-2.5 min-w-[18rem] max-w-[28rem]">Signal</th><th class="px-3 py-2.5 min-w-[17rem]">Status and note</th><th class="px-3 py-2.5 w-10 text-center" title="Link to the source, e.g. the NHS Jobs advert">Link</th></tr></thead>
         <tbody id="s-rows" class="divide-y divide-slate-100"></tbody></table></div>
@@ -253,14 +261,6 @@
       </div>
       <div id="dp-branches" class="hidden"><div id="d-branches" class="bg-white rounded-xl border border-slate-200 shadow-sm p-4"></div></div>
       <div id="dp-audit" class="hidden"><div id="d-audit" class="bg-white rounded-xl border border-slate-200 shadow-sm p-4"></div></div>
-      <div id="dp-signals" class="hidden">
-      <div id="sig-types" class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-        <h2 class="font-bold">Signal settings <span class="text-xs font-normal text-slate-500">(which signals the radar raises)</span></h2>
-        <p class="text-sm text-slate-500 my-2">Every signal the tool can raise, where its data comes from and the rule that triggers it. Switching one off stops new signals of that type being recorded (existing ones stay in the feed). It takes effect on the next data load.</p>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs uppercase tracking-wider text-slate-500"><tr><th class="py-2 pr-3">Signal</th><th class="pr-3">Data source</th><th class="pr-3 min-w-[16rem]">Rule</th><th class="pr-3 min-w-[12rem]">Why it matters</th><th class="pr-3 text-right">Last 30 days</th><th class="pr-3 text-right">Total</th><th class="text-center">Enabled</th></tr></thead><tbody id="sig-types-rows" class="divide-y divide-slate-100"></tbody></table></div>
-        <p id="sig-types-msg" class="mt-2 text-xs text-slate-500 min-h-[1rem]"></p>
-      </div>
-      </div>
       <div id="dp-pricing" class="hidden">
         <div id="d-rules" class="mb-4"></div>
         <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
@@ -297,32 +297,32 @@
     <div id="hs-body" class="flex-1 overflow-y-auto px-5 pb-5 pt-4 text-sm"></div>
   </div>
 </div>
-<script src="js/core.js?v=20261113c"></script>
-<script src="js/data-load.js?v=20261113c"></script>
-<script src="js/practices.js?v=20261113c"></script>
-<script src="js/referral.js?v=20261113c"></script>
-<script src="js/networks.js?v=20261113c"></script>
-<script src="js/revenue-pum.js?v=20261113c"></script>
-<script src="js/signals.js?v=20261113c"></script>
-<script src="js/mergers.js?v=20261113c"></script>
-<script src="js/audiences.js?v=20261113c"></script>
-<script src="js/audience-tests.js?v=20261113c"></script>
-<script src="js/hubspot-align.js?v=20261113c"></script>
-<script src="js/data-tab.js?v=20261113c"></script>
-<script src="js/data-connections.js?v=20261113c"></script>
-<script src="js/data-uploads.js?v=20261113c"></script>
-<script src="js/contact-rules.js?v=20261113c"></script>
-<script src="js/contacts.js?v=20261113c"></script>
-<script src="js/contacts-nb.js?v=20261113c"></script>
-<script src="js/data-audit.js?v=20261113c"></script>
-<script src="js/data-branches.js?v=20261113c"></script>
-<script src="js/hubspot.js?v=20261113c"></script>
-<script src="js/hubspot-company.js?v=20261113c"></script>
-<script src="js/hubspot-admin.js?v=20261113c"></script>
-<script src="js/hubspot-group.js?v=20261113c"></script>
-<script src="js/hubspot-network.js?v=20261113c"></script>
-<script src="js/network-admin.js?v=20261113c"></script>
-<script src="js/export.js?v=20261113c"></script>
-<script src="js/main.js?v=20261113c"></script>
+<script src="js/core.js?v=20261113d"></script>
+<script src="js/data-load.js?v=20261113d"></script>
+<script src="js/practices.js?v=20261113d"></script>
+<script src="js/referral.js?v=20261113d"></script>
+<script src="js/networks.js?v=20261113d"></script>
+<script src="js/revenue-pum.js?v=20261113d"></script>
+<script src="js/signals.js?v=20261113d"></script>
+<script src="js/mergers.js?v=20261113d"></script>
+<script src="js/audiences.js?v=20261113d"></script>
+<script src="js/audience-tests.js?v=20261113d"></script>
+<script src="js/hubspot-align.js?v=20261113d"></script>
+<script src="js/data-tab.js?v=20261113d"></script>
+<script src="js/data-connections.js?v=20261113d"></script>
+<script src="js/data-uploads.js?v=20261113d"></script>
+<script src="js/contact-rules.js?v=20261113d"></script>
+<script src="js/contacts.js?v=20261113d"></script>
+<script src="js/contacts-nb.js?v=20261113d"></script>
+<script src="js/data-audit.js?v=20261113d"></script>
+<script src="js/data-branches.js?v=20261113d"></script>
+<script src="js/hubspot.js?v=20261113d"></script>
+<script src="js/hubspot-company.js?v=20261113d"></script>
+<script src="js/hubspot-admin.js?v=20261113d"></script>
+<script src="js/hubspot-group.js?v=20261113d"></script>
+<script src="js/hubspot-network.js?v=20261113d"></script>
+<script src="js/network-admin.js?v=20261113d"></script>
+<script src="js/export.js?v=20261113d"></script>
+<script src="js/main.js?v=20261113d"></script>
 </body>
 </html>
