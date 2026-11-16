@@ -1,4 +1,5 @@
 """Daily ingestion: NHS public data + Oscar contacts -> Supabase (diffed, batched, guarded)."""
+import json
 import os
 import sys
 import traceback
@@ -32,7 +33,16 @@ def org_kind(code, patients, customer=False, hubspot_company=None, name=""):
     return "non_gp" if str(code).upper().startswith("Y") and not patients and not customer and not hubspot_company and not GP_NAME.search(name or "") else "gp"
 
 
-def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software, pcn_checked=frozenset(), dates=None):
+def load_federation_overrides(path="data/federation_overrides.json"):
+    """Practices whose federation Atlas keeps as set here, whatever Oscar says: {ODS code: federation name, or "" for none}. Oscar's federation field is wrong for some practices."""
+    try:
+        with open(path) as f:
+            return {str(k).strip().upper(): str(v or "").strip() for k, v in (json.load(f).get("practices") or {}).items()}
+    except FileNotFoundError:
+        return {}
+
+
+def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_software, pcn_checked=frozenset(), dates=None, federation=None):
     """Merge sources into upsert rows (only rows that changed). Pure function: no I/O except software checks."""
     now = datetime.now(timezone.utc)
     recs = {}
@@ -79,6 +89,8 @@ def build_records(ods, patients, month, existing, pcn_map, oscar_info, check_sof
                     r["icb_name"] = info["icb"] or r["icb_name"]
         if pcn_icb:  # ODS-derived ICB names are consistent across practices, so they win over Oscar's wording
             r["icb_name"] = pcn_icb
+        if federation and code in federation:   # a federation set by hand wins over Oscar's field
+            r["gp_federation"] = federation[code] or None
         recs[code] = r
 
     # software hint: only unknown, active, has website, not checked recently; capped per run
@@ -446,7 +458,7 @@ def sync(rest, run_id):
     contacts, oscar_info = oscar_step(env, active, stats, rejects)
     dates = dates_step(ods, existing, now, stats)
 
-    records, checked = build_records(ods, patients, month, existing, pcn_map, oscar_info, software.check_many, pcn_checked, dates)
+    records, checked = build_records(ods, patients, month, existing, pcn_map, oscar_info, software.check_many, pcn_checked, dates, load_federation_overrides())
     stats.update(practices_changed=len(records), software_checked=checked)
     rest.upsert("gp_practices", records, "ods_code")
 

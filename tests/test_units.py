@@ -128,6 +128,19 @@ def test_signal_text_next_step_and_link_separate():
     assert slack.link("https://a.b/c|d>", "x") == "x"
 
 
+def test_federation_override_beats_oscar_and_is_read_from_the_data_file(tmp_path):
+    from src import ingest
+    old = {"ods_code": "A1", "practice_name": "Ash", "postcode": "DE6 1AA", "status": "Active", "pcn_code": None, "pcn_name": "Unallocated PCN", "icb_name": "X ICB", "gp_federation": "Alexin Healthcare",
+           "total_patients": 0, "clinical_software": "Unknown", "software_checked_at": None, "website": None}
+    ods = {"A1": {"name": "ASH", "postcode": "DE6 1AA", "status": "Active"}, "A2": {"name": "ELM", "postcode": "DE6 2AA", "status": "Active"}}
+    oscar = {c: {"primary": None, "org": {"gp_federation": "Alexin Healthcare"}, "website": None, "icb": None} for c in ("A1", "A2")}
+    recs, _ = ingest.build_records(ods, {}, "2026-09", {"A1": old, "A2": dict(old, ods_code="A2", practice_name="Elm")}, {}, oscar, None, federation={"A1": ""})
+    got = {r["ods_code"]: r["gp_federation"] for r in recs}
+    assert got.get("A1") is None and got.get("A2", "Alexin Healthcare") == "Alexin Healthcare", got      # the override clears one practice; Oscar's value stays for the rest
+    f = tmp_path / "o.json"; f.write_text('{"practices": {" c81086 ": "", "B2": "Some Fed"}}')
+    assert ingest.load_federation_overrides(str(f)) == {"C81086": "", "B2": "Some Fed"} and ingest.load_federation_overrides(str(tmp_path / "none.json")) == {}
+
+
 def test_uploaded_network_is_not_overwritten_by_ods_sync():
     from src import ingest
     old = {"ods_code": "W93001", "practice_name": "St Lukes", "postcode": "NP11 5GX", "status": "Active", "pcn_code": "WC60103",

@@ -1,0 +1,7 @@
+{
+ "_note": "Practices whose federation Atlas keeps as set here, whatever Oscar's file says. Use the practice's ODS code; the value is the federation name, or an empty string for none.",
+ "practices": {
+  "C81086": "",
+  "C81075": ""
+ }
+}
