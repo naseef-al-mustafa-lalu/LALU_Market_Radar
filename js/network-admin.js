@@ -15,19 +15,20 @@ function nmFind(q) {
 const NM_NOISE = new Set(["surgery", "medical", "centre", "center", "practice", "health", "group", "partners", "partnership", "clinic", "care", "primary", "the", "and", "unindexed", "public", "search"]);
 const nmNorm = n => String(n || "").toLowerCase().replace(/&/g, " and ").replace(/['’]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 const nmKeys = n => nmNorm(n).split(" ").filter(w => w.length > 2 && !NM_NOISE.has(w));
-const nmArea = pc => String(pc || "").toUpperCase().replace(/\s/g, "");
+const nmOutward = pc => { const t = String(pc || "").trim().toUpperCase(); return t.includes(" ") ? t.split(/\s+/)[0] : t.replace(/\d[A-Z]{2}$/, ""); };   // "WF10 1PH" -> "WF10": compared whole, so WF1 never matches WF10
 function nmParseLine(line) {
-  const parts = String(line).replace(/^\s*\d+[.)\t ]+/, "").split(/\t| {2,}|\s\|\s/).map(x => x.trim()).filter(Boolean);
+  const clean = String(line).replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/^\s*\d+[.)\t ]+/, "");      // links keep their text; a leading row number goes
+  const ods = (clean.match(/\b[A-Z]\d{5}\b/) || [])[0] || "", full = clean.match(/\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*\d[A-Z]{2}\b/), paren = clean.match(/\(([A-Z]{1,2}\d{1,2}[A-Z]?)\)/);
+  const parts = clean.split(/\t| {2,}|\s\|\s/).map(x => x.trim()).filter(x => x && !/^[A-Z]\d{5}$/.test(x) && !/^[\d,.]+$/.test(x) && !/^[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}$/.test(x));
   if (!parts.length) return null;
-  const rest = parts.slice(1).join(" "), ods = (rest.match(/\b[A-Z]\d{5}\b/) || parts[0].match(/\b[A-Z]\d{5}\b/) || [])[0] || "";
-  const area = ((rest.match(/\(([A-Z]{1,2}\d{1,2}[A-Z]?)\)/) || rest.match(/\b([A-Z]{1,2}\d{1,2})\b/) || [])[1] || "").toUpperCase();
-  return { name: parts[0].replace(/\b[A-Z]\d{5}\b/, "").trim(), ods, area };
+  const alt = (parts[0].match(/\(([^)]*)\)/) || [])[1] || "";
+  return { name: parts[0].replace(/\([^)]*\)/g, "").replace(/\b[A-Z]\d{5}\b/, "").trim(), alt, ods, area: (full ? full[1] : paren ? paren[1] : "").toUpperCase() };
 }
 function nmMatchList(text) {
   const pool = practices.filter(p => p.status === "Active" && p.org_kind !== "non_gp" && !p.merged_into), out = { sure: [], maybe: [], none: [], dup: 0 };
   for (const raw of String(text).split(/\r?\n/)) {
     const q = nmParseLine(raw); if (!q || q.name.length < 2) continue;
-    const inArea = p => !q.area || new RegExp("^" + q.area + "\\d").test(nmArea(p.postcode)), nn = nmNorm(q.name), keys = nmKeys(q.name);
+    const inArea = p => !q.area || nmOutward(p.postcode) === q.area, nn = nmNorm(q.name), keys = [...nmKeys(q.name), ...nmKeys(q.alt)];
     const byCode = q.ods ? pool.find(p => p.ods_code === q.ods) : null;
     const exact = pool.filter(p => nmNorm(p.practice_name) === nn), exactIn = exact.filter(inArea);
     let hit = null, why = "";
