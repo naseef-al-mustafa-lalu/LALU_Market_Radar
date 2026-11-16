@@ -7,7 +7,7 @@ from .common import Rest
 
 
 def run(rest, ods):
-    pr = rest.select_all("gp_practices", "ods_code,practice_name,status,country,hubspot_company_id,cqc_provider_id,cqc_provider_name,group_name,gp_federation,pcn_code,icb_name,hubspot_customer,hubspot_engaged,hubspot_commercial_model,price_tier,total_patients",
+    pr = rest.select_all("gp_practices", "ods_code,practice_name,status,country,hubspot_company_id,cqc_provider_id,cqc_provider_name,group_name,gp_federation,pcn_code,icb_name,hubspot_customer,hubspot_engaged,hubspot_commercial_model,total_patients",
                          order="ods_code", params={"ods_code": f"eq.{ods}"})
     out = {"practice": pr[0] if pr else None}
     out["hubspot_links"] = rest.select_all("hubspot_links", "ods_code,company_id,company_name,deal_id,deal_name,linked_by,linked_at", order="ods_code", params={"ods_code": f"eq.{ods}"})
