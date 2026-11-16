@@ -394,7 +394,7 @@ with sync_playwright() as p:
     assert "deal pricing fields" in pg.inner_text("#hs-body").lower() and "company list size" not in pg.inner_text("#hs-body").lower(), pg.inner_text("#hs-body")[:300]
     pg.click("#hs-cancel"); pg.wait_for_selector("#hs-modal.hidden", state="attached")
     pg.wait_for_timeout(500); pg.screenshot(path=SHOTS + "/netprofile.png")
-    lp = pg.locator("#dr-body details:has-text('Linked practices')").first; assert lp.get_attribute("open") is not None and lp.locator("summary").inner_text().strip().endswith("3") and "Customer" in lp.inner_text()      # collapsible, customers tagged
+    lp = pg.locator("#dr-body details:has-text('Linked practices')").first; assert lp.get_attribute("open") is not None and lp.locator("summary").inner_text().strip().endswith("3") and lp.locator("[aria-label='Customer']").count() >= 1 and "customer" in lp.inner_text() and lp.locator("thead th").count() == 7 and "Patients" in lp.locator("thead").inner_text() and "Tier" not in lp.locator("thead th").all_inner_texts()      # collapsible, a dot and a legend line mark customers, patients and tier share one column
     lp.locator("summary").click(); assert lp.get_attribute("open") is None; lp.locator("summary").click()
     assert "+2 branch sites" in prof and "+1 site" in prof and pg.locator("#dr-body tr.np-sub").first.is_hidden(), prof     # branch sites: counted on the tile, collapsed under their practice
     pg.click("#dr-body .np-sites"); assert pg.locator("#dr-body tr.np-sub").first.is_visible()
