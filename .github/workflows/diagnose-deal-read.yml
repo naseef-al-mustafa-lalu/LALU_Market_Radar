@@ -1,0 +1,28 @@
+name: Diagnose a deal read
+on:
+  workflow_dispatch:
+    inputs:
+      company:
+        description: 'HubSpot company id'
+        required: true
+        default: '126945226944'
+      deal:
+        description: 'HubSpot deal id'
+        required: true
+        default: '529781302512'
+
+jobs:
+  look:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12', cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Repeat the profile's reads
+        env:
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+          COMPANY: ${{ inputs.company }}
+          DEAL: ${{ inputs.deal }}
+        run: python -m src.diagnose_deal_read
