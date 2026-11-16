@@ -20,7 +20,11 @@ def run(rest, ods):
     out["organisations"] = {"practice": mine, "named": name_hits}
     ids = {str(o["id"]) for o in mine}
     rels = rest.select_all("org_relationships", "from_org,to_org,rel_type,source,confirmed", order="from_org")
-    out["relationships"] = [r for r in rels if str(r["from_org"]) in ids or str(r["to_org"]) in {str(o["id"]) for o in name_hits}][:40]
+    names = {str(o["id"]): f"{o['kind']}:{o['name']}:{o['source_key']}" for o in orgs}
+    mine_rels = [r for r in rels if str(r["from_org"]) in ids]
+    out["practice_relationships"] = [f"{r['rel_type']} -> {names.get(str(r['to_org']))} ({r['source']}, confirmed={r.get('confirmed')})" for r in mine_rels]
+    out["members_of_named_orgs"] = {names[str(o["id"])]: sum(1 for r in rels if str(r["to_org"]) == str(o["id"])) for o in name_hits}
+    out["network_deal_orgs"] = [names.get(str(d.get("org_id"))) for d in out["network_deals_covering_or_named"]]
     out["hubspot_network_members"] = rest.select_all("hubspot_network_members", "kind,org_key,ods_code", order="ods_code", params={"ods_code": f"eq.{ods}"})
     out["hubspot_org_companies"] = [c for c in rest.select_all("hubspot_org_companies", "org_id,company_id,hs_org_type", order="org_id") if str(c["org_id"]) in {str(o["id"]) for o in name_hits}]
     return out
@@ -32,7 +36,7 @@ def main():
         if not env.get(k):
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
-    print(json.dumps(run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), env["ODS"].strip().upper()), indent=1, default=str))
+    print("RESULT " + json.dumps(run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), env["ODS"].strip().upper()), default=str))
 
 
 if __name__ == "__main__":
