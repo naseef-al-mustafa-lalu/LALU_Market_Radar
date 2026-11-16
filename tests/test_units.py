@@ -1128,6 +1128,38 @@ def test_merger_dates_fill_only_merged_companies_without_one_and_never_customers
     assert [(g["ods"], g["date"]) for g in got] == [("A1", "2026-09-30"), ("A2", "2026-11-05")], got      # NHS end date first, else the day it was recorded; customers, already dated, not merged and no date at all are all left alone
 
 
+def test_add_network_links_only_checked_members_and_creates_the_federation_once():
+    from src import add_network as an
+    spec = {"name": "Test Fed", "kind": "federation", "members": [
+        {"ods": "B1", "name": "Alpha Surgery", "postcode": "WF1 1AA"}, {"ods": "B2", "name": "Beta Medical Centre", "postcode": "WF2 2BB"}, {"ods": "B3", "name": "Gamma Surgery", "postcode": "WF3 3CC"},
+        {"ods": "B4", "name": "Delta Surgery", "postcode": "WF4 4DD"}, {"ods": "B5", "name": "Epsilon Surgery", "postcode": "WF5 5EE"}, {"ods": "B6", "name": "Zeta Surgery", "postcode": "WF6 6FF", "also_known_as": "Old Zeta House"},
+        {"ods": "B9", "name": "Missing Surgery"}]}
+    pr = {"B1": dict(ods_code="B1", practice_name="Alpha Surgery", postcode="WF1 1AA", hubspot_company_id="11"), "B2": dict(ods_code="B2", practice_name="Other Name Entirely", postcode="WF2 2BB", hubspot_company_id="22"),
+          "B3": dict(ods_code="B3", practice_name="Someone Else", postcode="XX1 1XX", hubspot_company_id="33"), "B4": dict(ods_code="B4", practice_name="Delta Surgery", postcode="WF4 4DD", merged_into="B1", hubspot_company_id="44"),
+          "B5": dict(ods_code="B5", practice_name="Epsilon Surgery", postcode="WF5 5EE", hubspot_company_id=None), "B6": dict(ods_code="B6", practice_name="Old Zeta House", postcode="", hubspot_company_id="66")}
+    ok, skipped = an.plan(spec, pr)
+    assert [m["ods"] for m, _ in ok] == ["B1", "B2", "B6"], ok      # by name, by postcode when the name differs, and by the other name the practice goes by
+    assert {m["ods"]: why.split()[0] for m, why in skipped} == {"B3": "the", "B4": "merged", "B5": "not", "B9": "not"}, skipped
+    class R:
+        def select_all(self, *a, **k): return list(pr.values())
+    class H:
+        def __init__(self, existing=False): self.calls, self.existing = [], existing
+        def call(self, method, path, **kw):
+            self.calls.append((method, path, kw.get("json")))
+            if path.endswith("/companies/search"): return {"results": [{"id": "900", "properties": {"name": "Test Fed", "org_type": ""}}] if self.existing else []}
+            if method == "POST" and path == "/crm/v3/objects/companies": return {"id": "901"}
+            if path.endswith("/associations/companies/companies/labels"): return {"results": [{"label": "Federation", "category": "USER_DEFINED", "typeId": 55}]}
+            return {}
+    h = H()
+    assert not an.run(h, R(), spec)["applied"] and not [c for c in h.calls if c[0] in ("PATCH",) or c[1].endswith("batch/create") or c[1] == "/crm/v3/objects/companies"]      # the plan alone writes nothing
+    h = H(); out = an.run(h, R(), spec, apply=True)
+    assert out["applied"] and out["created"] and out["linked"] == 3 and out["labelled"] and out["company_id"] == "901"
+    batch = [c for c in h.calls if c[1].endswith("batch/create")][0][2]["inputs"]
+    assert [i["from"]["id"] for i in batch] == ["11", "22", "66"] and all(i["to"]["id"] == "901" and i["types"][0]["associationTypeId"] == 55 for i in batch)
+    h = H(existing=True); out = an.run(h, R(), spec, apply=True)
+    assert not out["created"] and out["company_id"] == "900" and not [c for c in h.calls if c[1] == "/crm/v3/objects/companies"]      # a company of that name is used, not duplicated
+
+
 def test_segments_sync_tracks_two_campaign_lists_and_reads_their_criteria():
     from src import segments as sg
 

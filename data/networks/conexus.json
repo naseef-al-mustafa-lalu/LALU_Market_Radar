@@ -1,0 +1,179 @@
+{
+ "name": "Conexus Healthcare",
+ "kind": "federation",
+ "members": [
+  {
+   "ods": "B87001",
+   "name": "Middlestown Medical Centre",
+   "postcode": "WF4 4PA"
+  },
+  {
+   "ods": "B87002",
+   "name": "Orchard Croft Medical Centre",
+   "postcode": "WF4 5BY"
+  },
+  {
+   "ods": "B87003",
+   "name": "College Lane Surgery",
+   "postcode": "WF7 7HZ"
+  },
+  {
+   "ods": "B87004",
+   "name": "Warrengate Medical Centre",
+   "postcode": "WF1 4PR"
+  },
+  {
+   "ods": "B87005",
+   "name": "Riverside Medical Centre",
+   "postcode": "WF10 1PH"
+  },
+  {
+   "ods": "B87006",
+   "name": "Park Green Surgery",
+   "postcode": "WF9 3AP",
+   "also_known_as": "Church View Health Centre"
+  },
+  {
+   "ods": "B87007",
+   "name": "Northgate Surgery",
+   "postcode": "WF8 1NF"
+  },
+  {
+   "ods": "B87008",
+   "name": "Lupset Health Centre",
+   "postcode": "WF2 8FE"
+  },
+  {
+   "ods": "B87009",
+   "name": "St Thomas Road Surgery",
+   "postcode": "WF7 5HE"
+  },
+  {
+   "ods": "B87011",
+   "name": "Friarwood Surgery",
+   "postcode": "WF8 1SU"
+  },
+  {
+   "ods": "B87012",
+   "name": "Maybush Medical Centre",
+   "postcode": "WF1 5PN"
+  },
+  {
+   "ods": "B87013",
+   "name": "Outwood Park Medical Centre",
+   "postcode": "WF1 2PE"
+  },
+  {
+   "ods": "B87015",
+   "name": "Stuart Road Surgery",
+   "postcode": "WF8 4PQ"
+  },
+  {
+   "ods": "B87016",
+   "name": "White Rose Surgery",
+   "postcode": "WF9 2RD"
+  },
+  {
+   "ods": "B87017",
+   "name": "Trinity Medical Centre",
+   "postcode": "WF1 1PG"
+  },
+  {
+   "ods": "B87018",
+   "name": "Henry Moore Clinic",
+   "postcode": "WF10 4EN"
+  },
+  {
+   "ods": "B87019",
+   "name": "Stanley Health Centre",
+   "postcode": "WF3 4HS"
+  },
+  {
+   "ods": "B87020",
+   "name": "Chapelthorpe Medical Centre",
+   "postcode": "WF2 7GP"
+  },
+  {
+   "ods": "B87021",
+   "name": "Ash Grove Medical Centre",
+   "postcode": "WF11 0JA"
+  },
+  {
+   "ods": "B87022",
+   "name": "Homestead Medical Centre",
+   "postcode": "WF2 9PE"
+  },
+  {
+   "ods": "B87025",
+   "name": "Castleford Medical Practice",
+   "postcode": "WF10 1DP"
+  },
+  {
+   "ods": "B87026",
+   "name": "The Grange Medical Centre",
+   "postcode": "WF9 4DP"
+  },
+  {
+   "ods": "B87027",
+   "name": "New Southgate Surgery",
+   "postcode": "WF1 3JQ"
+  },
+  {
+   "ods": "B87028",
+   "name": "Crofton and Sharlston Medical Practice",
+   "postcode": "WF4 1HJ"
+  },
+  {
+   "ods": "B87030",
+   "name": "Health Care First Partnership",
+   "postcode": "LS26 9AA",
+   "also_known_as": "Pinfold Surgery"
+  },
+  {
+   "ods": "B87031",
+   "name": "Ossett Surgery",
+   "postcode": "WF5 8DF"
+  },
+  {
+   "ods": "B87032",
+   "name": "Station Lane Medical Centre",
+   "postcode": "WF7 6JL"
+  },
+  {
+   "ods": "B87033",
+   "name": "Newland Surgery",
+   "postcode": "WF6 1QD"
+  },
+  {
+   "ods": "B87036",
+   "name": "Langthwaite Surgery",
+   "postcode": "WF9 3AP",
+   "also_known_as": "Church View Health Centre"
+  },
+  {
+   "ods": "B87039",
+   "name": "King's Medical Practice",
+   "postcode": "WF6 2AZ"
+  },
+  {
+   "ods": "B87042",
+   "name": "Tieve Tara Medical Centre",
+   "postcode": "WF10 2QP"
+  },
+  {
+   "ods": "B87044",
+   "name": "Alverthorpe Surgery",
+   "postcode": "WF2 0DP"
+  },
+  {
+   "ods": "B87602",
+   "name": "Patience Lane Surgery",
+   "postcode": "WF6 2JZ"
+  },
+  {
+   "ods": "B87604",
+   "name": "Eastmoor Health Centre",
+   "postcode": "WF1 4SD"
+  }
+ ]
+}
