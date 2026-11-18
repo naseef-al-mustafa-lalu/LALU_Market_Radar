@@ -6,7 +6,7 @@ import sys
 from collections import Counter
 
 from .common import Rest
-from .hubspot_sync import Hub, associations, chunks, made_by_atlas, read_objects
+from .hubspot_sync import Hub, chunks, made_by_atlas, read_objects
 
 
 def members(hub, list_id):
