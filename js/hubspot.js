@@ -58,15 +58,33 @@ function hsDesired(p, ov) {   // ov: { referral, member } prices another practic
 }
 // The HubSpot section of the profile now holds facts only (status, links, lifecycle); the one action lives beside the price controls (hsBarHtml).
 const HS_PRODUCT_SERVICE = { "eMR": "Self service", "eMR+": "Managed service" };      // HubSpot deal property Product / Service
+// Lifecycle stage tag, used for the company at the top of the profile and for each contact. Colour says how far along: grey before engagement, teal engaged, green customer, rose lost.
+const LC_CLS = { New: "bg-slate-100 text-slate-700", Prospecting: "bg-slate-100 text-slate-700", Engaged: "bg-teal-100 text-teal-800", Customer: "bg-emerald-100 text-emerald-800", "Past customer": "bg-rose-100 text-rose-800", "Ex-customer": "bg-rose-100 text-rose-800", "Merged/Closed": "bg-slate-200 text-slate-700" };
+const lcChip = (label, title) => chip(label, LC_CLS[label] || "bg-sky-100 text-sky-800", title);
+const hsStageIsEngaged = label => ["Engaged", "Marketing Qualified Lead", "Sales Qualified Lead", "Opportunity", "Evangelist", "Client Services"].includes(label);
+// The HubSpot block at the top of the profile: only HubSpot's own facts about the company (status, lifecycle stage, pipeline), so nothing here repeats the NHS details below.
 function hsSection(p, st) {
   const linked = !!p.hubspot_company_id, active = p.status === "Active" && p.total_patients > 0, when = [p.hubspot_company_imported_at && "Created from Atlas " + fmtDate(p.hubspot_company_imported_at), p.hubspot_synced_at && "last synced " + fmtDate(p.hubspot_synced_at)].filter(Boolean).join(" · ");
-  return sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st]) + (!linked && active && st !== "none" ? " " + chip("No company record", "bg-amber-100 text-amber-800") : "")) + kv("Company record", linked ? hsLink("0-2", p.hubspot_company_id, "Open in HubSpot") : "") + alignHsRows(p) + '<div id="dr-hsdeal"></div>' + kv("Open pipeline", Number(p.hubspot_pipeline) > 0 ? gbpFull(Number(p.hubspot_pipeline)) : "") + kv("Freemium conversion", p.hubspot_commercial_model === "Freemium" && p.hubspot_customer ? (Number(p.hubspot_conversion_pipeline) > 0 ? "Open conversion deal " + gbpFull(Number(p.hubspot_conversion_pipeline)) : '<span class="text-amber-700">No open conversion deal</span>') : (Number(p.hubspot_conversion_pipeline) > 0 ? "Open conversion deal " + gbpFull(Number(p.hubspot_conversion_pipeline)) : "")) + kv("Open renewal", Number(p.hubspot_renewal_pipeline) > 0 ? gbpFull(Number(p.hubspot_renewal_pipeline)) : "") + kv("Commercial model", p.hubspot_commercial_model ? esc(HS_COMPANY_MODEL[p.hubspot_commercial_model] || p.hubspot_commercial_model) : "")
-    + kv("Product / Service", p.hubspot_product_service ? esc(HS_PRODUCT_SERVICE[p.hubspot_product_service] || p.hubspot_product_service) + ` <span class="text-xs text-slate-400">${esc(p.hubspot_product_service)}</span>` : "")
-    + kv("Company status", p.hubspot_company_status ? (p.hubspot_company_status === "Ex-Customer" ? chip(p.hubspot_company_status, "bg-rose-100 text-rose-800") : esc(p.hubspot_company_status)) : "")
-    + kv("Service started", p.hubspot_first_start ? esc(fmtDate(p.hubspot_first_start)) : "") + kv("Churned", p.hubspot_churned_date ? `<span class="text-rose-700">${esc(fmtDate(p.hubspot_churned_date))}</span>` : "")
-    + kv("Lifecycle stage", esc(p.hubspot_stage))
-    + (linked ? kv("Org type (HubSpot)", p.hubspot_org_type ? esc(HS_ORG_LABEL[p.hubspot_org_type] || p.hubspot_org_type) + (p.hubspot_org_type !== atlasOrgType(p) ? " " + chip("Needs updating", "bg-amber-100 text-amber-800") : "") : '<span class="text-slate-500">blank</span>') + kv("Operating status (HubSpot)", p.hubspot_operating_status ? esc(HS_OPSTATUS_LABEL[p.hubspot_operating_status] || p.hubspot_operating_status) + (p.hubspot_operating_status !== atlasOpStatus(p) ? " " + chip("Needs updating", "bg-amber-100 text-amber-800") : "") : '<span class="text-slate-500">blank</span>') + kv("Website (HubSpot)", p.hubspot_website ? esc(p.hubspot_website) : "") : "")
+  const stage = p.hubspot_stage ? lcChip(p.hubspot_stage, "The HubSpot company's lifecycle stage" + (hsStageIsEngaged(p.hubspot_stage) ? ": this is what makes the practice Engaged" : "")) : "";
+  return sec("HubSpot", kv("Status", chip(HS_LABEL[st], HS_CLS[st]) + (!linked && active && st !== "none" ? " " + chip("No company record", "bg-amber-100 text-amber-800") : "")) + kv("Company lifecycle stage", stage) + kv("Company status", p.hubspot_company_status ? (p.hubspot_company_status === "Ex-Customer" ? chip(p.hubspot_company_status, "bg-rose-100 text-rose-800") : esc(p.hubspot_company_status)) : "")
+    + kv("Company record", linked ? hsLink("0-2", p.hubspot_company_id, "Open in HubSpot") : "") + '<div id="dr-hsdeal"></div>' + kv("Open pipeline", Number(p.hubspot_pipeline) > 0 ? gbpFull(Number(p.hubspot_pipeline)) : "") + kv("Freemium conversion", p.hubspot_commercial_model === "Freemium" && p.hubspot_customer ? (Number(p.hubspot_conversion_pipeline) > 0 ? "Open conversion deal " + gbpFull(Number(p.hubspot_conversion_pipeline)) : '<span class="text-amber-700">No open conversion deal</span>') : (Number(p.hubspot_conversion_pipeline) > 0 ? "Open conversion deal " + gbpFull(Number(p.hubspot_conversion_pipeline)) : "")) + kv("Open renewal", Number(p.hubspot_renewal_pipeline) > 0 ? gbpFull(Number(p.hubspot_renewal_pipeline)) : "")
     + kv("Contacts in HubSpot", p.hs_contacts ? p.hs_imported + " of " + p.hs_contacts : "") + (when ? `<div class="mt-1 text-xs text-slate-500">${esc(when)}</div>` : ""));
+}
+// Commercial facts from HubSpot, shown with the contract or pricing.
+function hsServiceSection(p) {
+  return sec("Service", kv("Commercial model", p.hubspot_commercial_model ? esc(HS_COMPANY_MODEL[p.hubspot_commercial_model] || p.hubspot_commercial_model) : "")
+    + kv("Product / Service", p.hubspot_product_service ? esc(HS_PRODUCT_SERVICE[p.hubspot_product_service] || p.hubspot_product_service) + ` <span class="text-xs text-slate-400">${esc(p.hubspot_product_service)}</span>` : "")
+    + kv("Service started", p.hubspot_first_start ? esc(fmtDate(p.hubspot_first_start)) : "") + kv("Churned", p.hubspot_churned_date ? `<span class="text-rose-700">${esc(fmtDate(p.hubspot_churned_date))}</span>` : ""));
+}
+// Only when HubSpot disagrees with the NHS data (Org Type, Operating status, how a merged or moved practice is linked); otherwise the NHS value is the single source of truth and nothing is shown.
+function hsCheckSection(p) { const a = alignOf(p); return a && alignRead() && alignNeeds(a) ? sec("HubSpot data check", alignHsRows(p)) : ""; }
+// A one-line "HubSpot has X" note beside an Atlas value, only on a mismatch.
+function hsMismatch(p, key) {
+  const a = alignOf(p); if (!a) return "";
+  const info = key === "status" && p.hubspot_change_note ? ` <span class="inline-flex cursor-help align-middle text-slate-400 hover:text-slate-600" title="${esc(p.hubspot_change_note)}" aria-label="${esc(p.hubspot_change_note)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></span>` : "";      // what was last done in HubSpot, behind an info icon
+  if (!alignRead() || a[key].ok) return info;
+  const labels = key === "org" ? HS_ORG_LABEL : HS_OPSTATUS_LABEL, v = a[key].hs;
+  return ` <span class="text-xs text-slate-500">HubSpot has ${v ? esc(labels[v] || v) : "blank"}</span> ${ALIGN_FLAG}${info}`;
 }
 
 /* ---------- the adaptive HubSpot bar on the price card: Add to HubSpot / Set up in HubSpot / Push pricing (n changes) / Manage in HubSpot ---------- */

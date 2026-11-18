@@ -32,11 +32,9 @@ let hsAlignFlag = {};      // app_flags.alignment_sync: { enabled, approve_once 
 const ALIGN_MAX = 100;      // the same limit as the sync: a bigger run waits for approval
 const ALIGN_FLAG = chip("Needs updating", "bg-amber-100 text-amber-800");
 const alignNeeds = a => !!a && (!a.org.ok || !a.status.ok || (a.link && !a.link.ok));
-function alignHsRows(p) {      // inside the profile's HubSpot section: HubSpot's own values, flagged when they do not match the NHS data (which sits in Practice details)
+function alignHsRows(p) {      // the profile's "HubSpot data check": how a merged or moved practice is linked in HubSpot, and the Update button (Org Type and Operating status mismatches show beside the NHS value in Practice details)
   const a = alignOf(p); if (!a || !alignRead()) return "";
-  const val = (v, labels) => v ? esc(labels[v] || v) : '<span class="text-slate-500">Blank</span>';
   const rows = [];
-  rows.push(kv("Org Type", val(a.org.hs, HS_ORG_LABEL) + (a.org.ok ? "" : " " + ALIGN_FLAG)), kv("Operating status", val(a.status.hs, HS_OPSTATUS_LABEL) + (a.status.ok ? "" : " " + ALIGN_FLAG) + (p.hubspot_change_note ? ` <span class="inline-flex cursor-help align-middle text-slate-400 hover:text-slate-600" title="${esc(p.hubspot_change_note)}" aria-label="${esc(p.hubspot_change_note)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></span>` : "")));
   if (a.link) rows.push(kv(a.c.mode === "merged" ? "Merged into" : "Branch of", a.link.ok ? esc(a.link.parent.practice_name) : (a.link.hs ? '<span class="text-slate-600">A different company</span>' : '<span class="text-slate-500">Not linked</span>') + " " + ALIGN_FLAG + ` <span class="text-xs text-slate-400">${a.c.mode === "merged" ? "merged into " : "site operated by "}${esc(a.link.parent.practice_name)}</span>`));
   const act = alignNeeds(a) && a.c ? `<div class="mt-1"><button type="button" class="hs-entity rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-ods="${esc(p.ods_code)}">Update HubSpot…</button></div>` : "";
   return rows.join("") + act;
