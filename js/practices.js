@@ -387,7 +387,7 @@ async function openDrawer(p) {
   const [{ data: cs }, { data: sg }, { data: hl }, { data: gen }] = await Promise.all([
     db.from("contacts_full").select("*").eq("ods_code", p.ods_code).order("is_primary", { ascending: false }),
     db.from("sales_triggers").select("*").eq("ods_code", p.ods_code).order("detected_at", { ascending: false }).limit(10),
-    db.from("hubspot_links").select("deal_id,deal_name").eq("ods_code", p.ods_code).limit(1),
+    db.from("hubspot_links").select("company_id,deal_id,deal_name").eq("ods_code", p.ods_code).limit(1),
     db.from("practice_generic_emails").select("email,source").eq("ods_code", p.ods_code).limit(1)]);
   if (drawerCode !== p.ods_code) return;   // user moved on
   hsSetLink(p, hl && hl[0]);
