@@ -33,6 +33,12 @@ jobs:
           CQC_API_KEY: ${{ secrets.CQC_API_KEY }}
           FORCE_INGEST: ${{ inputs.force && '1' || '' }}
         run: python -m src.ingest
+      - name: Look up coordinates for new postcodes (practices map)
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python -m src.geocode
       - name: Post new signals to Slack
         id: slack
         continue-on-error: true   # a Slack problem must not mark a successful data load as failed; nothing is marked sent, so the next run posts them

@@ -91,7 +91,7 @@ with sync_playwright() as p:
     pg = b.new_page(viewport={"width": 1440, "height": 900})
     pg.on("pageerror", lambda e: errors.append(str(e) + " | " + str(getattr(e, "stack", ""))[:400]))
     pg.on("console", lambda m: errors.append(m.text) if m.type == "error" and "ERR_" not in m.text and "Failed to load resource" not in m.text else None)
-    pg.route("**/*", lambda r: r.fulfill(body=FAKE, content_type="text/javascript") if "supabase-js" in r.request.url else r.continue_())
+    pg.route("**/*", lambda r: r.fulfill(body=FAKE, content_type="text/javascript") if "supabase-js" in r.request.url else r.fulfill(status=204, body="") if "openstreetmap.org" in r.request.url or "postcodes.io" in r.request.url else r.continue_())
     pg.add_init_script("window.__slow = 700")
     pg.goto(INDEX)
     pg.wait_for_selector("#loading:not(.hidden)", timeout=3000)       # the pop-up is there while data loads
@@ -705,5 +705,10 @@ with sync_playwright() as p:
       for (const k of ['engaged', 'customers', 'open']) { netSort = { key: k, dir: -1 }; renderNetworks(); out[k] = netList.map(n => n.name).join(); }
       networks = saved; renderNetworks(); return out; })()""")
     assert ns == {"engaged": "Bravo,Charlie,Alpha", "customers": "Charlie,Bravo,Alpha", "open": "Alpha,Charlie,Bravo"}, ns      # Networks sort by most engaged, most customers and most still to approach
+    mp = pg.evaluate("""(async () => { showTab('practices'); clearFilters(); applyFilters(); L.tileLayer = () => ({ addTo() {} }); mapCoords = { LS11AA: [53.797, -1.545] }; mapCoordsLoading = Promise.resolve(mapCoords);
+      mapSetView(true); await mapRefresh(true); const legend = $('m-legend').innerText.replace(/\\s+/g, ' ');
+      await mapSearch('LS1 1AA', 5); const msg = $('m-msg').textContent, listed = document.querySelectorAll('#m-list .m-row').length, tblHidden = $('tbl-wrap').classList.contains('hidden');
+      mapSetView(false); pmap.remove(); pmap = null; return { legend, msg, listed, tblHidden, back: !$('tbl-wrap').classList.contains('hidden') }; })()""")
+    assert "Customer" in mp["legend"] and "Freemium" in mp["legend"] and mp["tblHidden"] and mp["back"] and mp["listed"] > 0 and "within 5 miles" in mp["msg"], mp      # the Map view colours by HubSpot status, searches a postcode with a radius and lists the practices inside it
     print("SMOKE OK; page errors:", errors)
     sys.exit(1 if errors else 0)

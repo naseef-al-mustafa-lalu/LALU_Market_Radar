@@ -1443,3 +1443,30 @@ def test_sequence_exit_reason_is_recorded_from_what_hubspot_holds():
     assert hsy.sequence_exit({**base, "hs_email_optout": "true", "hs_sales_email_last_replied": "2026-11-02T08:00:00Z"}) == "unsubscribed" and hsy.sequence_exit({**base, "hs_email_bounce": "1"}) == "bounced"
     st = hsy.contact_state({**base, "hs_latest_sequence_enrolled": "88", "hs_sales_email_last_replied": "2026-11-02T08:00:00Z"}, 1, "now")
     assert st["hs_seq_exit"] == "replied" and st["hs_seq_id"] == "88" and st["hs_seq_ended_at"].startswith("2026-11-03")
+
+
+def test_geocode_looks_up_only_new_postcodes_and_keeps_the_rest():
+    from src import geocode
+
+    assert geocode.norm(" ab1 2cd ") == "AB12CD"
+    prac = [{"postcode": "AB1 2CD"}, {"postcode": "ab12cd"}, {"postcode": "ZZ9 9ZZ"}, {"postcode": None}, {"postcode": "EF3 4GH"}]
+    assert geocode.missing(prac, {"EF34GH": [1, 2]}) == ["AB12CD", "ZZ99ZZ"]      # one lookup per distinct postcode, none for ones already held
+    sent = []
+
+    def post(url, json=None, timeout=0):
+        sent.append(json["postcodes"])
+
+        class R:
+            def raise_for_status(self): pass
+
+            def json(self): return {"result": [{"query": c, "result": {"latitude": 51.123456789, "longitude": -0.5} if c != "ZZ99ZZ" else None} for c in json["postcodes"]]}
+        return R()
+    assert geocode.lookup(["AB12CD", "ZZ99ZZ"], post) == {"AB12CD": [51.12346, -0.5]} and sent == [["AB12CD", "ZZ99ZZ"]]      # an unknown postcode is left out, not stored
+
+    class Rest:
+        def __init__(self): self.saved = None
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            return [{"key": "postcode_coords", "value": {"EF34GH": [1, 2]}}] if table == "app_flags" else prac
+        def upsert(self, table, rows, on_conflict, batch=500): self.saved = rows
+    r = Rest(); out = geocode.run(r, post)
+    assert out == {"postcodes": 2, "looked_up": 2, "found": 1, "not_found": 1} and r.saved[0]["value"] == {"EF34GH": [1, 2], "AB12CD": [51.12346, -0.5]}

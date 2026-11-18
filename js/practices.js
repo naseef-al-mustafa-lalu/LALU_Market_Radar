@@ -51,6 +51,7 @@ function applyFilters() {
   renderChips(); renderSortHeaders();
   shown = 0; $("rows").innerHTML = ""; renderMore();
   $("count").textContent = `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "practice" : "practices"}`;
+  if (typeof mapRefresh === "function") mapRefresh();      // js/map.js: the map follows the same filters
   stateToUrl();
 }
 // Branch records that are not a site or repeat of a practice we hold (hospitals, urgent care, shared buildings, unconfirmed matches): shown above the table so they can still be found
@@ -368,7 +369,7 @@ async function openDrawer(p) {
   const addr = [p.address, p.town, p.county, p.postcode].filter(Boolean).map(esc).join(", ");
   const body = $("dr-body");
   body.innerHTML = mergeSection(p) + hsSection(p, st) + `<div id="dr-contacts" class="text-sm text-slate-500">Loading contacts…</div><div id="dr-signals"></div>` +
-    sec("Practice details", grp("Location and contact", kv("Address", addr) + kv("Region", esc(p.region)) + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Main phone", esc(p.main_phone)) + kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("Website", web + (alignOf(p) && alignRead() && alignOf(p).web.state === "differs" ? ` <span class="text-xs text-slate-500">HubSpot has ${esc(p.hubspot_website)}</span>` : ""))) +
+    sec("Practice details", grp("Location and contact", kv("Address", addr) + kv("Region", esc(p.region)) + (p.postcode ? kv("Nearby", `<a href="#" class="text-lalu-teal-700 hover:underline" data-near="${esc(p.ods_code)}">Practices within 10 miles on the map</a>`) : "") + kv("Country", p.country && p.country !== "England" ? esc(p.country) : "") + kv("Main phone", esc(p.main_phone)) + kv("Main email", p.main_email ? (p.main_email_opt_out ? "opt-out" : esc(p.main_email)) : "") + kv("Website", web + (alignOf(p) && alignRead() && alignOf(p).web.state === "differs" ? ` <span class="text-xs text-slate-500">HubSpot has ${esc(p.hubspot_website)}</span>` : ""))) +
       grp("Organisation (NHS)", kv("Org type", esc(HS_ORG_LABEL[atlasOrgType(p)]) + hsMismatch(p, "org") + (hsCase(p) ? ` <span class="text-slate-400">${hsCase(p).mode === "merged" ? "merged into" : "site continues as a branch of"} ${esc(hsCase(p).parent.practice_name)}</span>` : "")) + kv("Operating status", chip(HS_OPSTATUS_LABEL[atlasOpStatus(p)], { active: "bg-emerald-100 text-emerald-800", closed: "bg-slate-200 text-slate-700", merged: "bg-violet-100 text-violet-800" }[atlasOpStatus(p)]) + hsMismatch(p, "status")) + kv("Operational", opPeriod(p))) +
       grp("Size and systems", kv("Clinical system", p.clinical_software !== "Unknown" ? esc(p.clinical_software) : '<span class="text-slate-500">Not identified</span>') + kv("GPs", esc(p.nhs_num_gp)) + kv("Employees", esc(p.num_employees)) + kv("Annual spend", esc(p.annual_spend)))) +
     branchSection(p) +
