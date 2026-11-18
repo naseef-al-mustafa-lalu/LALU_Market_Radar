@@ -707,7 +707,7 @@ with sync_playwright() as p:
     assert ns == {"engaged": "Bravo,Charlie,Alpha", "customers": "Charlie,Bravo,Alpha", "open": "Alpha,Charlie,Bravo"}, ns      # Networks sort by most engaged, most customers and most still to approach
     mp = pg.evaluate("""(async () => { showTab('practices'); clearFilters(); applyFilters(); L.tileLayer = () => ({ addTo() {} }); mapCoords = { LS11AA: [53.797, -1.545] }; mapCoordsLoading = Promise.resolve(mapCoords);
       mapSetView(true); await mapRefresh(true); const legend = $('m-legend').innerText.replace(/\\s+/g, ' ');
-      await mapSearch('LS1 1AA', 5); const msg = $('m-msg').textContent, listed = document.querySelectorAll('#m-list .m-row').length, tblHidden = $('tbl-wrap').classList.contains('hidden');
+      await mapSearch('LS1 1AA', 5); const msg = $('m-msg').textContent, listed = document.querySelectorAll('#m-list tr.m-row').length, tblHidden = $('tbl-wrap').classList.contains('hidden');
       mapSetView(false); pmap.remove(); pmap = null; return { legend, msg, listed, tblHidden, back: !$('tbl-wrap').classList.contains('hidden') }; })()""")
     assert "Customer" in mp["legend"] and "Freemium" in mp["legend"] and mp["tblHidden"] and mp["back"] and mp["listed"] > 0 and "within 5 miles" in mp["msg"], mp      # the Map view colours by HubSpot status, searches a postcode with a radius and lists the practices inside it
     print("SMOKE OK; page errors:", errors)

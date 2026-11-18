@@ -1,6 +1,9 @@
 /* Practices map: the Practices filters drawn on a map (Table / Map toggle), coloured by HubSpot status, with a postcode + miles search. Coordinates come from postcodes.io via the
    geocode job and live in app_flags.postcode_coords ({ "AB12CD": [lat, lng] }). Leaflet is vendored in assets/vendor/leaflet. */
 let mapOn = false, pmap = null, pmapLayer = null, pmapCircle = null, pmapPin = null, mapCoords = null, mapCoordsLoading = null, mapHidden = new Set(), mapCentre = null, mapInside = [];
+const MAP_UK = [[49.8, -8.9], [60.9, 2.0]];      // Great Britain and Northern Ireland
+const mapRadius = k => { const z = pmap ? pmap.getZoom() : 6, r = Math.min(13, 3.5 + Math.max(0, z - 5) * 1.1); return k === "other" ? r * 0.8 : r; };      // dots grow as you zoom in, so they stay easy to click
+function mapSizeMarkers() { if (pmapLayer) pmapLayer.eachLayer(m => m.setRadius(mapRadius(m._k))); }
 const MAP_COL = { customer: "#059669", freemium: "#d97706", engaged: "#0d9488", other: "#94a3b8" };
 const MAP_LABEL = { customer: "Customer", freemium: "Freemium", engaged: "Engaged", other: "Other" };
 const mapKey = p => { const s = hsState(p); return s === "customer" || s === "freemium" || s === "engaged" ? s : "other"; };
@@ -24,7 +27,9 @@ function mapSetView(on) {
 }
 function mapEnsure() {
   if (pmap) return;
-  pmap = L.map("pmap", { preferCanvas: true, zoomControl: true, minZoom: 5, maxZoom: 18 }).setView([52.9, -1.6], 6);
+  pmap = L.map("pmap", { preferCanvas: true, zoomControl: true, maxZoom: 18, maxBounds: MAP_UK, maxBoundsViscosity: 1, renderer: L.canvas({ tolerance: 10 }) });      // the UK only: no panning or zooming out to the rest of the world
+  pmap.fitBounds(MAP_UK); pmap.setMinZoom(pmap.getZoom());
+  pmap.on("zoomend", mapSizeMarkers);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' }).addTo(pmap);
   pmapLayer = L.layerGroup().addTo(pmap);
 }
@@ -38,12 +43,12 @@ async function mapRefresh(fit) {
   pmapLayer.clearLayers();
   const shown = placed.filter(p => !mapHidden.has(mapKey(p))), pts = [];
   for (const p of shown) {
-    const at = mapAt(p), k = mapKey(p), m = L.circleMarker(at, { radius: k === "other" ? 4 : 6, color: "#fff", weight: 1, fillColor: MAP_COL[k], fillOpacity: k === "other" ? 0.7 : 0.95 });
-    m.on("click", () => mapPopup(p, m)); m.addTo(pmapLayer); pts.push(at);
+    const at = mapAt(p), k = mapKey(p), m = L.circleMarker(at, { radius: mapRadius(k), color: "#fff", weight: 1, fillColor: MAP_COL[k], fillOpacity: k === "other" ? 0.7 : 0.95 });
+    m._k = k; m.on("click", () => mapPopup(p, m)); m.addTo(pmapLayer); pts.push(at);
   }
   if (!mapCentre) $("m-msg").textContent = unplaced.length ? `${placed.length.toLocaleString()} on the map; ${unplaced.length.toLocaleString()} have no location yet` : `${placed.length.toLocaleString()} practices`;
   if (mapCentre) mapRadiusList(shown);
-  else if (fit && pts.length) pmap.fitBounds(L.latLngBounds(pts).pad(0.05));
+  else if (fit && pts.length) pmap.fitBounds(L.latLngBounds(pts).pad(0.05), { maxZoom: 12 });
   if (!Object.keys(mapCoords).length) $("m-msg").textContent = "No locations yet: run the Geocode postcodes workflow once.";
 }
 function mapPopup(p, m) {
@@ -72,7 +77,7 @@ async function mapSearch(pc, miles, label) {
   $("m-msg").textContent = "Looking up…";
   const at = await mapGeocode(pc);
   if (!at) { $("m-msg").textContent = "Postcode not found."; return; }
-  mapCentre = { at, miles: Number(miles), pc, label: label || pc.toUpperCase() };
+  mapCentre = { at, miles: Number(miles), pc, label: label || pc.toUpperCase() }; mapRows = 100;
   mapEnsure(); pmap.invalidateSize(); if (!pmap.getSize().x) { $("m-msg").textContent = "Open the Practices tab to see the map."; return; }
   if (pmapCircle) pmapCircle.remove(); if (pmapPin) pmapPin.remove();
   pmapCircle = L.circle(at, { radius: mapCentre.miles * 1609.344, color: "#1e3a5f", weight: 2, fillOpacity: 0.05 }).addTo(pmap);
@@ -81,14 +86,18 @@ async function mapSearch(pc, miles, label) {
   pmap.fitBounds(pmapCircle.getBounds().pad(0.05));
   mapRefresh();
 }
+let mapSort = { key: "d", dir: 1 }, mapRows = 100;
+const MAP_SORT = { d: x => x.d, name: x => x.p.practice_name.toLowerCase(), patients: x => x.p.total_patients || 0, tier: x => x.p.price_tier || 9, status: x => ["customer", "freemium", "engaged", "other"].indexOf(mapKey(x.p)) };
 function mapRadiusList(shown) {
-  mapInside = shown.map(p => ({ p, d: mapMiles(mapCentre.at, mapAt(p)) })).filter(x => x.d <= mapCentre.miles).sort((a, b) => a.d - b.d);
-  const near = mapInside.filter(x => !mapCentre.ods || x.p.ods_code !== mapCentre.ods);
+  mapInside = shown.map(p => ({ p, d: mapMiles(mapCentre.at, mapAt(p)) })).filter(x => x.d <= mapCentre.miles && (!mapCentre.ods || x.p.ods_code !== mapCentre.ods)).sort((a, b) => a.d - b.d);
+  const near = [...mapInside], f = MAP_SORT[mapSort.key]; near.sort((a, b) => { const x = f(a), y = f(b); return ((x < y ? -1 : x > y ? 1 : 0) * mapSort.dir) || a.d - b.d; });
   $("m-msg").textContent = `${near.length.toLocaleString()} practice${near.length === 1 ? "" : "s"} within ${mapCentre.miles} miles of ${mapCentre.label}`;
+  const th = (k, label, cls = "") => `<th data-k="${k}" class="m-th cursor-pointer select-none px-3 py-2 ${cls} hover:text-slate-800">${label}${mapSort.key === k ? ` <span>${mapSort.dir > 0 ? "▲" : "▼"}</span>` : ""}</th>`;
   const box = $("m-list"); box.classList.remove("hidden");
-  box.innerHTML = `<div class="sticky top-0 flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2"><span class="text-xs font-semibold text-slate-600">${near.length.toLocaleString()} nearest first</span><button type="button" id="m-save" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold hover:bg-slate-50">Save as audience</button></div>`
-    + near.slice(0, 300).map(x => `<button type="button" class="m-row flex w-full items-start gap-2 border-b border-slate-100 px-3 py-2 text-left hover:bg-slate-50" data-ods="${esc(x.p.ods_code)}"><span class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style="background:${MAP_COL[mapKey(x.p)]}"></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">${esc(x.p.practice_name)}</span><span class="block text-xs text-slate-500">${esc(x.p.ods_code)} · ${x.d.toFixed(1)} mi${x.p.total_patients > 0 ? " · " + Number(x.p.total_patients).toLocaleString() : ""}</span></span></button>`).join("")
-    + (near.length > 300 ? `<div class="px-3 py-2 text-xs text-slate-500">Showing the nearest 300.</div>` : "");
+  box.innerHTML = `<div class="flex items-center justify-between gap-2 px-4 py-2"><span class="text-sm font-semibold text-slate-700">${near.length.toLocaleString()} practice${near.length === 1 ? "" : "s"} in range</span><button type="button" id="m-save" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Save as audience</button></div>
+    <div class="max-h-[50vh] overflow-auto"><table class="w-full text-left text-sm"><thead class="sticky top-0 bg-slate-50 text-xs uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>${th("name", "Practice")}${th("d", "Distance", "text-right")}<th class="px-3 py-2">Town</th>${th("patients", "List size", "text-right")}${th("tier", "Tier")}${th("status", "HubSpot")}</tr></thead>
+    <tbody class="divide-y divide-slate-100">${near.slice(0, mapRows).map(x => `<tr class="m-row cursor-pointer hover:bg-lalu-teal-50/50" data-ods="${esc(x.p.ods_code)}" tabindex="0"><td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(x.p.practice_name)}</div><div class="text-xs text-slate-500">${esc(x.p.ods_code)}</div></td><td class="px-3 py-2 text-right font-mono">${x.d.toFixed(1)} mi</td><td class="px-3 py-2">${esc(x.p.town || "")}</td><td class="px-3 py-2 text-right font-mono">${x.p.total_patients > 0 ? Number(x.p.total_patients).toLocaleString() : "–"}</td><td class="px-3 py-2">${x.p.total_patients > 0 ? chip(tier(x.p), TIER_CLS[tier(x.p)] || "") : ""}</td><td class="px-3 py-2">${chip(HS_LABEL[hsState(x.p)], HS_CLS[hsState(x.p)])}</td></tr>`).join("")}</tbody></table>
+    ${near.length > mapRows ? `<div class="p-3 text-center"><button type="button" id="m-more" class="text-sm text-lalu-teal-700 hover:underline">Show more (${(near.length - mapRows).toLocaleString()} left)</button></div>` : ""}</div>`;
 }
 function mapClear() {
   mapCentre = null; mapInside = []; if (pmapCircle) pmapCircle.remove(); if (pmapPin) pmapPin.remove(); pmapCircle = pmapPin = null;
@@ -104,12 +113,14 @@ $("m-mi").addEventListener("change", () => { if (mapCentre) mapSearch(mapCentre.
 $("m-clear").onclick = mapClear;
 document.addEventListener("click", e => {
   const leg = e.target.closest(".m-leg"); if (leg) { const k = leg.dataset.k; mapHidden.has(k) ? mapHidden.delete(k) : mapHidden.add(k); mapRefresh(); return; }
+  const mth = e.target.closest(".m-th"); if (mth) { const k = mth.dataset.k; mapSort = { key: k, dir: mapSort.key === k ? -mapSort.dir : (k === "patients" ? -1 : 1) }; mapRefresh(); return; }
+  if (e.target.closest("#m-more")) { mapRows += 100; mapRefresh(); return; }
   const row = e.target.closest(".m-row"); if (row) { const p = byOds.get(row.dataset.ods); if (p) openDrawer(p); return; }
   if (e.target.closest("#m-save")) { mapSaveAudience(); return; }
   const near = e.target.closest("[data-near]"); if (near) { e.preventDefault(); mapNear(near.dataset.near, 10); }
 });
 function mapSaveAudience() {
-  const codes = mapInside.filter(x => !mapCentre.ods || x.p.ods_code !== mapCentre.ods).map(x => x.p.ods_code), name0 = `Within ${mapCentre.miles} miles of ${mapCentre.label}`;
+  const codes = mapInside.map(x => x.p.ods_code), name0 = `Within ${mapCentre.miles} miles of ${mapCentre.label}`;
   audModal("Save as audience", `<label class="block text-xs font-semibold text-slate-600">Name<input type="text" id="aud-name" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value="${esc(name0.slice(0, 80))}" maxlength="80"></label>
     <p class="mt-3 text-sm"><b>${codes.length.toLocaleString()}</b> practice${codes.length === 1 ? "" : "s"} within ${mapCentre.miles} miles, from the practices the filters show.</p><p class="mt-1 text-xs text-slate-500">This saves the practices as they are today; it will not pick up practices that open nearby later.</p>`,
     async () => { const name = $("aud-name").value.trim(); if (!name) throw new Error("Give the audience a name."); if (!codes.length) throw new Error("No practices in range."); const a = await audCreate(name, { criteria: null, pinned: codes, summary: name0 }); audDone(`Saved “${name}” with ${codes.length.toLocaleString()} practices.`, a); $("aud-open-it").onclick = () => audOpenIt(a); });
