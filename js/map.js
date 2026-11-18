@@ -24,13 +24,13 @@ function mapSetView(on) {
 }
 function mapEnsure() {
   if (pmap) return;
-  pmap = L.map("pmap", { preferCanvas: true, zoomControl: true }).setView([52.9, -1.6], 6);
+  pmap = L.map("pmap", { preferCanvas: true, zoomControl: true, minZoom: 5, maxZoom: 18 }).setView([52.9, -1.6], 6);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' }).addTo(pmap);
   pmapLayer = L.layerGroup().addTo(pmap);
 }
 async function mapRefresh(fit) {
   if (!mapOn) return;
-  await mapLoadCoords(); mapEnsure(); setTimeout(() => pmap.invalidateSize(), 0);
+  await mapLoadCoords(); mapEnsure(); pmap.invalidateSize(); if (!pmap.getSize().x) return;      // the Practices tab is not showing
   const placed = [], unplaced = [];
   for (const p of filtered) (mapAt(p) ? placed : unplaced).push(p);
   const counts = { customer: 0, freemium: 0, engaged: 0, other: 0 }; for (const p of placed) counts[mapKey(p)]++;
@@ -73,9 +73,10 @@ async function mapSearch(pc, miles, label) {
   const at = await mapGeocode(pc);
   if (!at) { $("m-msg").textContent = "Postcode not found."; return; }
   mapCentre = { at, miles: Number(miles), pc, label: label || pc.toUpperCase() };
-  mapEnsure(); if (pmapCircle) pmapCircle.remove(); if (pmapPin) pmapPin.remove();
+  mapEnsure(); pmap.invalidateSize(); if (!pmap.getSize().x) { $("m-msg").textContent = "Open the Practices tab to see the map."; return; }
+  if (pmapCircle) pmapCircle.remove(); if (pmapPin) pmapPin.remove();
   pmapCircle = L.circle(at, { radius: mapCentre.miles * 1609.344, color: "#1e3a5f", weight: 2, fillOpacity: 0.05 }).addTo(pmap);
-  pmapPin = L.marker(at, { title: mapCentre.label }).addTo(pmap);
+  pmapPin = L.circleMarker(at, { radius: 7, color: "#fff", weight: 2, fillColor: "#1e3a5f", fillOpacity: 1 }).bindTooltip(mapCentre.label).addTo(pmap);
   $("m-clear").classList.remove("hidden");
   pmap.fitBounds(pmapCircle.getBounds().pad(0.05));
   mapRefresh();
