@@ -12,8 +12,8 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.bare{background:transparent;padding:0}.atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}.atlas-chip.bare,.atlas-chip.lg.bare{background:transparent;padding:0}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261117a"></script>
-<link rel="stylesheet" href="assets/tailwind.css?v=20261117a">
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261117b"></script>
+<link rel="stylesheet" href="assets/tailwind.css?v=20261117b">
 <style>.no-dl #btn-export,.no-dl #s-export,.no-dl #au-csv,.no-dl #hsp-csv,.no-dl #ct-csv,.no-dl .ct-seg-csv{display:none!important}</style>
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
@@ -132,23 +132,24 @@
         <div class="flex flex-wrap gap-2 items-center">
           
           <input id="n-search" placeholder="Search networks…" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[200px] max-w-sm">
-          <select id="n-sort" class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"><option value="open">Most unengaged practices</option><option value="engaged">Most engaged practices</option><option value="customers">Most customers</option><option value="arr">Highest est. ARR</option><option value="practices">Most practices</option><option value="patients">Most patients</option></select>
+          <select id="n-cust"><option value="">Any</option><option value="customer">Has a customer</option><option value="freemium">Has a freemium practice</option><option value="none">No customers</option></select>
+          <select id="n-tier"><option value="">Any</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option><option value="4">Tier 4</option><option value="5">Tier 5</option><option value="0">No network price</option></select>
           <label class="flex items-center gap-2 text-sm"><input id="n-multi" type="checkbox"> 3+ practices only</label>
-          <span id="n-count" class="text-sm text-slate-500"></span><button id="n-new" class="ml-auto border border-slate-300 bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 text-sm font-semibold" title="Create a provider group or federation in HubSpot and link its practices">+ New group / federation</button><button id="n-export" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 text-sm font-semibold">Export CSV</button>
+          <span id="n-count" class="text-sm text-slate-500"></span><button id="n-new" class="ml-auto border border-slate-300 bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 text-sm font-semibold" title="Create a provider group or federation in HubSpot and link its practices">+ New group / federation</button><button id="n-save-aud" class="border border-slate-300 bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 text-sm font-semibold" title="Save the practices in the networks shown as an audience for sequences">Save as audience</button><button id="n-export" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 text-sm font-semibold">Export CSV</button>
         </div>
       </div>
       <div class="overflow-x-auto max-h-[80vh]">
         <table class="w-full text-left text-sm">
           <thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>
-            <th class="px-3 py-2.5 whitespace-nowrap min-w-[14rem]">Network</th>
-            <th class="px-3 py-2.5 whitespace-nowrap text-right min-w-[7.5rem]">Linked practices</th>
-            <th class="px-3 py-2.5 whitespace-nowrap text-right min-w-[5.5rem]">Patients</th>
-            <th class="px-3 py-2.5 whitespace-nowrap min-w-[4.5rem]">Tier</th>
-            <th class="px-3 py-2.5 whitespace-nowrap text-right min-w-[8rem]">Est. ARR</th>
+            <th data-sort="name" class="cursor-pointer select-none hover:text-slate-800 px-3 py-2.5 whitespace-nowrap min-w-[14rem]">Network</th>
+            <th data-sort="practices" class="cursor-pointer select-none hover:text-slate-800 px-3 py-2.5 whitespace-nowrap text-right min-w-[7.5rem]">Linked practices</th>
+            <th data-sort="patients" class="cursor-pointer select-none hover:text-slate-800 px-3 py-2.5 whitespace-nowrap text-right min-w-[5.5rem]">Patients</th>
+            <th data-sort="tier" class="cursor-pointer select-none hover:text-slate-800 px-3 py-2.5 whitespace-nowrap min-w-[4.5rem]">Tier</th>
+            <th data-sort="arr" class="cursor-pointer select-none hover:text-slate-800 px-3 py-2.5 whitespace-nowrap text-right min-w-[8rem]">Est. ARR</th>
             <th class="px-3 py-2.5 whitespace-nowrap text-right min-w-[8rem]" title="If the network buys SAR only">SAR-only ARR</th>
             <th class="px-3 py-2.5 whitespace-nowrap min-w-[9rem]">Practice sizes</th>
-            <th class="px-3 py-2.5 whitespace-nowrap min-w-[6.5rem]">Engaged</th>
-            <th class="px-3 py-2.5 whitespace-nowrap min-w-[8rem]">Customers</th><th class="px-3 py-2.5 min-w-[4.5rem]"></th></tr></thead>
+            <th data-sort="engaged" class="cursor-pointer select-none hover:text-slate-800 px-3 py-2.5 whitespace-nowrap min-w-[6.5rem]">Engaged</th>
+            <th data-sort="customers" class="cursor-pointer select-none hover:text-slate-800 px-3 py-2.5 whitespace-nowrap min-w-[8rem]">Customers</th><th class="px-3 py-2.5 min-w-[4.5rem]"></th></tr></thead>
           <tbody id="net-rows" class="divide-y divide-slate-100"></tbody>
         </table>
       </div>
@@ -297,32 +298,32 @@
     <div id="hs-body" class="flex-1 overflow-y-auto px-5 pb-5 pt-4 text-sm"></div>
   </div>
 </div>
-<script src="js/core.js?v=20261117a"></script>
-<script src="js/data-load.js?v=20261117a"></script>
-<script src="js/practices.js?v=20261117a"></script>
-<script src="js/referral.js?v=20261117a"></script>
-<script src="js/networks.js?v=20261117a"></script>
-<script src="js/revenue-pum.js?v=20261117a"></script>
-<script src="js/signals.js?v=20261117a"></script>
-<script src="js/mergers.js?v=20261117a"></script>
-<script src="js/audiences.js?v=20261117a"></script>
-<script src="js/audience-tests.js?v=20261117a"></script>
-<script src="js/hubspot-align.js?v=20261117a"></script>
-<script src="js/data-tab.js?v=20261117a"></script>
-<script src="js/data-connections.js?v=20261117a"></script>
-<script src="js/data-uploads.js?v=20261117a"></script>
-<script src="js/contact-rules.js?v=20261117a"></script>
-<script src="js/contacts.js?v=20261117a"></script>
-<script src="js/contacts-nb.js?v=20261117a"></script>
-<script src="js/data-audit.js?v=20261117a"></script>
-<script src="js/data-branches.js?v=20261117a"></script>
-<script src="js/hubspot.js?v=20261117a"></script>
-<script src="js/hubspot-company.js?v=20261117a"></script>
-<script src="js/hubspot-admin.js?v=20261117a"></script>
-<script src="js/hubspot-group.js?v=20261117a"></script>
-<script src="js/hubspot-network.js?v=20261117a"></script>
-<script src="js/network-admin.js?v=20261117a"></script>
-<script src="js/export.js?v=20261117a"></script>
-<script src="js/main.js?v=20261117a"></script>
+<script src="js/core.js?v=20261117b"></script>
+<script src="js/data-load.js?v=20261117b"></script>
+<script src="js/practices.js?v=20261117b"></script>
+<script src="js/referral.js?v=20261117b"></script>
+<script src="js/networks.js?v=20261117b"></script>
+<script src="js/revenue-pum.js?v=20261117b"></script>
+<script src="js/signals.js?v=20261117b"></script>
+<script src="js/mergers.js?v=20261117b"></script>
+<script src="js/audiences.js?v=20261117b"></script>
+<script src="js/audience-tests.js?v=20261117b"></script>
+<script src="js/hubspot-align.js?v=20261117b"></script>
+<script src="js/data-tab.js?v=20261117b"></script>
+<script src="js/data-connections.js?v=20261117b"></script>
+<script src="js/data-uploads.js?v=20261117b"></script>
+<script src="js/contact-rules.js?v=20261117b"></script>
+<script src="js/contacts.js?v=20261117b"></script>
+<script src="js/contacts-nb.js?v=20261117b"></script>
+<script src="js/data-audit.js?v=20261117b"></script>
+<script src="js/data-branches.js?v=20261117b"></script>
+<script src="js/hubspot.js?v=20261117b"></script>
+<script src="js/hubspot-company.js?v=20261117b"></script>
+<script src="js/hubspot-admin.js?v=20261117b"></script>
+<script src="js/hubspot-group.js?v=20261117b"></script>
+<script src="js/hubspot-network.js?v=20261117b"></script>
+<script src="js/network-admin.js?v=20261117b"></script>
+<script src="js/export.js?v=20261117b"></script>
+<script src="js/main.js?v=20261117b"></script>
 </body>
 </html>

@@ -86,21 +86,29 @@ function openNetworkProfile(n) {
     const tr = ev.target.closest("tr[data-ods]"); if (tr && byOds.get(tr.dataset.ods)) { openDrawer(byOds.get(tr.dataset.ods)); return; } if (ev.target.closest("#np-view")) openNetwork(n.kind, key, n.name); };
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
 }
+let netSort = { key: "open", dir: -1 };      // default: most practices still to approach
+let netFreemiumCache = { len: -1, m: new Map() };
+function netFreemium(n) {      // freemium practices in a network, worked out from the practice list so it matches what the network view shows
+  if (netFreemiumCache.len !== practices.length) netFreemiumCache = { len: practices.length, m: new Map(), fp: practices.filter(p => p.status === "Active" && hsState(p) === "freemium") };
+  const c = netFreemiumCache; if (!c.m.has(n.id)) { const key = keyOf(n); c.m.set(n.id, c.fp.filter(p => netMatch(p, { kind: n.kind, key })).length); }
+  return c.m.get(n.id);
+}
 function renderNetworks() {
   $("net-kinds").innerHTML = Object.entries(NET_KINDS).map(([k, label]) =>
     `<button data-k="${k}" class="px-3 py-1 rounded-md ${k === netKind ? "bg-white shadow-sm" : "text-slate-500"}">${label} <span class="text-xs text-slate-500">${networks.filter(n => n.kind === k).length}</span></button>`).join("");
   $("net-kinds").querySelectorAll("button").forEach(b => b.onclick = () => { netKind = b.dataset.k; renderNetworks(); stateToUrl(); });
-  const q = $("n-search").value.trim().toLowerCase(), srt = $("n-sort").value, multi = $("n-multi").checked;
-  netList = networks.filter(n => n.kind === netKind && (!multi || n.practices >= 3) && (!q || n.name.toLowerCase().includes(q)))
+  const q = $("n-search").value.trim().toLowerCase(), multi = $("n-multi").checked, fc = $("n-cust").value, ft = $("n-tier").value, { key: srt, dir } = netSort;
+  netList = networks.filter(n => n.kind === netKind && (!multi || n.practices >= 3) && (!q || n.name.toLowerCase().includes(q))
+      && (!fc || (fc === "customer" ? n.customers > 0 : fc === "freemium" ? netFreemium(n) > 0 : !(n.customers > 0) && !netFreemium(n)))
+      && (!ft || (ft === "0" ? !n.network_tier : String(n.network_tier) === ft)))
     .sort((a, b) => {
       const num = v => Number(v) || 0, ties = num(b.patients) - num(a.patients) || String(a.name).localeCompare(String(b.name));
-      if (srt === "patients") return num(b.patients) - num(a.patients) || ties;
-      if (srt === "arr") return num(b.arr_network || b.arr_single) - num(a.arr_network || a.arr_single) || ties;
-      if (srt === "practices") return num(b.practices) - num(a.practices) || ties;
-      if (srt === "engaged") return num(b.engaged) - num(a.engaged) || ties;
-      if (srt === "customers") return num(b.customers) - num(a.customers) || num(b.arr_customers) - num(a.arr_customers) || ties;
-      return (num(b.practices) - num(b.engaged)) - (num(a.practices) - num(a.engaged)) || ties;   // most practices still to approach
+      const v = { name: x => String(x.name).toLowerCase(), practices: x => num(x.practices), patients: x => num(x.patients), tier: x => num(x.network_tier) || 9, arr: x => num(x.arr_network || x.arr_single),
+        engaged: x => num(x.engaged), customers: x => num(x.customers) * 1e9 + num(x.arr_customers), open: x => num(x.practices) - num(x.engaged) }[srt];
+      const c = typeof v(a) === "string" ? v(a).localeCompare(v(b)) : v(a) - v(b);
+      return (c * dir) || ties;
     });
+  document.querySelectorAll("#view-networks th[data-sort]").forEach(th => { th.querySelector(".ns-arrow")?.remove(); if (th.dataset.sort === srt) th.insertAdjacentHTML("beforeend", `<span class="ns-arrow ml-1">${dir > 0 ? "▲" : "▼"}</span>`); th.setAttribute("aria-sort", th.dataset.sort === srt ? (dir > 0 ? "ascending" : "descending") : "none"); });
   netShown = 0; $("net-rows").innerHTML = ""; renderMoreNetworks();
   const one = { pcn: "PCN", group: "group", federation: "federation", icb: "ICB" }[netKind];
   $("n-count").textContent = `${netList.length.toLocaleString()} ${netList.length === 1 ? one : NET_KINDS[netKind].replace("Provider groups", "groups").replace("Federations", "federations")}`;
@@ -109,7 +117,7 @@ function renderMoreNetworks() {
   const slice = netList.slice(netShown, netShown + PAGE); netShown += slice.length;
   const frag = document.createDocumentFragment();
   for (const n of slice) {
-    const open = n.practices - n.engaged, tot = Math.max(n.practices, 1);
+    const open = n.practices - n.engaged, frees = netFreemium(n), tot = Math.max(n.practices, 1);
     const bar = (v, cls) => v ? `<div class="${cls}" style="width:${(v / tot) * 100}%" title="${v}"></div>` : "";
     const KIND = { pcn: "PCN", icb: "ICB", group: "group", federation: "federation" }[n.kind] || n.kind;
     const tr = document.createElement("tr"); tr.className = "hover:bg-lalu-teal-50/50 cursor-pointer"; tr.tabIndex = 0; tr.setAttribute("role", "button");
@@ -124,7 +132,7 @@ function renderMoreNetworks() {
       <td class="px-3 py-2 align-top"><div class="flex h-2 rounded overflow-hidden bg-slate-100">${bar(n.tier1, "bg-purple-700")}${bar(n.tier2, "bg-purple-500")}${bar(n.tier3, "bg-violet-300")}${bar(n.tier4, "bg-slate-300")}${bar(n.tier5, "bg-slate-200")}</div>
         <div class="text-xs text-slate-500 mt-0.5">${[n.tier1, n.tier2, n.tier3, n.tier4, n.tier5].map((v, i) => v ? "T" + (i + 1) + " " + v : "").filter(Boolean).join(" · ")}</div></td>
       <td class="px-3 py-2 text-xs whitespace-nowrap align-top"><div class="font-semibold">${n.engaged} of ${n.practices}</div>${open > 0 ? `<div class="text-xs text-slate-500">${open} to approach</div>` : '<div class="text-xs text-emerald-700">all engaged</div>'}</td>
-      <td class="px-3 py-2 whitespace-nowrap align-top">${n.customers > 0 ? chip("Has " + (n.customers === 1 ? "a customer" : n.customers + " customers"), "bg-emerald-100 text-emerald-800") + `<div class="text-xs text-slate-500 mt-0.5">${gbpFull(n.arr_customers)}/yr live</div>` : '<span class="text-xs text-slate-300">no customers</span>'}</td>
+      <td class="px-3 py-2 whitespace-nowrap align-top">${n.customers > 0 ? chip("Has " + (n.customers === 1 ? "a customer" : n.customers + " customers"), "bg-emerald-100 text-emerald-800") : ""}${frees > 0 ? (n.customers > 0 ? " " : "") + chip(frees + " freemium", HS_CLS.freemium) : ""}${n.customers > 0 || frees > 0 ? "" : '<span class="text-xs text-slate-300">no customers</span>'}</td>
       <td class="px-3 py-2 text-right align-top"><button class="text-lalu-teal-700 hover:underline text-xs whitespace-nowrap">View →</button></td>`;
     tr.onclick = () => openNetworkProfile(n);
     tr.querySelector("button").onclick = e => { e.stopPropagation(); openNetwork(n.kind, keyOf(n), n.name); };
@@ -134,7 +142,15 @@ function renderMoreNetworks() {
   $("n-more").classList.toggle("hidden", netShown >= netList.length);
   if (!netList.length) $("net-rows").innerHTML = '<tr><td colspan="10" class="p-6 text-center text-slate-500 italic">Nothing here yet. Federations appear once a source for them is loaded (currently the Oscar file).</td></tr>';
 }
-["n-search", "n-sort", "n-multi"].forEach(id => $(id).addEventListener(id === "n-search" ? "input" : "change", renderNetworks));
+["n-search", "n-cust", "n-tier", "n-multi"].forEach(id => $(id).addEventListener(id === "n-search" ? "input" : "change", renderNetworks));
+document.querySelector("#view-networks thead").addEventListener("click", e => { const th = e.target.closest("th[data-sort]"); if (!th) return; const k = th.dataset.sort; netSort = { key: k, dir: netSort.key === k ? -netSort.dir : (k === "name" || k === "tier" ? 1 : -1) }; renderNetworks(); });
+$("n-save-aud").addEventListener("click", () => {      // the practices in the networks listed now, saved as a fixed audience
+  const codes = [...new Set(netList.flatMap(n => { const key = keyOf(n); return practices.filter(p => p.status === "Active" && netMatch(p, { kind: n.kind, key })).map(p => p.ods_code); }))];
+  const chips = [NET_KINDS[netKind], $("n-search").value.trim() && `“${$("n-search").value.trim()}”`, $("n-multi").checked && "3+ practices", $("n-cust").value && $("n-cust").selectedOptions[0].text, $("n-tier").value && $("n-tier").selectedOptions[0].text].filter(Boolean), summary = chips.join(", ");
+  audModal("Save as audience", `<label class="block text-xs font-semibold text-slate-600">Name<input type="text" id="aud-name" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value="${esc(summary.slice(0, 80))}" maxlength="80"></label>
+    <p class="mt-3 text-sm"><b>${codes.length.toLocaleString()}</b> active practice${codes.length === 1 ? "" : "s"} in the <b>${netList.length.toLocaleString()}</b> network${netList.length === 1 ? "" : "s"} shown.</p><p class="mt-1 text-xs text-slate-500">Networks: ${esc(summary)}. This saves the practices as they are today; it will not pick up practices that join these networks later.</p>`,
+    async () => { const name = $("aud-name").value.trim(); if (!name) throw new Error("Give the audience a name."); if (!codes.length) throw new Error("No practices in the networks shown."); const a = await audCreate(name, { criteria: null, pinned: codes, summary }); audDone(`Saved “${name}” with ${codes.length.toLocaleString()} practices.`, a); $("aud-open-it").onclick = () => audOpenIt(a); });
+});
 $("n-more").addEventListener("click", renderMoreNetworks);
 
 /* ---------- revenue ---------- */
