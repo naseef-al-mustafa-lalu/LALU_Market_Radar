@@ -1,0 +1,24 @@
+name: Diagnose accounts
+on:
+  workflow_dispatch:
+    inputs:
+      names:
+        description: 'Practice names, separated by semicolons'
+        required: true
+        default: 'Elm Tree Surgery'
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12', cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Describe accounts and the customers most like them
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NAMES: ${{ inputs.names }}
+        run: python -m src.diagnose_accounts
