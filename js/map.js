@@ -4,10 +4,10 @@ let mapOn = false, pmap = null, pmapLayer = null, pmapCircle = null, pmapPin = n
 const MAP_UK = [[49.8, -8.9], [60.9, 2.0]];      // Great Britain and Northern Ireland
 const mapRadius = k => { const z = pmap ? pmap.getZoom() : 6, r = Math.min(13, 3.5 + Math.max(0, z - 5) * 1.1); return k === "other" ? r * 0.8 : r; };      // dots grow as you zoom in, so they stay easy to click
 function mapSizeMarkers() { if (pmapLayer) pmapLayer.eachLayer(m => m.setRadius(mapRadius(m._k) * (m._ring ? 0.85 : 1))); }
-const MAP_COL = { customer: "#059669", nocontract: "#7c3aed", freemium: "#d97706", engaged: "#2563eb", other: "#94a3b8" };
-const MAP_LABEL = { customer: "Customer", nocontract: "Customer, no contract", freemium: "Freemium", engaged: "Engaged", other: "Other" };
-const MAP_TIP = { customer: "Paying customers with a live contract value in HubSpot", nocontract: "HubSpot says customer but there is no live contract value (the Revenue page counts these separately)", freemium: "Freemium customers", engaged: "Not a customer; engaged in HubSpot", other: "Everything else" };
-const mapKey = p => { const s = hsState(p); return s === "customer" ? (Number(p.hubspot_contracted_arr) > 0 ? "customer" : "nocontract") : s === "freemium" || s === "engaged" ? s : "other"; };      // the same split as the Revenue page
+const MAP_COL = { customer: "#059669", nomodel: "#7c3aed", freemium: "#d97706", engaged: "#2563eb", other: "#94a3b8" };
+const MAP_LABEL = { customer: "Customer", nomodel: "Customer, no Commercial Model", freemium: "Freemium", engaged: "Engaged", other: "Other" };
+const MAP_TIP = { customer: "Customers (HubSpot lifecycle stage Customer) with a Commercial Model: All Reports, SAR Only, PAYG or Self Service", nomodel: "HubSpot lifecycle stage is Customer but no Commercial Model is set: fix in HubSpot (the Revenue page counts these separately)", freemium: "Freemium customers", engaged: "Not a customer; engaged in HubSpot", other: "Everything else" };
+const mapKey = p => { const s = hsState(p); return s === "customer" ? (p.hubspot_commercial_model ? "customer" : "nomodel") : s === "freemium" || s === "engaged" ? s : "other"; };      // the same split as the Revenue page
 const mapNorm = pc => String(pc || "").replace(/\s+/g, "").toUpperCase();
 const mapMiles = (a, b) => { const R = 3958.8, r = x => x * Math.PI / 180, dLat = r(b[0] - a[0]), dLng = r(b[1] - a[1]), h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a[0])) * Math.cos(r(b[0])) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
 const mapBranchAt = b => mapCoords && mapCoords[mapNorm(b.postcode)] || null;
@@ -45,7 +45,7 @@ async function mapRefresh(fit) {
   await mapLoadCoords(); mapEnsure(); pmap.invalidateSize(); if (!pmap.getSize().x) return;      // the Practices tab is not showing
   const placed = [], unplaced = [];
   for (const p of filtered) (mapAt(p) ? placed : unplaced).push(p);
-  const counts = { customer: 0, nocontract: 0, freemium: 0, engaged: 0, other: 0 }; for (const p of placed) counts[mapKey(p)]++;
+  const counts = { customer: 0, nomodel: 0, freemium: 0, engaged: 0, other: 0 }; for (const p of placed) counts[mapKey(p)]++;
   $("m-legend").innerHTML = Object.keys(MAP_COL).map(k => `<button type="button" data-k="${k}" class="m-leg inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2 py-1 font-semibold ${mapHidden.has(k) ? "opacity-40" : ""}" title="${esc(MAP_TIP[k])}. Click to show or hide."><span class="h-2.5 w-2.5 rounded-full" style="background:${MAP_COL[k]}"></span>${MAP_LABEL[k]} <span class="font-normal text-slate-500">${counts[k].toLocaleString()}</span></button>`).join("");
   pmapLayer.clearLayers();
   const shown = placed.filter(p => !mapHidden.has(mapKey(p))), pts = [];
@@ -72,7 +72,7 @@ function mapPopup(p, m) {
   const d = mapCentre && mapAt(p) ? mapMiles(mapCentre.at, mapAt(p)) : null;
   const html = document.createElement("div"); html.className = "text-sm";
   html.innerHTML = `<div class="font-semibold leading-tight">${esc(p.practice_name)}</div><div class="mt-0.5 text-xs text-slate-500">${esc(p.ods_code)}${p.town ? " · " + esc(p.town) : ""}${d != null ? " · " + d.toFixed(1) + " miles" : ""}</div>
-    <div class="mt-1 flex flex-wrap gap-1">${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${chip(HS_LABEL[hsState(p)], HS_CLS[hsState(p)])}</div>
+    <div class="mt-1 flex flex-wrap gap-1">${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${chip(HS_LABEL[hsState(p)], HS_CLS[hsState(p)])}${p.hubspot_commercial_model ? " " + chip(MODEL_KEY[p.hubspot_commercial_model] || p.hubspot_commercial_model, "bg-slate-100 text-slate-700") : ""}</div>
     <div class="mt-1 text-xs text-slate-600">${p.total_patients > 0 ? Number(p.total_patients).toLocaleString() + " patients" : "No list size"}</div>
     <button type="button" class="mt-2 rounded-md bg-lalu-navy px-2.5 py-1 text-xs font-semibold text-white">Open profile</button>`;
   html.querySelector("button").onclick = () => openDrawer(p);
@@ -104,7 +104,7 @@ async function mapSearch(pc, miles, label) {
   mapRefresh();
 }
 let mapRowsShown = null, mapSort = { key: "d", dir: 1 }, mapRows = 100;
-const MAP_SORT = { d: x => x.d, name: x => x.p.practice_name.toLowerCase(), patients: x => x.p.total_patients || 0, tier: x => x.p.price_tier || 9, status: x => ["customer", "nocontract", "freemium", "engaged", "other"].indexOf(mapKey(x.p)) };
+const MAP_SORT = { d: x => x.d, name: x => x.p.practice_name.toLowerCase(), patients: x => x.p.total_patients || 0, tier: x => x.p.price_tier || 9, status: x => ["customer", "nomodel", "freemium", "engaged", "other"].indexOf(mapKey(x.p)) };
 function mapRadiusList(shown, sites = []) {
   const keep = x => x.d <= mapCentre.miles && (!mapCentre.ods || x.p.ods_code !== mapCentre.ods);
   mapInside = shown.map(p => ({ p, d: mapMiles(mapCentre.at, mapAt(p)) })).filter(keep).sort((a, b) => a.d - b.d);
@@ -115,7 +115,7 @@ function mapRadiusList(shown, sites = []) {
   const box = $("m-list"); box.classList.remove("hidden");
   box.innerHTML = `<div class="flex items-center justify-between gap-2 px-4 py-2"><span class="text-sm font-semibold text-slate-700">${near.length.toLocaleString()} practice${near.length === 1 ? "" : "s"} in range</span><button type="button" id="m-save" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Save as audience</button></div>
     <div class="max-h-[50vh] overflow-auto"><table class="w-full text-left text-sm"><thead class="sticky top-0 bg-slate-50 text-xs uppercase tracking-wider text-slate-500 shadow-[0_1px_0_#e2e8f0]"><tr>${th("name", "Practice")}${th("d", "Distance", "text-right")}<th class="px-3 py-2">Town</th>${th("patients", "List size", "text-right")}${th("tier", "Tier")}${th("status", "HubSpot")}</tr></thead>
-    <tbody class="divide-y divide-slate-100">${near.slice(0, mapRows).map(x => `<tr class="m-row cursor-pointer hover:bg-lalu-teal-50/50" data-ods="${esc(x.p.ods_code)}" tabindex="0"><td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(x.b ? x.b.branch_name : x.p.practice_name)}${x.b ? " " + chip("Branch", "bg-slate-100 text-slate-600") : ""}</div><div class="text-xs text-slate-500">${x.b ? "of " + esc(x.p.practice_name) : esc(x.p.ods_code)}</div></td><td class="px-3 py-2 text-right font-mono">${x.d.toFixed(1)} mi</td><td class="px-3 py-2">${esc(x.b ? x.b.town || "" : x.p.town || "")}</td><td class="px-3 py-2 text-right font-mono">${x.b ? "" : x.p.total_patients > 0 ? Number(x.p.total_patients).toLocaleString() : "–"}</td><td class="px-3 py-2">${!x.b && x.p.total_patients > 0 ? chip(tier(x.p), TIER_CLS[tier(x.p)] || "") : ""}</td><td class="px-3 py-2">${chip(HS_LABEL[hsState(x.p)], HS_CLS[hsState(x.p)])}</td></tr>`).join("")}</tbody></table>
+    <tbody class="divide-y divide-slate-100">${near.slice(0, mapRows).map(x => `<tr class="m-row cursor-pointer hover:bg-lalu-teal-50/50" data-ods="${esc(x.p.ods_code)}" tabindex="0"><td class="px-3 py-2"><div class="font-semibold leading-tight">${esc(x.b ? x.b.branch_name : x.p.practice_name)}${x.b ? " " + chip("Branch", "bg-slate-100 text-slate-600") : ""}</div><div class="text-xs text-slate-500">${x.b ? "of " + esc(x.p.practice_name) : esc(x.p.ods_code)}</div></td><td class="px-3 py-2 text-right font-mono">${x.d.toFixed(1)} mi</td><td class="px-3 py-2">${esc(x.b ? x.b.town || "" : x.p.town || "")}</td><td class="px-3 py-2 text-right font-mono">${x.b ? "" : x.p.total_patients > 0 ? Number(x.p.total_patients).toLocaleString() : "–"}</td><td class="px-3 py-2">${!x.b && x.p.total_patients > 0 ? chip(tier(x.p), TIER_CLS[tier(x.p)] || "") : ""}</td><td class="px-3 py-2">${chip(HS_LABEL[hsState(x.p)], HS_CLS[hsState(x.p)])}${x.p.hubspot_commercial_model ? `<div class="mt-0.5 text-xs text-slate-500">${esc(MODEL_KEY[x.p.hubspot_commercial_model] || x.p.hubspot_commercial_model)}</div>` : ""}</td></tr>`).join("")}</tbody></table>
     ${near.length > mapRows ? `<div class="p-3 text-center"><button type="button" id="m-more" class="text-sm text-lalu-teal-700 hover:underline">Show more (${(near.length - mapRows).toLocaleString()} left)</button></div>` : ""}</div>`;
 }
 function mapClear() {
