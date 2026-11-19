@@ -8,7 +8,7 @@ from .common import Rest
 
 
 def run(rest):
-    rows = rest.select_all("gp_practices", "ods_code,status,merged_into,total_patients,hubspot_customer,hubspot_engaged,hubspot_commercial_model,hubspot_contracted_arr,hubspot_company_id,postcode,closure_confirmed_at", order="ods_code")
+    rows = rest.select_all("gp_practices", "ods_code,practice_name,hubspot_stage,hubspot_company_status,hubspot_product_service,hubspot_contracted_src,hubspot_churned_date,status,merged_into,total_patients,hubspot_customer,hubspot_engaged,hubspot_commercial_model,hubspot_contracted_arr,hubspot_company_id,postcode,closure_confirmed_at", order="ods_code")
     out = Counter()
     for p in rows:
         cust = bool(p.get("hubspot_customer")); free = p.get("hubspot_commercial_model") == "Freemium"
@@ -25,7 +25,13 @@ def run(rest):
             out["engaged_total"] += 1
             out[f"engaged_{'active' if active else 'not_active'}"] += 1
     out["practices"] = len(rows)
-    return dict(sorted(out.items()))
+    combos = Counter()
+    for p in rows:
+        if p.get("hubspot_customer"):
+            combos[f"stage={p.get('hubspot_stage')}|model={p.get('hubspot_commercial_model')}|src={p.get('hubspot_contracted_src')}|contract={'y' if float(p.get('hubspot_contracted_arr') or 0) > 0 else 'n'}"] += 1
+    name = os.environ.get("NAME", "").strip().lower()
+    named = [{k: p.get(k) for k in ("ods_code", "practice_name", "status", "hubspot_customer", "hubspot_engaged", "hubspot_stage", "hubspot_company_status", "hubspot_commercial_model", "hubspot_product_service", "hubspot_contracted_arr", "hubspot_contracted_src", "hubspot_churned_date")} for p in rows if name and name in str(p.get("practice_name") or "").lower()]
+    return {"counts": dict(sorted(out.items())), "customer_combos": dict(combos.most_common()), "named": named}
 
 
 def main():

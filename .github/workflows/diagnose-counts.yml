@@ -1,6 +1,11 @@
 name: Diagnose counts
 on:
   workflow_dispatch:
+    inputs:
+      name:
+        description: 'Practice name to show (part of the name)'
+        required: false
+        default: 'Sunderland GP Alliance'
 
 jobs:
   count:
@@ -15,4 +20,5 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NAME: ${{ inputs.name }}
         run: python -m src.diagnose_counts
