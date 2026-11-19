@@ -12,9 +12,9 @@
 .atlas-chip .a-name{font-family:Montserrat,Inter,system-ui,"Segoe UI",sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.04em;color:var(--lalu-teal);line-height:1}
 .atlas-chip b{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--lalu-teal);border:1px solid var(--lalu-teal);border-radius:9999px;padding:2px 7px;line-height:1.2}
 .atlas-chip.bare{background:transparent;padding:0}.atlas-chip.lg{padding:.6rem 1rem}.atlas-chip.lg svg{height:1.6rem}.atlas-chip.lg .a-name{font-size:1.3rem}.atlas-chip.bare,.atlas-chip.lg.bare{background:transparent;padding:0}</style>
-<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261119a"></script>
+<script src="assets/vendor/supabase-js-2.45.4.min.js?v=20261119b"></script>
 <link rel="stylesheet" href="assets/vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/tailwind.css?v=20261119a">
+<link rel="stylesheet" href="assets/tailwind.css?v=20261119b">
 <style>.no-dl #btn-export,.no-dl #s-export,.no-dl #au-csv,.no-dl #hsp-csv,.no-dl #ct-csv,.no-dl .ct-seg-csv{display:none!important}</style>
 <style>.dtile>summary{list-style:none}.dtile>summary::-webkit-details-marker{display:none}.dtile[open] .dchev{transform:rotate(180deg)}</style>
 </head>
@@ -115,6 +115,7 @@
           <select id="m-mi" class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm" aria-label="Miles"><option value="2">2 miles</option><option value="5">5 miles</option><option value="10" selected>10 miles</option><option value="15">15 miles</option><option value="25">25 miles</option><option value="50">50 miles</option></select>
           <button id="m-go" type="button" class="rounded-lg bg-lalu-navy px-3 py-1.5 text-sm font-semibold text-white hover:bg-lalu-navy-700">Search</button>
           <button id="m-clear" type="button" class="hidden text-sm font-semibold text-slate-500 hover:text-slate-800">Clear</button>
+          <label class="flex cursor-pointer items-center gap-1.5 text-sm"><input id="m-br" type="checkbox"> Include branches</label>
           <span id="m-msg" class="text-sm text-slate-500"></span>
           <div id="m-legend" class="ml-auto flex flex-wrap items-center gap-2 text-xs"></div>
         </div>
@@ -313,33 +314,33 @@
   </div>
 </div>
 <script src="assets/vendor/leaflet/leaflet.js"></script>
-<script src="js/core.js?v=20261119a"></script>
-<script src="js/data-load.js?v=20261119a"></script>
-<script src="js/practices.js?v=20261119a"></script>
-<script src="js/referral.js?v=20261119a"></script>
-<script src="js/networks.js?v=20261119a"></script>
-<script src="js/revenue-pum.js?v=20261119a"></script>
-<script src="js/signals.js?v=20261119a"></script>
-<script src="js/mergers.js?v=20261119a"></script>
-<script src="js/audiences.js?v=20261119a"></script>
-<script src="js/audience-tests.js?v=20261119a"></script>
-<script src="js/hubspot-align.js?v=20261119a"></script>
-<script src="js/data-tab.js?v=20261119a"></script>
-<script src="js/data-connections.js?v=20261119a"></script>
-<script src="js/data-uploads.js?v=20261119a"></script>
-<script src="js/contact-rules.js?v=20261119a"></script>
-<script src="js/contacts.js?v=20261119a"></script>
-<script src="js/contacts-nb.js?v=20261119a"></script>
-<script src="js/data-audit.js?v=20261119a"></script>
-<script src="js/data-branches.js?v=20261119a"></script>
-<script src="js/hubspot.js?v=20261119a"></script>
-<script src="js/hubspot-company.js?v=20261119a"></script>
-<script src="js/hubspot-admin.js?v=20261119a"></script>
-<script src="js/hubspot-group.js?v=20261119a"></script>
-<script src="js/hubspot-network.js?v=20261119a"></script>
-<script src="js/network-admin.js?v=20261119a"></script>
-<script src="js/map.js?v=20261119a"></script>
-<script src="js/export.js?v=20261119a"></script>
-<script src="js/main.js?v=20261119a"></script>
+<script src="js/core.js?v=20261119b"></script>
+<script src="js/data-load.js?v=20261119b"></script>
+<script src="js/practices.js?v=20261119b"></script>
+<script src="js/referral.js?v=20261119b"></script>
+<script src="js/networks.js?v=20261119b"></script>
+<script src="js/revenue-pum.js?v=20261119b"></script>
+<script src="js/signals.js?v=20261119b"></script>
+<script src="js/mergers.js?v=20261119b"></script>
+<script src="js/audiences.js?v=20261119b"></script>
+<script src="js/audience-tests.js?v=20261119b"></script>
+<script src="js/hubspot-align.js?v=20261119b"></script>
+<script src="js/data-tab.js?v=20261119b"></script>
+<script src="js/data-connections.js?v=20261119b"></script>
+<script src="js/data-uploads.js?v=20261119b"></script>
+<script src="js/contact-rules.js?v=20261119b"></script>
+<script src="js/contacts.js?v=20261119b"></script>
+<script src="js/contacts-nb.js?v=20261119b"></script>
+<script src="js/data-audit.js?v=20261119b"></script>
+<script src="js/data-branches.js?v=20261119b"></script>
+<script src="js/hubspot.js?v=20261119b"></script>
+<script src="js/hubspot-company.js?v=20261119b"></script>
+<script src="js/hubspot-admin.js?v=20261119b"></script>
+<script src="js/hubspot-group.js?v=20261119b"></script>
+<script src="js/hubspot-network.js?v=20261119b"></script>
+<script src="js/network-admin.js?v=20261119b"></script>
+<script src="js/map.js?v=20261119b"></script>
+<script src="js/export.js?v=20261119b"></script>
+<script src="js/main.js?v=20261119b"></script>
 </body>
 </html>

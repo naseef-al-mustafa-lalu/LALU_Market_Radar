@@ -37,6 +37,10 @@ def run(rest, post=requests.post):
     rows = rest.select_all("app_flags", "key,value", order="key", params={"key": f"eq.{KEY}"})
     have = dict(rows[0]["value"]) if rows and isinstance(rows[0].get("value"), dict) else {}
     practices = rest.select_all("gp_practices", "ods_code,postcode", order="ods_code")
+    try:   # branch sites too, for the map's "include branches"
+        practices = practices + rest.select_all("practice_branches", "branch_code,postcode", order="branch_code")
+    except Exception as e:  # noqa: BLE001
+        print("Branch postcodes skipped:", str(e)[:150])
     todo = missing(practices, have)
     found = lookup(todo, post) if todo else {}
     if found:
