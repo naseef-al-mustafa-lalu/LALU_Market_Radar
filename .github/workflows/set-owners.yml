@@ -1,0 +1,24 @@
+name: Set the owners kept out of campaigns
+on:
+  workflow_dispatch:
+    inputs:
+      owners:
+        description: 'HubSpot owner ids whose contacts are kept out of campaigns, separated by commas (replaces the list)'
+        required: true
+        default: '8768100'
+
+jobs:
+  owners:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12', cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Save the owners and recalculate contact status
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OWNERS: ${{ inputs.owners }}
+        run: python -m src.set_owners
