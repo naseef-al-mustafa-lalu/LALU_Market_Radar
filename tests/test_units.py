@@ -307,11 +307,11 @@ def test_hubspot_sync_flags_and_contact_matching():
     g = {r["ods_code"]: r for r in rest.up["gp_practices"]}
     assert g["A10001"]["hubspot_engaged"] and not g["A10001"]["hubspot_customer"] and g["A10001"]["hubspot_stage"] == "Opportunity"
     assert not g["A10002"]["hubspot_engaged"] and not g["A10002"]["hubspot_customer"]          # only a New lead contact
-    assert g["A10003"]["hubspot_customer"]                                                      # closed-won deal, lifecycle never updated
+    assert not g["A10003"]["hubspot_customer"]                                                  # a closed-won deal alone does not make a customer: the company's lifecycle stage decides
     assert g["A10004"]["hubspot_company_id"] is None                                            # link cleared when the company is gone
     c = {r["contact_urn"]: r for r in rest.up["contacts"]}
     assert c[1]["hubspot_status"] == "Imported" and c[1]["hubspot_contact_id"] == "11" and c[2]["hubspot_status"] == "Not imported"   # matched by email, case-insensitive
-    assert stats["practices_linked"] == 3 and stats["customers"] == 1 and stats["engaged"] == 1
+    assert stats["practices_linked"] == 3 and stats["customers"] == 0 and stats["engaged"] == 1
     nl = {r["org_id"]: r for r in rest.up["hubspot_network_links"]}
     assert nl["o1"]["object_id"] == "501" and nl["o1"]["object_type"].endswith("pcns") and nl["o1"]["won_deals_amount"] == 1200 and nl["o2"]["object_id"] == "601" and "o3" not in nl   # PCN by ODS code, ICB by name, Scottish cluster unmatched
     assert stats["networks_linked"] == 2 and stats["networks_unmatched"] == 1
@@ -396,7 +396,9 @@ def test_hubspot_sync_commercial_model_makes_a_customer():
     from src import hubspot_sync as hsy
     free = {"id": "1", "lifecyclestage": "lead", "company_status": "Current Customer", "current_subscription": "Freemium", "createdate": "2025-01-01T00:00:00Z"}
     f = hsy.classify([free], [], {}, [], {})
-    assert f["hubspot_customer"] is True and f["hubspot_commercial_model"] == "Freemium"   # a customer with no deal and a lead lifecycle stage
+    assert f["hubspot_customer"] is False and f["hubspot_commercial_model"] == "Freemium"   # a Commercial Model on a company that is not at the Customer stage does not make it a customer
+    f = hsy.classify([dict(free, lifecyclestage="customer")], [], {}, [], {})
+    assert f["hubspot_customer"] is True and f["hubspot_commercial_model"] == "Freemium"   # a Customer-stage company with no deal
     ex = dict(free, company_status="Ex-Customer")
     f = hsy.classify([ex], [], {}, [], {})
     assert f["hubspot_customer"] is False and f["hubspot_commercial_model"] is None        # an ex-customer keeps no model

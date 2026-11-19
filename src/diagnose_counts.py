@@ -31,7 +31,8 @@ def run(rest):
             combos[f"stage={p.get('hubspot_stage')}|model={p.get('hubspot_commercial_model')}|src={p.get('hubspot_contracted_src')}|contract={'y' if float(p.get('hubspot_contracted_arr') or 0) > 0 else 'n'}"] += 1
     name = os.environ.get("NAME", "").strip().lower()
     named = [{k: p.get(k) for k in ("ods_code", "practice_name", "status", "hubspot_customer", "hubspot_engaged", "hubspot_stage", "hubspot_company_status", "hubspot_commercial_model", "hubspot_product_service", "hubspot_contracted_arr", "hubspot_contracted_src", "hubspot_churned_date")} for p in rows if name and name in str(p.get("practice_name") or "").lower()]
-    return {"counts": dict(sorted(out.items())), "customer_combos": dict(combos.most_common()), "named": named}
+    noprod = [f"{p['ods_code']} {p.get('practice_name')}" for p in rows if p.get("hubspot_customer") and not p.get("hubspot_commercial_model") and not float(p.get("hubspot_contracted_arr") or 0) > 0]
+    return {"no_product_customers": noprod, "counts": dict(sorted(out.items())), "customer_combos": dict(combos.most_common()), "named": named}
 
 
 def main():
