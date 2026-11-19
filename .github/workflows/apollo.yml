@@ -1,0 +1,32 @@
+name: Apollo lookup
+on:
+  workflow_dispatch:
+    inputs:
+      cap:
+        description: 'Most contacts to look up this run (each address found costs Apollo credits)'
+        required: false
+        default: '100'
+      lookup:
+        description: 'Look up approved contacts (1) or only refresh the coverage counts (0)'
+        required: false
+        default: '1'
+
+concurrency: apollo
+
+jobs:
+  apollo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12', cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Look up the approved contacts and refresh coverage
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
+          APOLLO_CAP: ${{ inputs.cap }}
+          APOLLO_LOOKUP: ${{ inputs.lookup }}
+        run: python -m src.apollo

@@ -1525,3 +1525,31 @@ def test_neverbounce_list_parses_lines_and_writes_only_the_status():
     out = nl.run(Hub(), "k", [("1", "a@nhs.net"), ("2", "b@nhs.net")], get)
     assert out["results"] == {"Accept All (Unverifiable)": 1, "Invalid": 1} and [s[2] for s in sent] == [{"properties": {"neverbounce_status": "Accept All (Unverifiable)"}}, {"properties": {"neverbounce_status": "Invalid"}}]
     assert "credits" in nl.run(Hub(), "k", [(str(i), f"u{i}@nhs.net") for i in range(9)], get)["stopped"]      # not enough credits: nothing is checked
+
+
+def test_apollo_looks_up_only_approved_people_and_queues_found_addresses_for_neverbounce():
+    from src import apollo
+
+    class R:
+        def __init__(self, j, code=200): self.j, self.status_code, self.text = j, code, ""
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    answers = {"Ann": {"person": {"email": "ann.lee@practice.nhs.net", "email_status": "verified"}}, "Bob": {"person": {"email": "email_not_unlocked@domain.com"}}}
+
+    class Rest:
+        def __init__(self): self.inserted, self.patched = [], []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                return [{"contact_urn": 1, "ods_code": "A11111", "full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager", "role_tier": "A"},
+                        {"contact_urn": 2, "ods_code": "A11111", "full_name": "Bob Ray", "first_name": "Bob", "last_name": "Ray", "job_title": "Business Manager", "role_tier": "A"}]
+            return [{"ods_code": "A11111", "practice_name": "Test Surgery"}] if table == "gp_practices" else []
+        def insert(self, table, rows, **kw): self.inserted.append((table, rows))
+        def patch(self, table, filters, values): self.patched.append((filters, values))
+
+    rest = Rest()
+    out = apollo.run(rest, "k", 10, post=lambda url, **kw: R(answers[kw["json"]["first_name"]]))
+    assert out["looked_up"] == 2 and out["found"] == 1 and out["not_found"] == 1
+    (_, rows), = rest.inserted
+    assert rows[0]["email"] == "ann.lee@practice.nhs.net" and rows[0]["source"] == "apollo" and rows[0]["nb_state"] == "pending"
+    assert [v["state"] for _, v in rest.patched] == ["found", "not_found"]

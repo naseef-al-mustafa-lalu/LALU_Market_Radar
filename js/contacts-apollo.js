@@ -1,0 +1,36 @@
+/* ---------- Apollo: addresses for named decision-makers Oscar has no email for ---------- */
+// Oscar contacts with a name and a decision-maker role but no address wait here. A person approves the credit spend; the Apollo job (GitHub Action "Apollo lookup") looks approved ones up, and an address
+// found becomes a contact that enters the NeverBounce queue. Nothing goes to HubSpot from this page.
+let ctApollo = { rows: [], counts: {}, status: null, names: {} }, ctApSel = new Set();
+const CT_AP_CAP = 200;   // matches MAX_PER_RUN in src/apollo.py
+async function ctLoadApollo() {
+  const cnt = s => db.from("apollo_queue").select("contact_urn", { count: "exact", head: true }).eq("state", s);
+  const [p, a, f, n, rows, st] = await Promise.all([cnt("pending"), cnt("approved"), cnt("found"), cnt("not_found"),
+    db.from("apollo_queue").select("*").in("state", ["pending", "approved"]).order("state").order("contact_urn").limit(200), db.from("app_flags").select("value").eq("key", "apollo_status").maybeSingle()]);
+  if (rows.error) throw rows.error;
+  const ods = [...new Set((rows.data || []).map(r => r.ods_code))], names = {};
+  if (ods.length) { const g = await db.from("gp_practices").select("ods_code,practice_name").in("ods_code", ods); (g.data || []).forEach(x => names[x.ods_code] = x.practice_name); }
+  ctApollo = { rows: rows.data || [], counts: { pending: p.count || 0, approved: a.count || 0, found: f.count || 0, not_found: n.count || 0 }, status: (st.data || {}).value || null, names };
+}
+function ctApolloView() {
+  const { rows, counts: c, status, names } = ctApollo, cov = (status || {}).coverage, run = (status || {}).run;
+  const tile = (k, v, sub = "") => `<div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-2xl font-bold">${v}</div><div class="text-xs text-slate-500">${sub}</div></div>`;
+  const credits = ctApSel.size;
+  return `<div class="space-y-3"><div class="grid grid-cols-2 gap-3 md:grid-cols-4">${tile("Waiting for approval", c.pending.toLocaleString(), "named, decision-maker role, no email")}${tile("Approved", c.approved.toLocaleString(), "looked up on the next Apollo run")}${tile("Addresses found", c.found.toLocaleString(), "now in the NeverBounce queue")}${tile("Not found", c.not_found.toLocaleString(), "Apollo had no address")}</div>
+    ${cov ? `<div class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><b>Coverage</b> (contacts with an address, decision-maker roles): <b>${cov.covered.toLocaleString()}</b> of ${cov.practices.toLocaleString()} practices have a Practice Manager and one other contact. <b>${cov.no_practice_manager.toLocaleString()}</b> have no Practice Manager; <b>${cov.fewer_than_two.toLocaleString()}</b> have fewer than two contacts. <span class="text-xs text-slate-500">Updated ${esc(String(status.at).slice(0, 16).replace("T", " "))} UTC</span></div>` : ""}
+    <p class="text-sm text-slate-600">People Oscar names with a decision-maker job role but no email address wait here. Approving a contact allows <b>one Apollo lookup</b>, which uses Apollo credits <b>only when an address comes back</b>. The lookup runs when the GitHub Action <b>Apollo lookup</b> is started, up to ${CT_AP_CAP} contacts a run. An address found is checked by NeverBounce (approve it there) before it can reach HubSpot.</p>
+    <div class="flex flex-wrap items-center gap-2"><button id="ap-approve" class="rounded-lg bg-lalu-navy px-3 py-2 text-sm font-semibold text-white hover:bg-lalu-navy-700 disabled:opacity-50" ${credits ? "" : "disabled"}>Approve ticked (${credits} lookup${credits === 1 ? "" : "s"}, up to ${credits} credit${credits === 1 ? "" : "s"})</button><button id="ap-takeback" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50" ${credits ? "" : "disabled"}>Take ticked back to waiting</button>
+      <span class="text-xs text-slate-500">${c.approved.toLocaleString()} approved = up to ${c.approved.toLocaleString()} credits on the next run${c.approved > CT_AP_CAP ? ` (${CT_AP_CAP} a run)` : ""}. ${run ? `Last run: ${run.looked_up} looked up, ${run.found} found, ${run.not_found} not found${run.errors ? `, ${run.errors} errors (${esc(run.last_error || "")})` : ""}.` : ""}</span></div>
+    ${ctMsg ? `<div class="text-xs text-slate-600" role="status">${esc(ctMsg)}</div>` : ""}
+    <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="w-8 px-2 py-2"><input type="checkbox" id="ap-all" aria-label="Tick all shown"></th><th class="px-2">Contact</th><th class="px-2">Job title</th><th class="px-2">Practice</th><th class="px-2">Queue</th></tr></thead><tbody>
+      ${rows.map(r => `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5"><input type="checkbox" class="ap-chk" data-u="${r.contact_urn}" ${ctApSel.has(r.contact_urn) ? "checked" : ""} aria-label="Tick ${esc(r.full_name || "contact")}"></td><td class="px-2">${esc(r.full_name || "")}</td><td class="px-2">${esc(r.job_title || "")}</td><td class="px-2">${esc(names[r.ods_code] || r.ods_code)} <span class="text-xs text-slate-400">${esc(r.ods_code)}</span></td><td class="px-2">${r.state === "approved" ? chip("Approved", "bg-emerald-100 text-emerald-800", "by " + (r.approved_by || "")) : chip("Waiting", "bg-slate-100 text-slate-600")}</td></tr>`).join("") || '<tr><td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500">Nothing is waiting. New names appear after the daily Oscar import.</td></tr>'}
+    </tbody></table></div>${rows.length < c.pending + c.approved ? `<div class="text-center text-xs text-slate-500">Showing the first ${rows.length} of ${(c.pending + c.approved).toLocaleString()}.</div>` : ""}</div>`;
+}
+async function ctApolloApprove(approve) {
+  const urns = [...ctApSel]; if (!urns.length) return;
+  const { error } = await db.rpc("set_apollo_approval", { p_urns: urns, p_approve: approve });
+  if (error) { ctMsg = "Could not save: " + (error.message || error); renderContacts(); return; }
+  ctApSel.clear(); ctTabReady.apollo = false; await ctLoadApollo(); ctTabReady.apollo = true; ctMsg = approve ? `${urns.length} approved. They are looked up the next time the Apollo lookup action runs.` : `${urns.length} taken back to waiting.`; renderContacts();
+}
+document.addEventListener("click", e => { const t = e.target; if (t.id === "ap-approve") ctApolloApprove(true); else if (t.id === "ap-takeback") ctApolloApprove(false); else if (t.classList && t.classList.contains("ap-chk")) { const u = Number(t.dataset.u); t.checked ? ctApSel.add(u) : ctApSel.delete(u); renderContacts(); } });
+document.addEventListener("change", e => { const t = e.target; if (t.id === "ap-all") { document.querySelectorAll(".ap-chk").forEach(c => { t.checked ? ctApSel.add(Number(c.dataset.u)) : ctApSel.delete(Number(c.dataset.u)); }); renderContacts(); } });

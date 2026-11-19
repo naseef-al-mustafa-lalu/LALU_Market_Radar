@@ -105,7 +105,7 @@ async function ctLoadSegOthers(more) {   // 100 of the other segments at a time
 }
 // Which view is open: load only what it needs, then draw it.
 // The animated loading box shown the first time Review, Segments, NeverBounce or Settings is opened (they are fetched on that first click, once).
-const CT_SUB_NAME = { review: "review", segments: "segments", neverbounce: "NeverBounce", settings: "settings" };
+const CT_SUB_NAME = { review: "review", segments: "segments", neverbounce: "NeverBounce", apollo: "Apollo", settings: "settings" };
 const ctLoadingBox = msg => `<div class="flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white p-12 text-center" role="status" aria-live="polite"><svg class="h-9 w-9 animate-spin text-lalu-teal-700" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".2" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><div class="text-sm font-semibold text-slate-700">${esc(msg)}</div></div>`;
 let ctTabReady = {};   // the views already loaded: switching back to one draws it again without asking the database, until something changes its data
 async function ctLoadTab(force) {
@@ -117,6 +117,7 @@ async function ctLoadTab(force) {
     await ctLoadFlags();
     if (ctSub === "review") await ctLoadReview(false);
     else if (ctSub === "neverbounce") await ctLoadNb();
+    else if (ctSub === "apollo") await ctLoadApollo();
     else if (ctSub === "segments") await ctLoadSegments();
     else if (ctSub === "settings") { const { data, error } = await db.rpc("contacts_settings_stats"); if (error) throw error; ctStats = data; }
     ctTabReady[ctSub] = true; renderContacts();
@@ -227,7 +228,7 @@ function ctSettings() {
 function renderContacts() {
   const box = $("ct-body"); if (!box || currentTab !== "contacts") return;
   $("ct-sub").querySelectorAll("button").forEach(b => b.className = "px-3 py-1 rounded-md " + (b.dataset.c === ctSub ? "bg-white shadow-sm" : "text-slate-500"));
-  box.innerHTML = ctSub === "review" ? ctReview() : ctSub === "segments" ? ctSegmentsHub() : ctSub === "neverbounce" ? ctNeverbounce() : ctSub === "settings" ? ctSettings() : ctList();
+  box.innerHTML = ctSub === "review" ? ctReview() : ctSub === "segments" ? ctSegmentsHub() : ctSub === "neverbounce" ? ctNeverbounce() : ctSub === "apollo" ? ctApolloView() : ctSub === "settings" ? ctSettings() : ctList();
   }
 let ctQT = null;
 const ctRefilter = () => { ctShown = 100; clearTimeout(ctQT); ctQT = setTimeout(ctLoadPage, 250); };
