@@ -1406,7 +1406,7 @@ def test_contacts_atlas_creates_in_hubspot_carry_source_and_legal_basis():
     from datetime import datetime, timezone
     from src import neverbounce as nb
     p = nb.creation_props(today=datetime(2026, 11, 9, tzinfo=timezone.utc))
-    assert p["source_category"] == "Import" and p["um_source_detail_1"] == "Oscar AI" and p["um_source_detail_2"] == "Lalu Atlas Import: 2026-11-09" and p["um_lt_source_detail_2"] == p["um_source_detail_2"]
+    assert p["source_category"] == "Import" and p["um_source_detail_1"] == "Oscar API" and p["um_source_detail_2"] == "Lalu Atlas Import: 2026-11-09" and p["um_lt_source_detail_2"] == p["um_source_detail_2"]
     assert p["hs_marketable_status"] == "false" and p["hs_legal_basis"] == "Legitimate interest \u2013 prospect/lead"      # the exact HubSpot option value (en dash)
 
 
@@ -1568,7 +1568,7 @@ def test_contact_found_by_apollo_is_created_in_hubspot_with_apollo_as_its_first_
     c = {"email": "ann.lee@practice.nhs.net", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager", "source": "apollo"}
     neverbounce.hubspot_contact(Hub(), c, "55", "Valid")
     p = next(kw["json"]["properties"] for m, path, kw in calls if m == "POST" and path == "/crm/v3/objects/contacts")
-    assert p["um_source_detail_1"] == "Apollo" and p["um_lt_source_detail_1"] == "Apollo" and p["source_category"] == "Import"
+    assert p["um_source_detail_1"] == "Apollo" and "um_lt_source_detail_1" not in p and p["source_category"] == "Import"
     calls.clear()
     neverbounce.hubspot_contact(Hub(), {**c, "source": "oscar"}, "55", "Valid")
-    assert next(kw["json"]["properties"] for m, path, kw in calls if m == "POST" and path == "/crm/v3/objects/contacts")["um_source_detail_1"] == "Oscar AI"
+    assert next(kw["json"]["properties"] for m, path, kw in calls if m == "POST" and path == "/crm/v3/objects/contacts")["um_source_detail_1"] == "Oscar API"
