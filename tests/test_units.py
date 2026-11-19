@@ -1473,3 +1473,32 @@ def test_geocode_looks_up_only_new_postcodes_and_keeps_the_rest():
         def upsert(self, table, rows, on_conflict, batch=500): self.saved = rows
     r = Rest(); out = geocode.run(r, post)
     assert out == {"postcodes": 2, "looked_up": 2, "found": 1, "not_found": 1} and r.saved[0]["value"] == {"EF34GH": [1, 2], "AB12CD": [51.12346, -0.5]}
+
+
+def test_contact_eligibility_follows_atlas_status_and_writes_only_changes():
+    from src import contact_eligibility as ce
+
+    assert ce.value_for("eligible", "main") == "main" and ce.value_for("eligible", "other") == "other"
+    assert ce.value_for("suppressed", "main") == "none" and ce.value_for("excluded", None) == "none" and ce.value_for("eligible", None) == "none"
+
+    class Rest:
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "contacts":
+                return [{"contact_urn": 1, "hubspot_contact_id": "11"}, {"contact_urn": 2, "hubspot_contact_id": "22"}, {"contact_urn": 3, "hubspot_contact_id": "33"}, {"contact_urn": 4, "hubspot_contact_id": None}]
+            return [{"contact_urn": 1, "status": "eligible", "section": "main"}, {"contact_urn": 2, "status": "eligible", "section": "other"}, {"contact_urn": 3, "status": "suppressed", "section": "main"}]
+    assert ce.desired(Rest()) == {"11": "main", "22": "other", "33": "none"}      # contacts not linked to HubSpot are skipped
+
+    calls = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            calls.append((method, path, kw))
+            if method == "GET":
+                return {}
+            if path.endswith("/batch/read"):
+                return {"results": [{"id": "11", "properties": {ce.PROP: "main"}}, {"id": "22", "properties": {ce.PROP: "main"}}, {"id": "33", "properties": {}}]}
+            return {}
+    out = ce.run(Rest(), Hub())
+    updates = [c for c in calls if c[1].endswith("/batch/update")]
+    sent = {i["id"]: i["properties"][ce.PROP] for u in updates for i in u[2]["json"]["inputs"]}
+    assert out["to_update"] == 2 and out["written"] == 2 and sent == {"22": "other", "33": "none"}      # 11 already matches, so only the two that differ are written

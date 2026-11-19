@@ -9,7 +9,7 @@ concurrency: hubspot-sync
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -26,3 +26,10 @@ jobs:
           SLACK_ATLAS_WEBHOOK_URL: ${{ secrets.SLACK_ATLAS_WEBHOOK_URL }}
           SLACK_ATLAS_CHANNEL: ${{ vars.SLACK_ATLAS_CHANNEL }}
         run: python -m src.hubspot_sync
+      - name: Push contact eligibility to HubSpot (keeps the HubSpot segments equal to Atlas's Eligible list)
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+        run: python -m src.contact_eligibility
