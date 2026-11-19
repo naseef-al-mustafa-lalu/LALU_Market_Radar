@@ -13,9 +13,11 @@ from .hubspot_sync import Hub, read_objects
 def run(hub, rest, list_id):
     ids = members(hub, list_id)
     props = read_objects(hub, "contacts", ids, ["job_role_standardised", "jobtitle"])
-    ours = {str(c["hubspot_contact_id"]): c["contact_urn"] for c in rest.select_all("contacts", "contact_urn,hubspot_contact_id", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})}
+    crows = rest.select_all("contacts", "contact_urn,hubspot_contact_id,job_title,ods_code", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})
+    ours = {str(c["hubspot_contact_id"]): c["contact_urn"] for c in crows}
+    info = {c["contact_urn"]: c for c in crows}
     status = {s["contact_urn"]: s for s in rest.select_all("contact_status", "contact_urn,role_id,role_label,section", order="contact_urn")}
-    cross, by_atlas_role, missing = Counter(), Counter(), Counter()
+    cross, by_atlas_role, missing, listed = Counter(), Counter(), Counter(), []
     for i in ids:
         hs_role = (props.get(i, {}).get("job_role_standardised") or "(blank)")
         urn = ours.get(i)
@@ -24,8 +26,10 @@ def run(hub, rest, list_id):
             missing[hs_role] += 1
             continue
         cross[f"{hs_role} -> {st['section']}"] += 1
+        if st["section"] == "other" and hs_role in ("Practice Manager", "Business Manager"):
+            listed.append([hs_role, (info[urn].get("job_title") or ""), st["role_label"], info[urn].get("ods_code")])
         by_atlas_role[f"{st['role_label']} ({st['section']})"] += 1
-    return {"members": len(ids), "not_in_atlas_or_no_status": dict(missing), "hubspot_role_to_atlas_section": dict(sorted(cross.items())), "atlas_role_groups": dict(by_atlas_role.most_common())}
+    return {"members": len(ids), "not_in_atlas_or_no_status": dict(missing), "hubspot_role_to_atlas_section": dict(sorted(cross.items())), "atlas_role_groups": dict(by_atlas_role.most_common()), "listed": listed}
 
 
 def main():
@@ -34,7 +38,10 @@ def main():
         if not env.get(k):
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
-    print("RESULT " + json.dumps(run(Hub(env["HUBSPOT_TOKEN"]), Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), env["LIST_ID"].strip())))
+    out = run(Hub(env["HUBSPOT_TOKEN"]), Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), env["LIST_ID"].strip())
+    for row in sorted(out.pop("listed")):
+        print("ROW " + json.dumps(row))
+    print("RESULT " + json.dumps(out))
 
 
 if __name__ == "__main__":
