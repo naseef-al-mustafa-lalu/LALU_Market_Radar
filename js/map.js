@@ -4,10 +4,10 @@ let mapOn = false, pmap = null, pmapLayer = null, pmapCircle = null, pmapPin = n
 const MAP_UK = [[49.8, -8.9], [60.9, 2.0]];      // Great Britain and Northern Ireland
 const mapRadius = k => { const z = pmap ? pmap.getZoom() : 6, r = Math.min(13, 3.5 + Math.max(0, z - 5) * 1.1); return k === "other" ? r * 0.8 : r; };      // dots grow as you zoom in, so they stay easy to click
 function mapSizeMarkers() { if (pmapLayer) pmapLayer.eachLayer(m => m.setRadius(mapRadius(m._k) * (m._ring ? 0.85 : 1))); }
-const MAP_COL = { customer: "#059669", nomodel: "#7c3aed", freemium: "#d97706", engaged: "#2563eb", other: "#94a3b8" };
-const MAP_LABEL = { customer: "Customer", nomodel: "Customer, no Commercial Model", freemium: "Freemium", engaged: "Engaged", other: "Other" };
-const MAP_TIP = { customer: "Customers (HubSpot lifecycle stage Customer) with a Commercial Model: All Reports, SAR Only, PAYG or Self Service", nomodel: "HubSpot lifecycle stage is Customer but no Commercial Model is set: fix in HubSpot (the Revenue page counts these separately)", freemium: "Freemium customers", engaged: "Not a customer; engaged in HubSpot", other: "Everything else" };
-const mapKey = p => { const s = hsState(p); return s === "customer" ? (p.hubspot_commercial_model ? "customer" : "nomodel") : s === "freemium" || s === "engaged" ? s : "other"; };      // the same split as the Revenue page
+const MAP_COL = { customer: "#059669", freemium: "#d97706", engaged: "#2563eb", other: "#94a3b8" };
+const MAP_LABEL = { customer: "Customer", freemium: "Freemium", engaged: "Engaged", other: "Other" };
+const MAP_TIP = { customer: "Customers: lifecycle stage Customer with a Commercial Model (All Reports, SAR Only, PAYG or Self Service)", freemium: "Freemium customers", engaged: "Not a customer; engaged in HubSpot", other: "Everything else" };
+const mapKey = p => { const s = hsState(p); return s === "customer" || s === "freemium" || s === "engaged" ? s : "other"; };      // the same split as the Revenue page
 const mapNorm = pc => String(pc || "").replace(/\s+/g, "").toUpperCase();
 const mapMiles = (a, b) => { const R = 3958.8, r = x => x * Math.PI / 180, dLat = r(b[0] - a[0]), dLng = r(b[1] - a[1]), h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a[0])) * Math.cos(r(b[0])) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
 const mapBranchAt = b => mapCoords && mapCoords[mapNorm(b.postcode)] || null;
@@ -45,7 +45,7 @@ async function mapRefresh(fit) {
   await mapLoadCoords(); mapEnsure(); pmap.invalidateSize(); if (!pmap.getSize().x) return;      // the Practices tab is not showing
   const placed = [], unplaced = [];
   for (const p of filtered) (mapAt(p) ? placed : unplaced).push(p);
-  const counts = { customer: 0, nomodel: 0, freemium: 0, engaged: 0, other: 0 }; for (const p of placed) counts[mapKey(p)]++;
+  const counts = { customer: 0, freemium: 0, engaged: 0, other: 0 }; for (const p of placed) counts[mapKey(p)]++;
   $("m-legend").innerHTML = Object.keys(MAP_COL).map(k => `<button type="button" data-k="${k}" class="m-leg inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2 py-1 font-semibold ${mapHidden.has(k) ? "opacity-40" : ""}" title="${esc(MAP_TIP[k])}. Click to show or hide."><span class="h-2.5 w-2.5 rounded-full" style="background:${MAP_COL[k]}"></span>${MAP_LABEL[k]} <span class="font-normal text-slate-500">${counts[k].toLocaleString()}</span></button>`).join("");
   pmapLayer.clearLayers();
   const shown = placed.filter(p => !mapHidden.has(mapKey(p))), pts = [];
@@ -104,7 +104,7 @@ async function mapSearch(pc, miles, label) {
   mapRefresh();
 }
 let mapRowsShown = null, mapSort = { key: "d", dir: 1 }, mapRows = 100;
-const MAP_SORT = { d: x => x.d, name: x => x.p.practice_name.toLowerCase(), patients: x => x.p.total_patients || 0, tier: x => x.p.price_tier || 9, status: x => ["customer", "nomodel", "freemium", "engaged", "other"].indexOf(mapKey(x.p)) };
+const MAP_SORT = { d: x => x.d, name: x => x.p.practice_name.toLowerCase(), patients: x => x.p.total_patients || 0, tier: x => x.p.price_tier || 9, status: x => ["customer", "freemium", "engaged", "other"].indexOf(mapKey(x.p)) };
 function mapRadiusList(shown, sites = []) {
   const keep = x => x.d <= mapCentre.miles && (!mapCentre.ods || x.p.ods_code !== mapCentre.ods);
   mapInside = shown.map(p => ({ p, d: mapMiles(mapCentre.at, mapAt(p)) })).filter(keep).sort((a, b) => a.d - b.d);

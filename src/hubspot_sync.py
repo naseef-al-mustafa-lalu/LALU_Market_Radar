@@ -97,7 +97,7 @@ def classify(companies, contact_ids, contacts, deal_ids, deals):
     # HubSpot never moves a company back out of the Customer stage, so a company whose Company Status is Ex-Customer, or whose Lifecycle Stage has been set to Past Customer (eMR inactive), is not a customer
     live = [c for c in companies if not ended(c)]
     model = next((c.get("current_subscription") for c in live if c.get("current_subscription")), None)   # the company's Commercial Model: HubSpot clears it at churn
-    customer = any(c.get("lifecyclestage") == "customer" for c in live)      # the company's Lifecycle Stage is the one source: a Commercial Model or a won deal on a company that is not at Customer does not make it a customer
+    customer = any(c.get("lifecyclestage") == "customer" for c in live) and bool(model)      # a customer is at the Customer lifecycle stage AND has a Commercial Model (HubSpot clears the model at churn): a model alone on a non-Customer company, or a Customer stage with no model, is not a customer
     engaged = any(c.get("lifecyclestage") in ENGAGED_STAGES for c in companies)
     primary = sorted(companies, key=lambda c: (c.get("createdate") or "", c.get("id")))[0]
     stage = "Ex-customer" if primary.get("company_status") == "Ex-Customer" else LIFECYCLE.get(primary.get("lifecyclestage") or "", primary.get("lifecyclestage") or None)

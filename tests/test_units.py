@@ -327,7 +327,7 @@ def test_hubspot_sync_flags_and_contact_matching():
 def test_hubspot_sync_ex_customer_is_not_a_customer():
     from src import hubspot_sync as hsy
     ex = {"id": "9", "company_status": "Ex-Customer", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}
-    cur = {"id": "8", "company_status": "Current Customer", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}
+    cur = {"id": "8", "company_status": "Current Customer", "lifecyclestage": "customer", "current_subscription": "eMR Plus", "createdate": "2025-01-01T00:00:00Z"}
     won = {"d1": {"hs_is_closed_won": "true"}}
     f = hsy.classify([ex], [], {}, [], {})
     assert f["hubspot_customer"] is False and f["hubspot_stage"] == "Ex-customer"
@@ -403,6 +403,7 @@ def test_hubspot_sync_commercial_model_makes_a_customer():
     f = hsy.classify([ex], [], {}, [], {})
     assert f["hubspot_customer"] is False and f["hubspot_commercial_model"] is None        # an ex-customer keeps no model
     assert hsy.classify([{"id": "2", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}], [], {}, [], {})["hubspot_commercial_model"] is None
+    assert hsy.classify([{"id": "2", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}], [], {}, [], {})["hubspot_customer"] is False      # Customer stage with no Commercial Model is not a customer
 
 
 def test_ods_operational_dates():
@@ -917,7 +918,7 @@ def test_practice_role_links_read_the_labels():
 def test_past_customer_lifecycle_is_not_a_customer():
     from src import hubspot_sync as hsy
     deals = {"d1": {"hs_is_closed_won": "true"}}
-    live = [{"id": "1", "lifecyclestage": "customer", "createdate": "2025-01-01"}]
+    live = [{"id": "1", "lifecyclestage": "customer", "current_subscription": "eMR Plus", "createdate": "2025-01-01"}]
     past = [{"id": "1", "lifecyclestage": hsy.PAST_CUSTOMER, "createdate": "2025-01-01"}]
     assert hsy.classify(live, [], {}, ["d1"], deals)["hubspot_customer"] is True
     f = hsy.classify(past, [], {}, ["d1"], deals)      # eMR inactive: set to Past Customer, so its old closed-won deal no longer makes it a customer
