@@ -1553,3 +1553,22 @@ def test_apollo_looks_up_only_approved_people_and_queues_found_addresses_for_nev
     (_, rows), = rest.inserted
     assert rows[0]["email"] == "ann.lee@practice.nhs.net" and rows[0]["source"] == "apollo" and rows[0]["nb_state"] == "pending"
     assert [v["state"] for _, v in rest.patched] == ["found", "not_found"]
+
+
+def test_contact_found_by_apollo_is_created_in_hubspot_with_apollo_as_its_first_touch():
+    from src import neverbounce
+
+    calls = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            calls.append((method, path, kw))
+            return {"results": []} if path.endswith("/search") else {"id": "9"}
+
+    c = {"email": "ann.lee@practice.nhs.net", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager", "source": "apollo"}
+    neverbounce.hubspot_contact(Hub(), c, "55", "Valid")
+    p = next(kw["json"]["properties"] for m, path, kw in calls if m == "POST" and path == "/crm/v3/objects/contacts")
+    assert p["um_source_detail_1"] == "Apollo" and p["um_lt_source_detail_1"] == "Apollo" and p["source_category"] == "Import"
+    calls.clear()
+    neverbounce.hubspot_contact(Hub(), {**c, "source": "oscar"}, "55", "Valid")
+    assert next(kw["json"]["properties"] for m, path, kw in calls if m == "POST" and path == "/crm/v3/objects/contacts")["um_source_detail_1"] == "Oscar AI"
