@@ -4,7 +4,7 @@ let mapOn = false, pmap = null, pmapLayer = null, pmapCircle = null, pmapPin = n
 const MAP_UK = [[49.8, -8.9], [60.9, 2.0]];      // Great Britain and Northern Ireland
 const mapRadius = k => { const z = pmap ? pmap.getZoom() : 6, r = Math.min(13, 3.5 + Math.max(0, z - 5) * 1.1); return k === "other" ? r * 0.8 : r; };      // dots grow as you zoom in, so they stay easy to click
 function mapSizeMarkers() { if (pmapLayer) pmapLayer.eachLayer(m => m.setRadius(mapRadius(m._k))); }
-const MAP_COL = { customer: "#059669", freemium: "#d97706", engaged: "#0d9488", other: "#94a3b8" };
+const MAP_COL = { customer: "#059669", freemium: "#d97706", engaged: "#2563eb", other: "#94a3b8" };
 const MAP_LABEL = { customer: "Customer", freemium: "Freemium", engaged: "Engaged", other: "Other" };
 const mapKey = p => { const s = hsState(p); return s === "customer" || s === "freemium" || s === "engaged" ? s : "other"; };
 const mapNorm = pc => String(pc || "").replace(/\s+/g, "").toUpperCase();
