@@ -1502,3 +1502,26 @@ def test_contact_eligibility_follows_atlas_status_and_writes_only_changes():
     updates = [c for c in calls if c[1].endswith("/batch/update")]
     sent = {i["id"]: i["properties"][ce.PROP] for u in updates for i in u[2]["json"]["inputs"]}
     assert out["to_update"] == 2 and out["written"] == 2 and sent == {"22": "other", "33": "none"}      # 11 already matches, so only the two that differ are written
+
+
+def test_neverbounce_list_parses_lines_and_writes_only_the_status():
+    from src import neverbounce_list as nl
+
+    assert nl.parse('"1","a@nhs.net"\n2,B@NHS.NET\n1,dup@nhs.net\nbad line\n3,not-an-email\n,x@y.co') == [("1", "a@nhs.net"), ("2", "b@nhs.net")]
+    sent = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            sent.append((method, path, kw["json"]))
+            return {}
+
+    def get(url, params=None, timeout=0):
+        class R:
+            def json(self):
+                if url.endswith("/account/info"):
+                    return {"credits_info": {"paid_credits_remaining": 5, "free_credits_remaining": 0}}
+                return {"status": "success", "result": "catchall" if params["email"].startswith("a") else "invalid"}
+        return R()
+    out = nl.run(Hub(), "k", [("1", "a@nhs.net"), ("2", "b@nhs.net")], get)
+    assert out["results"] == {"Accept All (Unverifiable)": 1, "Invalid": 1} and [s[2] for s in sent] == [{"properties": {"neverbounce_status": "Accept All (Unverifiable)"}}, {"properties": {"neverbounce_status": "Invalid"}}]
+    assert "credits" in nl.run(Hub(), "k", [(str(i), f"u{i}@nhs.net") for i in range(9)], get)["stopped"]      # not enough credits: nothing is checked
