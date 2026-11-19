@@ -37,13 +37,22 @@ def run(rest):
     return {"no_product_company_status": dict(np_status), "all_linked_company_status": dict(all_status), "no_product_customers": noprod[:12], "counts": dict(sorted(out.items())), "customer_combos": dict(combos.most_common()), "named": named}
 
 
+def no_contract_rows(rest):
+    """Non-freemium customers with no live contract value, one line each."""
+    rows = rest.select_all("gp_practices", "ods_code,practice_name,status,total_patients,hubspot_company_id,hubspot_stage,hubspot_company_status,hubspot_commercial_model,hubspot_product_service,hubspot_contracted_arr,hubspot_pipeline", order="ods_code")
+    return [p for p in rows if p.get("hubspot_company_id") and p.get("hubspot_stage") == "Customer" and p.get("hubspot_commercial_model") != "Freemium" and not float(p.get("hubspot_contracted_arr") or 0) > 0 and p.get("status") == "Active"]
+
+
 def main():
     env = os.environ
     for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
         if not env.get(k):
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
-    print("RESULT " + json.dumps(run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]))))
+    rest = Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"])
+    print("RESULT " + json.dumps(run(rest)))
+    for r in no_contract_rows(rest):
+        print("ROW " + json.dumps([r["ods_code"], r["practice_name"], r.get("hubspot_company_id"), r.get("hubspot_company_status"), r.get("hubspot_commercial_model"), r.get("total_patients")]))
 
 
 if __name__ == "__main__":
