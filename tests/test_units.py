@@ -403,7 +403,7 @@ def test_hubspot_sync_commercial_model_makes_a_customer():
     f = hsy.classify([ex], [], {}, [], {})
     assert f["hubspot_customer"] is False and f["hubspot_commercial_model"] is None        # an ex-customer keeps no model
     assert hsy.classify([{"id": "2", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}], [], {}, [], {})["hubspot_commercial_model"] is None
-    assert hsy.classify([{"id": "2", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}], [], {}, [], {})["hubspot_customer"] is False      # Customer stage with no Commercial Model is not a customer
+    assert hsy.classify([{"id": "2", "lifecyclestage": "customer", "createdate": "2025-01-01T00:00:00Z"}], [], {}, [], {})["hubspot_customer"] is True      # the lifecycle stage decides: a Customer-stage company with no Commercial Model is still a customer (a data gap to fix in HubSpot)
 
 
 def test_ods_operational_dates():

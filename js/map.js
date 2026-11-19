@@ -6,7 +6,7 @@ const mapRadius = k => { const z = pmap ? pmap.getZoom() : 6, r = Math.min(13, 3
 function mapSizeMarkers() { if (pmapLayer) pmapLayer.eachLayer(m => m.setRadius(mapRadius(m._k) * (m._ring ? 0.85 : 1))); }
 const MAP_COL = { customer: "#059669", freemium: "#d97706", engaged: "#2563eb", other: "#94a3b8" };
 const MAP_LABEL = { customer: "Customer", freemium: "Freemium", engaged: "Engaged", other: "Other" };
-const MAP_TIP = { customer: "Customers: lifecycle stage Customer with a Commercial Model (All Reports, SAR Only, PAYG or Self Service)", freemium: "Freemium customers", engaged: "Not a customer; engaged in HubSpot", other: "Everything else" };
+const MAP_TIP = { customer: "Customers: the HubSpot company's lifecycle stage is Customer (not Ex-Customer or Past Customer)", freemium: "Freemium customers", engaged: "Not a customer; engaged in HubSpot", other: "Everything else" };
 const mapKey = p => { const s = hsState(p); return s === "customer" || s === "freemium" || s === "engaged" ? s : "other"; };      // the same split as the Revenue page
 const mapNorm = pc => String(pc || "").replace(/\s+/g, "").toUpperCase();
 const mapMiles = (a, b) => { const R = 3958.8, r = x => x * Math.PI / 180, dLat = r(b[0] - a[0]), dLng = r(b[1] - a[1]), h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a[0])) * Math.cos(r(b[0])) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
@@ -72,7 +72,7 @@ function mapPopup(p, m) {
   const d = mapCentre && mapAt(p) ? mapMiles(mapCentre.at, mapAt(p)) : null;
   const html = document.createElement("div"); html.className = "text-sm";
   html.innerHTML = `<div class="font-semibold leading-tight">${esc(p.practice_name)}</div><div class="mt-0.5 text-xs text-slate-500">${esc(p.ods_code)}${p.town ? " · " + esc(p.town) : ""}${d != null ? " · " + d.toFixed(1) + " miles" : ""}</div>
-    <div class="mt-1 flex flex-wrap gap-1">${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${chip(HS_LABEL[hsState(p)], HS_CLS[hsState(p)])}${p.hubspot_commercial_model ? " " + chip(MODEL_KEY[p.hubspot_commercial_model] || p.hubspot_commercial_model, "bg-slate-100 text-slate-700") : ""}</div>
+    <div class="mt-1 flex flex-wrap gap-1">${p.total_patients > 0 ? chip(tier(p), TIER_CLS[tier(p)] || "") : ""} ${chip(HS_LABEL[hsState(p)], HS_CLS[hsState(p)])}${p.hubspot_commercial_model ? " " + chip(MODEL_KEY[p.hubspot_commercial_model] || p.hubspot_commercial_model, "bg-slate-100 text-slate-700") : hsState(p) === "customer" ? " " + chip("No Commercial Model", "bg-amber-100 text-amber-800", "A customer should have a Commercial Model: set it in HubSpot") : ""}</div>
     <div class="mt-1 text-xs text-slate-600">${p.total_patients > 0 ? Number(p.total_patients).toLocaleString() + " patients" : "No list size"}</div>
     <button type="button" class="mt-2 rounded-md bg-lalu-navy px-2.5 py-1 text-xs font-semibold text-white">Open profile</button>`;
   html.querySelector("button").onclick = () => openDrawer(p);
