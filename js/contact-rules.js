@@ -33,7 +33,7 @@ const CT_RULES = [
   ["lifecycle", "Lifecycle stage is not New or Engaged", "Only New and Engaged contacts get campaigns (customers, past customers, MQL, SQL and the rest are held back). Switch the view to Re-engagement to lift this.", true],
   ["customer", "At a customer practice", "The practice is a customer, so its contacts are not prospected.", true],
   ["closed", "At a closed or merged practice", "The practice no longer exists as a buyer.", true],
-  ["owner", "Contact owner excluded", "Owned by someone whose contacts are kept out of campaigns (the IDs are below).", true],
+  ["owner", "Contact owner excluded", "Owned by someone whose contacts are kept out of campaigns (choose the owners in Settings).", true],
   ["neverbounce", "NeverBounce says Invalid or Disposable", "The address failed verification. Unknown results are allowed unless 'only Valid' is ticked.", true],
 ];
 const CT_LIFECYCLE = { lead: "New", "2207373534": "Engaged", marketingqualifiedlead: "MQL", "5640141025": "Prospecting", salesqualifiedlead: "SQL", opportunity: "Opportunity", customer: "Customer", "4726262995": "Past customer", evangelist: "Evangelist", other: "Other", "4025181418": "Client services" };

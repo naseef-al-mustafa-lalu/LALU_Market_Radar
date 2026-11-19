@@ -3,6 +3,7 @@ Property `atlas_contact_eligibility` (Atlas eligibility): Main / Other / Not eli
 Atlas decides it from public.contact_status (the same rules as the Contacts tab, standard view); HubSpot only reads it."""
 import os
 import sys
+from datetime import datetime, timezone
 
 from .common import Rest
 from .hubspot_sync import Hub, chunks, read_objects
@@ -60,13 +61,34 @@ def run(rest, hub, apply=True):
     return {"property": prop, "linked_contacts": len(want), "now_in_hubspot": counts, "to_update": len(todo), "written": written}
 
 
+def save_owners(rest, hub):
+    """HubSpot owner names by id (people who left included), kept in app_flags.hubspot_owners so Atlas Settings can show names instead of ids."""
+    names = {}
+    for archived in ("false", "true"):
+        after = None
+        while True:
+            d = hub.call("GET", "/crm/v3/owners", params={"limit": 100, "archived": archived, **({"after": after} if after else {})})
+            for o in d.get("results", []):
+                names[str(o["id"])] = (f"{o.get('firstName') or ''} {o.get('lastName') or ''}".strip() or o.get("email") or str(o["id"])) + (" (left)" if archived == "true" else "")
+            after = ((d.get("paging") or {}).get("next") or {}).get("after")
+            if not after:
+                break
+    rest.upsert("app_flags", [{"key": "hubspot_owners", "value": names, "updated_at": datetime.now(timezone.utc).isoformat()}], "key")
+    return len(names)
+
+
 def main():
     env = os.environ
     for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "HUBSPOT_TOKEN"):
         if not env.get(k):
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
-    print("Eligibility:", run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), Hub(env["HUBSPOT_TOKEN"]), apply=env.get("APPLY", "1") != "0"))
+    rest, hub = Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), Hub(env["HUBSPOT_TOKEN"])
+    try:
+        print("Owner names saved:", save_owners(rest, hub))
+    except Exception as e:  # noqa: BLE001  names are a convenience; eligibility must still run
+        print(f"Owner names not saved: {e}", file=sys.stderr)
+    print("Eligibility:", run(rest, hub, apply=env.get("APPLY", "1") != "0"))
 
 
 if __name__ == "__main__":

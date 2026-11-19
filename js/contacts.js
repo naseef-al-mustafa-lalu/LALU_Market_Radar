@@ -1,6 +1,7 @@
 /* Contacts tab: every contact Atlas holds, who may be contacted and why not, saved segments, and the settings that switch job roles and suppression rules on and off.
    The rules live in contact-rules.js. Loaded after contact-rules.js. Contacts are read from public.contacts; their HubSpot state (lifecycle, sequence, bounce...) is kept there by the daily HubSpot sync. */
 let ctNbSet = { enabled: true, days: [0], auto_push: true }, ctNbWaiting = 0, ctNbMsg = "";   // NeverBounce schedule (saved on its own, the moment a choice changes)
+let ctOwnerNames = {};   // HubSpot owner id -> name (app_flags.hubspot_owners, saved by the eligibility push)
 let ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctHeld = null, ctSaving = false;
 let ctMoreOpen = false, ctF = { dq: "", q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "" };
 // Hand-picking: null while the filters decide who is in; once a box is ticked or unticked it is the explicit set of contact urns (a saved segment keeps it as its members).
@@ -69,11 +70,11 @@ async function ctExport(f, urns, name, off) {
 let ctFlagsP = null;
 function ctLoadFlags() { return ctFlagsReady ? Promise.resolve() : (ctFlagsP = ctFlagsP || ctLoadFlagsNow().finally(() => { ctFlagsP = null; })); }
 async function ctLoadFlagsNow() {   // the saved rules, saved filters and the count of contacts with no email: small, read once
-  const [flags, waiting, ne, run] = await Promise.all([db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments", "neverbounce_settings"]), db.rpc("contacts_nb_waiting"), db.from("contact_noemail").select("ref", { count: "exact", head: true }),
+  const [flags, waiting, ne, run] = await Promise.all([db.from("app_flags").select("key,value").in("key", ["contact_rules", "contact_segments", "neverbounce_settings", "hubspot_owners"]), db.rpc("contacts_nb_waiting"), db.from("contact_noemail").select("ref", { count: "exact", head: true }),
     db.from("ingest_runs").select("stats").eq("status", "success").order("id", { ascending: false }).limit(1)]);
   const f = Object.fromEntries((flags.data || []).map(r => [r.key, r.value]));
   const nbs = f.neverbounce_settings || {}; ctNbSet = { enabled: nbs.enabled !== false, days: Array.isArray(nbs.days) ? nbs.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [0], auto_push: nbs.auto_push !== false }; ctNbWaiting = Number(waiting.data) || 0;
-  ctSetRules(f.contact_rules); ctSegments = (f.contact_segments && f.contact_segments.list) || []; ctNoEmail = ne.count || 0; ctHeld = ((run.data || [])[0] || {}).stats || null; ctFlagsReady = true;
+  ctOwnerNames = f.hubspot_owners || {}; ctSetRules(f.contact_rules); ctSegments = (f.contact_segments && f.contact_segments.list) || []; ctNoEmail = ne.count || 0; ctHeld = ((run.data || [])[0] || {}).stats || null; ctFlagsReady = true;
 }
 async function ctLoadReview(more) {   // the Review tab: the four counts, and 100 rows (or titles) of the open tab; "more" adds the next 100
   const tab = ctRevTab, off = more ? (tab === "titles" ? ctRev.titles.length : ctRev.rows.length) : 0;
@@ -194,6 +195,7 @@ const ctFilterText = f => [f.section && "section " + (CT_SECTION[f.section] || [
 
 /* ---------- Settings ---------- */
 
+const ctOwnerList = () => [...new Set([...Object.keys(ctOwnerNames), ...ctRules.owners])].map(id => [id, ctOwnerNames[id] || "Unknown owner (" + id + ")"]).sort((a, b) => a[1].localeCompare(b[1]));
 function ctSettings() {
   const counts = (ctStats && ctStats.roles) || {}, held = (ctStats && ctStats.held) || {};
   const seg = (id, cur) => `<div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-xs font-semibold" role="group" aria-label="${esc(CT_ROLE[id].label)}">${[["main", "Main"], ["other", "Other"], ["off", "Off"]].map(([k, l]) => `<button type="button" class="ct-role-set rounded-md px-3 py-1 ${cur === k ? (k === "off" ? "bg-slate-500 text-white" : "bg-lalu-navy text-white") : "text-slate-600 hover:bg-slate-50"}" data-id="${id}" data-m="${k}" aria-pressed="${cur === k}">${l}</button>`).join("")}</div>`;
@@ -218,7 +220,7 @@ function ctSettings() {
     <section class="rounded-xl border border-slate-200 bg-white p-4 space-y-2"><h3 class="font-bold">Suppression rules</h3><p class="text-xs text-slate-500">A contact that is switched on here and matches is held back, whatever its role. These follow HubSpot's <i>Campaign Exclusion List</i>; Atlas keeps its own copy and writes nothing back to HubSpot.</p>
       ${CT_RULES.map(([id, label, sub]) => sw(id, ctRuleOn(id), esc(label), esc(sub), `<span class="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-normal text-slate-600">${(held[id] || 0).toLocaleString()} held</span>`)).join("")}
       <fieldset class="rounded-lg border border-slate-200 px-3 py-2.5"><legend class="px-1 text-sm font-semibold">Bounces that hold a contact back</legend><div class="text-xs text-slate-500">Used when "Email bounced" is on. Untick a type to let those contacts through. A segment can accept more types on its own card.</div><div class="mt-1 flex flex-wrap gap-1.5">${CT_BOUNCE_TYPES.map(([v, l]) => `<label class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 text-xs hover:bg-slate-50"><input type="checkbox" class="ct-bounce-set" value="${v}" ${ctRules.bounceHold.includes(v) ? "checked" : ""}>${esc(l)}</label>`).join("")}</div></fieldset>
-      <div class="rounded-lg border border-slate-200 px-3 py-2.5"><label class="block text-sm font-semibold" for="ct-owners">Contact owners kept out of campaigns</label><input id="ct-owners" value="${esc(ctRules.owners.join(", "))}" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs" aria-describedby="ct-owners-h"><div id="ct-owners-h" class="mt-0.5 text-xs text-slate-500">HubSpot owner IDs, separated by commas. Used by the owner rule.</div></div>
+      <fieldset class="rounded-lg border border-slate-200 px-3 py-2.5"><legend class="px-1 text-sm font-semibold">Contact owners kept out of campaigns</legend><div class="text-xs text-slate-500">Tick the HubSpot owners whose contacts are held back. Used by the owner rule.</div><div class="mt-1 flex flex-wrap gap-1.5">${ctOwnerList().map(([id, name]) => `<label class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 text-xs hover:bg-slate-50"><input type="checkbox" class="ct-owner-set" value="${esc(id)}" ${ctRules.owners.includes(id) ? "checked" : ""}>${esc(name)}</label>`).join("") || '<span class="text-xs text-slate-400">No owners yet</span>'}</div></fieldset>
     </section></div>`;
 }
 
@@ -268,7 +270,7 @@ document.addEventListener("change", e => {
   if (e.target.id === "ct-title-f") { ctTitleF = e.target.value; ctTitleShown = 100; renderContacts(); return; }
   if (e.target.classList && e.target.classList.contains("ct-bounce-set")) { ctRules.bounceHold = [...document.querySelectorAll(".ct-bounce-set:checked")].map(x => x.value); ctRulesChanged(); return; }
   if (e.target.classList && e.target.classList.contains("ct-nbs")) { ctSaveNbSettings(e.target); return; }
-  if (e.target.id === "ct-owners") { ctRules.owners = e.target.value.split(/[\s,;]+/).filter(Boolean); ctRulesChanged(); return; }
+  if (e.target.classList && e.target.classList.contains("ct-owner-set")) { ctRules.owners = [...document.querySelectorAll(".ct-owner-set:checked")].map(x => x.value); ctRulesChanged(); return; }
   if (e.target.classList.contains("ct-rule-set")) { const k = e.target.dataset.id; if (k.startsWith("dq:")) ctRules.dq[k.slice(3)] = e.target.checked; else if (k === "likely") ctRules.likely = e.target.checked; else if (k === "strictValid") ctRules.strictValid = e.target.checked; else ctRules.suppression[k] = e.target.checked; ctRulesChanged(); }
 });
 document.addEventListener("click", e => {
