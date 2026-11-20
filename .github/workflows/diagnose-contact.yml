@@ -1,0 +1,24 @@
+name: Diagnose a contact
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Part of the contact name'
+        required: true
+        default: "Kajal Shah"
+
+jobs:
+  look:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12', cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Print what Atlas holds for the contact
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NAME: ${{ inputs.name }}
+        run: python -m src.diagnose_contact
