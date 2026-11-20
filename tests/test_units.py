@@ -2102,3 +2102,23 @@ def test_unknown_neverbounce_contacts_go_to_hubspot_with_their_status_but_invali
     out = neverbounce.run(Rest(), hub, "k", datetime(2026, 11, 23, 7, tzinfo=timezone.utc), get=get, force=True)
     assert sorted(p["neverbounce_status"] for p in hub.created) == ["Unknown", "Valid"]   # Invalid is not pushed
     assert out["unknown_pushed"] == 1 and out["passed"] == 1 and out["failed"] == 1
+
+
+def test_apollo_contacts_without_a_status_row_trigger_a_refresh_so_the_neverbounce_tab_shows_them():
+    from src import apollo
+
+    class Rest:
+        def __init__(self, have): self.have, self.refreshed = have, 0
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "contacts":
+                return [{"contact_urn": -1}, {"contact_urn": -2}]
+            return [{"contact_urn": u} for u in self.have]
+        def rpc(self, name, args=None):
+            assert name == "refresh_contact_status"
+            self.refreshed += 1
+            return 0
+
+    r = Rest(have=[-1])
+    assert apollo.ensure_status(r) == 1 and r.refreshed == 1
+    r2 = Rest(have=[-1, -2])
+    assert apollo.ensure_status(r2) == 0 and r2.refreshed == 0   # nothing missing: no refresh

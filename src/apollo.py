@@ -214,6 +214,18 @@ def same_name_other_address(rest, hub, c, company_id, email):
     return {"email": h["email"], "where": "HubSpot", "urn": None, "hubspot_id": h["id"]} if h else None
 
 
+def ensure_status(rest):
+    """Contacts this job adds need a row in contact_status, or the NeverBounce tab (which joins on it) never shows them. Any Apollo contact without one triggers a refresh. Returns how many were missing."""
+    mine = [r["contact_urn"] for r in rest.select_all("contacts", "contact_urn", order="contact_urn", params={"source": "eq.apollo"}) if r.get("contact_urn") is not None]
+    have = set()
+    for i in range(0, len(mine), 200):
+        have |= {r["contact_urn"] for r in rest.select_all("contact_status", "contact_urn", order="contact_urn", params={"contact_urn": f"in.({','.join(str(u) for u in mine[i:i + 200])})"})}
+    missing = [u for u in mine if u not in have]
+    if missing:
+        rest.rpc("refresh_contact_status")
+    return len(missing)
+
+
 def add_contact(rest, c, email):
     """A contact with the email Apollo found (source 'apollo'), waiting in the NeverBounce approval queue. NeverBounce state lives in its own table (contact_nb), so it is written there."""
     quality, _ = contact_quality.email_quality(email, c.get("first_name"), c.get("last_name"))
@@ -403,6 +415,10 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             out["found_free" if free else "found"] = out.get("found_free" if free else "found", 0) + 1
         rest.patch("apollo_queue", pq, {"state": "found", "apollo_email": email, "apollo_email_status": status, "free": free, "checked_at": now,
                                         "note": ("already a contact" if dup else None) or ("already in your Apollo contacts: no credits used" if free else None)})
+    try:   # contacts added now or earlier must have a status row to appear in the NeverBounce tab
+        out["status_rows_added"] = ensure_status(rest)
+    except Exception as e:  # noqa: BLE001  not worth failing the run: it is retried on the next one
+        out["status_error"] = str(e)[:120]
     out["addresses_found"] = out["found"]   # paid finds only; credits are worked out on the Apollo page from the credits-per-email setting
     out["waiting"] = len(rest.select_all("apollo_queue", "contact_urn", order="contact_urn", params={"state": "eq.approved"}))
     return out
