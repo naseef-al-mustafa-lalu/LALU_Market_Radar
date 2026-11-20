@@ -1600,7 +1600,7 @@ def test_contact_found_by_apollo_is_created_in_hubspot_with_apollo_as_its_first_
             return {"results": []} if path.endswith("/search") else {"id": "9"}
 
     c = {"email": "ann.lee@practice.nhs.net", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager", "source": "apollo"}
-    neverbounce.hubspot_contact(Hub(), c, "55", "Valid")
+    neverbounce.hubspot_contact(Hub(), c, "55", "Valid", targets={})
     p = next(kw["json"]["properties"] for m, path, kw in calls if m == "POST" and path == "/crm/v3/objects/contacts")
     assert p["um_source_detail_1"] == "Apollo" and "um_lt_source_detail_1" not in p and p["source_category"] == "Import"
     calls.clear()
@@ -1645,11 +1645,40 @@ def test_an_apollo_address_goes_onto_the_existing_hubspot_person_not_a_new_recor
             return {"id": "x"}
 
     c = {"email": "kajal.shah@practice.nhs.net", "first_name": "Kajal", "last_name": "Shah", "job_title": "Practice Manager", "source": "apollo"}
-    cid, created = neverbounce.hubspot_contact(Hub(), c, "55", "Valid")
+    cid, created = neverbounce.hubspot_contact(Hub(), c, "55", "Valid", targets={})
     assert (cid, created) == ("7", False)
     assert not any(m == "POST" and p == "/crm/v3/objects/contacts" for m, p, _ in calls)
     patch = next(kw["json"]["properties"] for m, p, kw in calls if m == "PATCH")
     assert patch == {"neverbounce_status": "Valid", "email": "kajal.shah@practice.nhs.net"}
+
+
+def test_an_apollo_address_updates_the_exact_hubspot_contact_it_came_from_and_adds_a_note():
+    from src import neverbounce
+
+    calls = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            calls.append((method, path, kw))
+            return {"results": []} if path.endswith("/contacts/search") else {"id": "n1"}
+
+    c = {"email": "kajal.shah@new.nhs.net", "first_name": "Kajal", "last_name": "Shah", "job_title": "Practice Manager", "source": "apollo"}
+    targets = {"kajal.shah@new.nhs.net": {"hubspot_contact_id": "267385106634", "apollo_org": "New Surgery", "ods_code": "N1", "practice_name": "New Surgery", "original_ods": "O1", "original_name": "Old Surgery"}}
+    cid, created = neverbounce.hubspot_contact(Hub(), c, "88", "Valid", targets=targets)
+    assert (cid, created) == ("267385106634", False)
+    assert not any(m == "POST" and p == "/crm/v3/objects/contacts" for m, p, _ in calls)   # never a second record
+    assert any(m == "PATCH" and p.endswith("/267385106634") and kw["json"]["properties"]["email"] == "kajal.shah@new.nhs.net" for m, p, kw in calls)
+    assert any(m == "PUT" and "/companies/88" in p for m, p, _ in calls)   # associated with the matching practice's company
+    note = next(kw["json"] for m, p, kw in calls if m == "POST" and p == "/crm/v3/objects/notes")
+    assert "Apollo" in note["properties"]["hs_note_body"] and "Old Surgery" in note["properties"]["hs_note_body"] and note["associations"][0]["to"]["id"] == "267385106634"
+
+
+def test_an_apollo_contact_waits_when_its_hubspot_details_cannot_be_read():
+    import pytest
+    from src import neverbounce
+
+    with pytest.raises(RuntimeError):
+        neverbounce.hubspot_contact(object(), {"email": "a@b.nhs.net", "source": "apollo"}, "1", "Valid", targets=None)
 
 
 def test_apollo_only_looks_up_people_whose_role_is_still_main():

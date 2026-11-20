@@ -105,24 +105,56 @@ def adopt_unaddressed(hub, c, company_id):
     return None
 
 
-def hubspot_contact(hub, c, company_id, status):
-    """Find or create the contact in HubSpot by email, record the NeverBounce status, and associate it with its practice's company. Returns (id, created)."""
+def apollo_targets(rest):
+    """Where Apollo's finds belong in HubSpot, by address: the HubSpot contact to update (when HubSpot already held the person), who found them, and the practices involved, for the note. None when it cannot be read."""
+    try:
+        rows = rest.select_all("apollo_queue", "apollo_email,hubspot_contact_id,apollo_org,ods_code,original_ods", order="contact_urn", params={"state": "eq.found", "apollo_email": "not.is.null"})
+        names = {r["ods_code"]: r["practice_name"] for r in rest.select_all("gp_practices", "ods_code,practice_name", order="ods_code")}
+    except Exception as e:  # noqa: BLE001  fail closed: without this an Apollo contact would be created as a duplicate in HubSpot, so those contacts wait for the next run
+        print(f"Apollo details unavailable: {e}", file=sys.stderr)
+        return None
+    return {str(r["apollo_email"]).lower(): {**r, "practice_name": names.get(r["ods_code"]), "original_name": names.get(r.get("original_ods"))} for r in rows}
+
+
+def apollo_note(hub, cid, status, t):
+    """A note on the HubSpot contact saying where the address came from, so anyone opening the record can see it. A note that cannot be written (scope, outage) does not undo the update."""
+    t = t or {}
+    moved = f" The contact was moved from {t.get('original_name') or t.get('original_ods')} ({t.get('original_ods')}) to {t.get('practice_name') or t.get('ods_code')} ({t.get('ods_code')}) after a review in Atlas." if t.get("original_ods") else ""
+    body = (f"<p>Email address added by Lalu Atlas from Apollo{' (Apollo has them at ' + t['apollo_org'] + ')' if t.get('apollo_org') else ''} on {datetime.now(timezone.utc).date().isoformat()}. "
+            f"NeverBounce: {status}.{moved}</p>")
+    try:
+        hub.call("POST", "/crm/v3/objects/notes", json={"properties": {"hs_note_body": body, "hs_timestamp": datetime.now(timezone.utc).isoformat()},
+                                                        "associations": [{"to": {"id": cid}, "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 202}]}]})
+    except Exception as e:  # noqa: BLE001
+        print(f"HubSpot note not added for {cid}: {str(e)[:160]}", file=sys.stderr)
+
+
+def hubspot_contact(hub, c, company_id, status, targets=None):
+    """Find or create the contact in HubSpot by email, record the NeverBounce status, and associate it with its practice's company. A person found by Apollo who is already in HubSpot (the contact the queue
+    came from, or one on the practice without an address) is updated, never created again, and gets a note. Returns (id, created)."""
     email = c["email"].strip().lower()
+    apollo = c.get("source") == "apollo"
+    if apollo and targets is None:
+        raise RuntimeError("Apollo details unavailable, so this contact waits")
+    t = (targets or {}).get(email) if apollo else None
     found = hub.call("POST", "/crm/v3/objects/contacts/search", json={"limit": 1, "properties": ["email"], "filterGroups": [{"filters": [{"propertyName": "email", "operator": "EQ", "value": email}]}]}).get("results", [])
     props = {"neverbounce_status": status}
-    adopt = None if found or c.get("source") != "apollo" else adopt_unaddressed(hub, c, company_id)
-    if adopt:   # the person is already in HubSpot without an address: it gets the address Apollo found (and keeps its own first touch), no second record is made
-        hub.call("PATCH", f"/crm/v3/objects/contacts/{adopt}", json={"properties": {**props, "email": email}})
-        cid, created = adopt, False
-    elif found:
+    target_id = str((t or {}).get("hubspot_contact_id") or "") or None
+    adopt = None if found or target_id or not apollo else adopt_unaddressed(hub, c, company_id)
+    if found:
         cid, created = str(found[0]["id"]), False
         hub.call("PATCH", f"/crm/v3/objects/contacts/{cid}", json={"properties": props})
+    elif target_id or adopt:   # the person is already in HubSpot without an address: it gets the address (and keeps its own first touch); no second record is made
+        cid, created = target_id or adopt, False
+        hub.call("PATCH", f"/crm/v3/objects/contacts/{cid}", json={"properties": {**props, "email": email}})
     else:
         props.update(email=email, firstname=c.get("first_name") or (c.get("full_name") or "").split(" ")[0] or None, lastname=c.get("last_name") or " ".join((c.get("full_name") or "").split(" ")[1:]) or None,
-                     jobtitle=c.get("job_title"), phone=c.get("phone"), job_role_standardised=standard_role(c.get("job_title")), **creation_props("Apollo" if c.get("source") == "apollo" else "Oscar API"))
+                     jobtitle=c.get("job_title"), phone=c.get("phone"), job_role_standardised=standard_role(c.get("job_title")), **creation_props("Apollo" if apollo else "Oscar API"))
         cid, created = str(hub.call("POST", "/crm/v3/objects/contacts", json={"properties": {k: v for k, v in props.items() if v}})["id"]), True
     if company_id:
         hub.call("PUT", f"/crm/v4/objects/contacts/{cid}/associations/default/companies/{company_id}")
+    if apollo:
+        apollo_note(hub, cid, status, t)
     return cid, created
 
 
@@ -132,10 +164,11 @@ def push_waiting(rest, hub, now=None):
     rows = rest.select_all("contacts_full", "contact_urn,ods_code,full_name,first_name,last_name,job_title,email,phone,nb_result,source", order="contact_urn",
                            params={"nb_state": "eq.checked", "nb_result": f"in.({','.join(chr(34) + x + chr(34) for x in sorted(PASS))})", "hubspot_contact_id": "is.null", "email": "not.is.null"})
     companies = {r["ods_code"]: r.get("hubspot_company_id") for r in rest.select_all("gp_practices", "ods_code,hubspot_company_id", order="ods_code")}
+    targets = apollo_targets(rest)
     out = {"pushed": 0, "created": 0, "errors": 0}
     for c in rows:
         try:
-            cid, created = hubspot_contact(hub, c, companies.get(c["ods_code"]), c["nb_result"])
+            cid, created = hubspot_contact(hub, c, companies.get(c["ods_code"]), c["nb_result"], targets)
         except Exception as e:  # noqa: BLE001  it stays waiting for the next push
             out["errors"] += 1
             out["last_error"] = str(e)[:200]
@@ -165,6 +198,7 @@ def run(rest, hub, key, now=None, get=requests.get, force=False, settings=None, 
     left = credits_left(key, get)
     todo = approved[:MAX_PER_RUN] if left is None else approved[:max(0, min(MAX_PER_RUN, left))]
     companies = {r["ods_code"]: r.get("hubspot_company_id") for r in rest.select_all("gp_practices", "ods_code,hubspot_company_id", order="ods_code")}
+    targets = apollo_targets(rest)
     out = {"checked": 0, "passed": 0, "failed": 0, "created": 0, "errors": 0, "by_status": {}}
     for c in todo:
         try:
@@ -185,7 +219,7 @@ def run(rest, hub, key, now=None, get=requests.get, force=False, settings=None, 
                 out["waiting_push"] = out.get("waiting_push", 0) + 1
             else:
                 try:
-                    cid, created = hubspot_contact(hub, c, companies.get(c["ods_code"]), status)
+                    cid, created = hubspot_contact(hub, c, companies.get(c["ods_code"]), status, targets)
                     patch.update(hubspot_contact_id=cid, hubspot_status="Imported", hubspot_imported_at=now.isoformat())
                     out["created"] += int(created)
                 except Exception as e:  # noqa: BLE001  the result is still recorded in Atlas; HubSpot is retried by hand
