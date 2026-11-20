@@ -90,12 +90,31 @@ def creation_props(detail1="Oscar API", today=None):
     return props
 
 
+def adopt_unaddressed(hub, c, company_id):
+    """HubSpot may already hold this person on the practice's company with no email address (that is how Apollo came to look them up): return that contact's id, else None."""
+    if not company_id:
+        return None
+    ids = [str(x["toObjectId"]) for x in hub.call("GET", f"/crm/v4/objects/companies/{company_id}/associations/contacts", params={"limit": 100}).get("results", [])]
+    if not ids:
+        return None
+    first, last = str(c.get("first_name") or "").strip().lower(), str(c.get("last_name") or "").strip().lower()
+    for r in hub.call("POST", "/crm/v3/objects/contacts/batch/read", json={"properties": ["firstname", "lastname", "email"], "inputs": [{"id": i} for i in ids[:100]]}).get("results", []):
+        p = r.get("properties") or {}
+        if first and last and not (p.get("email") or "").strip() and str(p.get("firstname") or "").strip().lower() == first and str(p.get("lastname") or "").strip().lower() == last:
+            return str(r["id"])
+    return None
+
+
 def hubspot_contact(hub, c, company_id, status):
     """Find or create the contact in HubSpot by email, record the NeverBounce status, and associate it with its practice's company. Returns (id, created)."""
     email = c["email"].strip().lower()
     found = hub.call("POST", "/crm/v3/objects/contacts/search", json={"limit": 1, "properties": ["email"], "filterGroups": [{"filters": [{"propertyName": "email", "operator": "EQ", "value": email}]}]}).get("results", [])
     props = {"neverbounce_status": status}
-    if found:
+    adopt = None if found or c.get("source") != "apollo" else adopt_unaddressed(hub, c, company_id)
+    if adopt:   # the person is already in HubSpot without an address: it gets the address Apollo found (and keeps its own first touch), no second record is made
+        hub.call("PATCH", f"/crm/v3/objects/contacts/{adopt}", json={"properties": {**props, "email": email}})
+        cid, created = adopt, False
+    elif found:
         cid, created = str(found[0]["id"]), False
         hub.call("PATCH", f"/crm/v3/objects/contacts/{cid}", json={"properties": props})
     else:

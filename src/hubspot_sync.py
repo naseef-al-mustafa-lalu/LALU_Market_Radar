@@ -191,6 +191,34 @@ def import_hubspot_contacts(rest, by_ods, to_contacts, contacts, known, cap=2500
     return len(rows)
 
 
+def queue_hubspot_noemail(rest, by_ods, to_contacts, contacts):
+    """People HubSpot holds on a practice company with a first and last name and a decision-maker job role but no email address wait in the Apollo queue (a person approves the lookup in Atlas).
+    Contacts Atlas created, people already queued (by HubSpot id, or by name at the same practice) and people Atlas already has an address for are skipped. Returns how many were queued."""
+    from . import contact_quality
+    queued = rest.select_all("apollo_queue", "hubspot_contact_id,ods_code,full_name", order="contact_urn")
+    have_ids = {r["hubspot_contact_id"] for r in queued if r.get("hubspot_contact_id")}
+    have_names = {(r["ods_code"], str(r.get("full_name") or "").strip().lower()) for r in queued}
+    have_names |= {(r["ods_code"], str(r.get("full_name") or "").strip().lower()) for r in rest.select_all("contacts", "contact_urn,ods_code,full_name", order="contact_urn", params={"email": "not.is.null"})}
+    rows = []
+    for ods, cs in by_ods.items():
+        for c in cs:
+            for cid in to_contacts.get(str(c["id"]), []):
+                cid, pr = str(cid), contacts.get(str(cid))
+                if not pr or cid in have_ids or (pr.get("email") or "").strip() or made_by_atlas(pr):
+                    continue
+                first, last = (pr.get("firstname") or "").strip(), (pr.get("lastname") or "").strip()
+                tier = contact_quality.role_tier(pr.get("jobtitle"))[0]
+                key = (ods, f"{first} {last}".strip().lower())
+                if not first or not last or tier not in ("A", "B") or key in have_names:
+                    continue
+                have_ids.add(cid)
+                have_names.add(key)
+                rows.append({"ods_code": ods, "full_name": f"{first} {last}", "first_name": first, "last_name": last, "job_title": pr.get("jobtitle") or None, "role_tier": tier, "hubspot_contact_id": cid, "source": "hubspot"})
+    for i in range(0, len(rows), 500):
+        rest.insert("apollo_queue", rows[i:i + 500])
+    return len(rows)
+
+
 def link_open_deals(rest, by_ods, to_deals, deals):
     """A practice with no deal linked in Atlas (links are normally made by a pricing push) is linked to its open New Business or Freemium-conversion deal, newest first (else its latest signed one), so the profile shows the live deal
     (for example a Freemium customer's conversion deal) instead of 'no deal needed'. Existing links are never changed."""
@@ -1346,6 +1374,10 @@ def sync(rest, hub, now=None, actor="daily sync"):
     except Exception as e:  # noqa: BLE001
         contacts_added = 0
         print("HubSpot contact import skipped:", e)
+    try:   # named HubSpot contacts with a decision-maker role and no address wait for Apollo (migration 101 adds the columns)
+        print("Queued for Apollo from HubSpot:", queue_hubspot_noemail(rest, by_ods, to_contacts, contacts))
+    except Exception as e:  # noqa: BLE001
+        print("Apollo queue from HubSpot skipped:", e)
     try:   # a guard against the duplicate-contact problem coming back: counted after every run, said loudly in the log and on Slack when anything shows
         dupes = duplicate_contact_counts(rest.select_all("contacts", "contact_urn,ods_code,email,hubspot_contact_id,source", order="contact_urn"))
         if any(dupes.values()):

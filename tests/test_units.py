@@ -1572,3 +1572,46 @@ def test_contact_found_by_apollo_is_created_in_hubspot_with_apollo_as_its_first_
     calls.clear()
     neverbounce.hubspot_contact(Hub(), {**c, "source": "oscar"}, "55", "Valid")
     assert next(kw["json"]["properties"] for m, path, kw in calls if m == "POST" and path == "/crm/v3/objects/contacts")["um_source_detail_1"] == "Oscar API"
+
+
+def test_hubspot_people_with_a_role_and_no_email_are_queued_for_apollo_once():
+    from src import hubspot_sync as hsy
+
+    class R:
+        def __init__(self): self.ins = []
+        def select_all(self, table, cols="*", order="", params=None):
+            return {"apollo_queue": [{"hubspot_contact_id": "9", "ods_code": "E1", "full_name": "Already Queued"}], "contacts": [{"ods_code": "E1", "full_name": "Has Address"}]}[table]
+        def insert(self, table, rows): self.ins.append((table, rows))
+
+    contacts = {"1": {"firstname": "Kajal", "lastname": "Shah", "jobtitle": "Practice Manager"}, "2": {"firstname": "No", "lastname": "Role", "jobtitle": "Cleaner"},
+                "3": {"firstname": "Has", "lastname": "Address", "jobtitle": "Practice Manager"}, "4": {"firstname": "Kajal", "lastname": "Mail", "jobtitle": "Practice Manager", "email": "k@nhs.net"},
+                "9": {"firstname": "Already", "lastname": "Queued", "jobtitle": "Practice Manager"}, "5": {"firstname": "Solo", "lastname": "", "jobtitle": "Practice Manager"}}
+    r = R()
+    n = hsy.queue_hubspot_noemail(r, {"E1": [{"id": 100}]}, {"100": ["1", "2", "3", "4", "9", "5"]}, contacts)
+    assert n == 1
+    (_, rows), = r.ins
+    assert rows[0]["hubspot_contact_id"] == "1" and rows[0]["source"] == "hubspot" and rows[0]["ods_code"] == "E1" and rows[0]["role_tier"] == "A"
+
+
+def test_an_apollo_address_goes_onto_the_existing_hubspot_person_not_a_new_record():
+    from src import neverbounce
+
+    calls = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            calls.append((method, path, kw))
+            if path.endswith("/contacts/search"):
+                return {"results": []}
+            if "/associations/contacts" in path and method == "GET":
+                return {"results": [{"toObjectId": 7}, {"toObjectId": 8}]}
+            if path.endswith("/batch/read"):
+                return {"results": [{"id": "7", "properties": {"firstname": "Kajal", "lastname": "Shah", "email": ""}}, {"id": "8", "properties": {"firstname": "Munir", "lastname": "Datoo", "email": "m@nhs.net"}}]}
+            return {"id": "x"}
+
+    c = {"email": "kajal.shah@practice.nhs.net", "first_name": "Kajal", "last_name": "Shah", "job_title": "Practice Manager", "source": "apollo"}
+    cid, created = neverbounce.hubspot_contact(Hub(), c, "55", "Valid")
+    assert (cid, created) == ("7", False)
+    assert not any(m == "POST" and p == "/crm/v3/objects/contacts" for m, p, _ in calls)
+    patch = next(kw["json"]["properties"] for m, p, kw in calls if m == "PATCH")
+    assert patch == {"neverbounce_status": "Valid", "email": "kajal.shah@practice.nhs.net"}
