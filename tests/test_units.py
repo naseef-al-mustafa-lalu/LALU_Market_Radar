@@ -1694,8 +1694,8 @@ def test_apollo_only_looks_up_people_whose_role_is_still_main():
         def __init__(self): self.patched = []
         def select_all(self, table, cols="*", order="", params=None):
             if table == "apollo_queue":
-                if (params or {}).get("state") == "eq.review":
-                    return []   # nobody waiting in review
+                if (params or {}).get("state") in ("eq.review", "eq.not_found"):
+                    return []   # nobody waiting in review or parked
                 return [{"contact_urn": 1, "ods_code": "A11111", "full_name": "Cy Cleaner", "first_name": "Cy", "last_name": "Cleaner", "job_title": "Cleaner", "role_tier": "x"}]
             return [{"ods_code": "A11111", "practice_name": "Test Surgery"}] if table == "gp_practices" else []
         def patch(self, table, filters, values): self.patched.append(values)
@@ -2011,3 +2011,36 @@ def test_enrich_never_spends_credits_on_a_contact_without_an_apollo_id():
     r = Rest()
     out = apollo.run(r, "k", 5, post=post, mode="enrich")
     assert out["needs_apollo_id"] == 1 and out["found"] == 0 and any("no person id" in str(v.get("note")) for v in r.patched)
+
+
+def test_a_person_found_without_an_email_waits_for_a_reveal_in_apollo_instead_of_being_given_up_on():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j): self.j = j
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    def post(url, **kw):
+        if url.endswith("contacts/search"):
+            return R({"contacts": [{"id": "cid-1", "first_name": "Fazilat", "last_name": "Shivji", "email": None, "person_id": None, "organization_name": "Brooklands Health Centre"}]})
+        return R({"person": {"first_name": "Fazilat"}})   # found, no email revealed
+
+    class Rest:
+        def __init__(self): self.patched = []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                if (params or {}).get("state") == "eq.not_found":
+                    return [{"contact_urn": 9}]   # parked wrongly earlier
+                return [{"contact_urn": 5, "ods_code": "Y02900", "full_name": "Fazilat Shivji", "first_name": "Fazilat", "last_name": "Shivji", "job_title": "Practice Manager"}]
+            return [{"ods_code": "Y02900", "practice_name": "Brooklands Health Centre", "website": None, "postcode": None, "town": None, "hubspot_company_id": None}] if table == "gp_practices" else []
+        def patch(self, table, filters, values): self.patched.append((filters["contact_urn"], values))
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    r = Rest()
+    out = apollo.run(r, "k", 5, post=post, mode="enrich")
+    assert out["needs_reveal"] == 1 and out["found"] == 0 and out["reopened_for_reveal"] == 1
+    assert ("eq.9", {"state": "approved", "note": apollo.NEEDS_REVEAL, "checked_at": None}) in r.patched   # the earlier wrong 'not found' is reopened
+    assert not any(v.get("state") == "not_found" for _, v in r.patched)

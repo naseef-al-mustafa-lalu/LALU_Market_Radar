@@ -249,6 +249,18 @@ def coverage(rest):
     return {"practices": len(practices), "no_practice_manager": len(no_pm), "fewer_than_two": len(no_other), "covered": len(practices) - len(set(no_pm) | set(no_other))}
 
 
+NEEDS_REVEAL = "needs reveal in Apollo: Apollo's API found them but did not return an email. Reveal it in Apollo and it is pulled in free within the hour."
+
+
+def reopen_unrevealed(rest):
+    """People parked as 'not found' only because the API lookup returned no email (the email can be revealed in Apollo itself) go back to waiting for a reveal, so an email revealed in Apollo is pulled in free."""
+    n = 0
+    for c in rest.select_all("apollo_queue", "contact_urn", order="contact_urn", params={"state": "eq.not_found", "note": "eq.person found, email not available"}):
+        rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "approved", "note": NEEDS_REVEAL, "checked_at": None})
+        n += 1
+    return n
+
+
 CHECK_LOGIC_SINCE = "2026-11-20T14:55:00+00:00"   # review rows decided by an older, name-only search are re-checked by the job itself
 
 
@@ -268,6 +280,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     now = (now or datetime.now(timezone.utc)).isoformat()
     applied = apply_accepted(rest, now)
     rechecked = recheck_stale_review(rest)
+    reopened = reopen_unrevealed(rest)
     approved = rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.approved"})
     main = main_titles(rest, [c.get("job_title") or "" for c in approved])
     for c in [c for c in approved if (c.get("job_title") or "") not in main]:   # the Settings rules changed since it was approved: only Main roles are looked up
@@ -283,7 +296,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     except Exception:  # noqa: BLE001
         hs_names = {}
     pause = 0.3 if post is requests.post else 0   # Apollo rate-limits: a short pause between contacts
-    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied, "rechecked_review": rechecked}
+    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied, "rechecked_review": rechecked, "reopened_for_reveal": reopened}
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
         alt = [hs_names.get(c["ods_code"])]
@@ -334,6 +347,9 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 out["matched"] += 1
                 if mode == "check":
                     continue
+                if str(c.get("note") or "").startswith("needs reveal in Apollo"):   # already tried through the API: it is waiting for a reveal in Apollo, which the saved-contact pull above picks up
+                    out["needs_reveal"] = out.get("needs_reveal", 0) + 1
+                    continue
                 if not c.get("apollo_person_id"):   # no Apollo id to pin the lookup to: enriching from name and company text could land on a namesake and spend credits on the wrong person
                     out["needs_apollo_id"] = out.get("needs_apollo_id", 0) + 1
                     rest.patch("apollo_queue", pq, {"note": "matched at the practice, but Apollo gave no person id: not enriched, so credits cannot go to a namesake. Reveal the email in Apollo (it is then pulled free)."})
@@ -346,6 +362,10 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 break
             continue
         out["looked_up"] += 0 if (free or reused) else 1
+        if not email and str(note or "").startswith("person found"):   # the person exists but the API revealed no email: wait for a reveal in Apollo, do not give up on them
+            out["needs_reveal"] = out.get("needs_reveal", 0) + 1
+            rest.patch("apollo_queue", pq, {"note": NEEDS_REVEAL, "checked_at": now})
+            continue
         if not reused and email:   # kept straight away: if saving the contact fails below, the email is not lost and not paid for again
             rest.patch("apollo_queue", pq, {"apollo_email": email, "apollo_email_status": status, "free": free})
         if not email:

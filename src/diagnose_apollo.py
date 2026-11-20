@@ -66,12 +66,50 @@ def variants(rest, key, name, ods, post=requests.post):
     return out
 
 
+def enrich_variants(rest, key, name, ods, post=requests.post):
+    """PAID test for ONE named person (credits only if an email comes back; it stops at the first call that reveals one). Takes the person's saved Apollo contact, then asks Apollo to enrich them with
+    different identifiers, strongest first, and reports which one revealed the email. The email itself is masked in the log; Atlas picks the revealed email up from the saved contact on its next check."""
+    pr = next(iter(rest.select_all("gp_practices", "ods_code,practice_name,website", order="ods_code", params={"ods_code": f"eq.{ods}"})), {})
+    person = {"full_name": name, "first_name": name.split()[0], "last_name": name.split()[-1]}
+    r = post(f"{apollo.API}/contacts/search", headers=apollo.HEADERS(key), json={"q_keywords": name, "per_page": 25, "page": 1}, timeout=60)
+    saved = next((c for c in (r.json() or {}).get("contacts") or [] if apollo._same_person(c, person) and apollo.company_matches({"name": c.get("organization_name")}, pr.get("practice_name"), pr.get("website"))), None)
+    if not saved:
+        return {"error": "no saved Apollo contact at this practice"}
+    org = saved.get("organization_name")
+    attempts = [("A id only", {"id": saved.get("id")}),
+                ("B linkedin_url", {"linkedin_url": saved.get("linkedin_url")} if saved.get("linkedin_url") else None),
+                ("C id + name + organisation", {"id": saved.get("id"), "first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org}),
+                ("D name + organisation", {"first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org}),
+                ("E name + organisation + linkedin", {"first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org, **({"linkedin_url": saved.get("linkedin_url")} if saved.get("linkedin_url") else {})})]
+    out = {"saved_contact": {"id": saved.get("id"), "person_id": saved.get("person_id"), "org": org, "has_linkedin": bool(saved.get("linkedin_url")), "email_status": saved.get("email_status"), "email_present": bool(saved.get("email"))}, "attempts": []}
+    for label, body in attempts:
+        if not body:
+            out["attempts"].append({label: "skipped"})
+            continue
+        resp = post(f"{apollo.API}/people/match", headers=apollo.HEADERS(key), json={"reveal_personal_emails": False, **body}, timeout=60)
+        try:
+            j = resp.json()
+        except Exception:  # noqa: BLE001
+            j = {}
+        pers = j.get("person") or {}
+        email = str(pers.get("email") or "")
+        got = bool(email) and not apollo.LOCKED.search(email)
+        out["attempts"].append({label: {"status": resp.status_code, "person_found": bool(pers), "person_keys_with_values": sorted(k for k, v in pers.items() if v)[:25], "email_status": pers.get("email_status"),
+                                        "email_revealed": got, "email_masked": (email[:2] + "***@" + email.split("@")[-1]) if got else None, "error": None if resp.ok else resp.text[:140]}})
+        if got:
+            break
+    return out
+
+
 def main():
     env = os.environ
     for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "APOLLO_API_KEY", "NAME", "ODS"):
         if not env.get(k):
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
+    if env.get("ENRICH") == "1":
+        print("ENRICH " + json.dumps(enrich_variants(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), env["APOLLO_API_KEY"], env["NAME"].strip(), env["ODS"].strip().upper()), default=str))
+        return
     if env.get("VARIANTS") == "1":
         print("VARIANTS " + json.dumps(variants(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), env["APOLLO_API_KEY"], env["NAME"].strip(), env["ODS"].strip().upper()), default=str))
         return
