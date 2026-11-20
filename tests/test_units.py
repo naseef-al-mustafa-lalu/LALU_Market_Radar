@@ -1967,7 +1967,7 @@ def test_a_saved_apollo_contact_at_the_practice_without_an_email_counts_as_a_mat
 
     r = Rest()
     out = apollo.run(r, "k", 5, post=post, mode="enrich")
-    assert seen == [("search", None), ("match", "pid-1")] and out["found"] == 1 and out["from_saved_contact_match"] == 1
+    assert seen == [("search", None), ("match", "pid-1")] and out["found"] == 1 and out["from_saved_contact_match"] == 1   # pinned to the saved contact's own Apollo id
     assert r.inserted[0][0]["email"] == "shahana.uddin@x.nhs.net"
     seen.clear()
     r2 = Rest()
@@ -1982,3 +1982,32 @@ def test_a_same_name_same_title_person_elsewhere_is_a_namesake_unless_the_organi
     assert apollo.location_matches({"city": "London"}, {"town": "london"})
     assert not apollo.location_matches({"name": "Bromley by Bow Health"}, {"postcode": "E3 3FF", "town": "London"})   # no location from Apollo: nothing to show it is the same person
     assert not apollo.location_matches({"postal_code": "M1 1AA"}, {"postcode": "E3 3FF"})
+
+
+def test_enrich_never_spends_credits_on_a_contact_without_an_apollo_id():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j): self.j = j
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    def post(url, **kw):
+        if url.endswith("contacts/search"):
+            return R({"contacts": [{"first_name": "Shahana", "last_name": "Uddin", "email": None, "person_id": None, "organization_name": "St Andrews Health Centre"}]})
+        raise AssertionError("no enrichment without an Apollo id")
+
+    class Rest:
+        def __init__(self): self.patched = []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                return [{"contact_urn": 5, "ods_code": "Y03023", "full_name": "Shahana Uddin", "first_name": "Shahana", "last_name": "Uddin", "job_title": "Practice Manager"}]
+            return [{"ods_code": "Y03023", "practice_name": "St Andrews Health Centre", "website": None, "postcode": None, "town": None, "hubspot_company_id": None}] if table == "gp_practices" else []
+        def patch(self, table, filters, values): self.patched.append(values)
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    r = Rest()
+    out = apollo.run(r, "k", 5, post=post, mode="enrich")
+    assert out["needs_apollo_id"] == 1 and out["found"] == 0 and any("no person id" in str(v.get("note")) for v in r.patched)

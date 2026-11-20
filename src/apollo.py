@@ -154,8 +154,7 @@ def suggest_practices(org_info, practices, limit=5):
 
 def lookup(person, practice, key, post=requests.post):
     """(email, email_status, note). One people/match call for the verified person; it spends credits only when an address comes back."""
-    body = {"reveal_personal_emails": False, "organization_name": practice}
-    body.update({"id": person["apollo_person_id"]} if person.get("apollo_person_id") else {"first_name": person.get("first_name"), "last_name": person.get("last_name"), "name": person.get("full_name")})
+    body = {"reveal_personal_emails": False, "id": person["apollo_person_id"]}   # always pinned to the person that was verified
     r = post(f"{API}/people/match", headers=HEADERS(key), json=body, timeout=60)
     if r.status_code in (401, 403, 422, 429):
         raise RuntimeError(f"Apollo {r.status_code}: {r.text[:160]}")
@@ -332,6 +331,10 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             if not free:
                 out["matched"] += 1
                 if mode == "check":
+                    continue
+                if not c.get("apollo_person_id"):   # no Apollo id to pin the lookup to: enriching from name and company text could land on a namesake and spend credits on the wrong person
+                    out["needs_apollo_id"] = out.get("needs_apollo_id", 0) + 1
+                    rest.patch("apollo_queue", pq, {"note": "matched at the practice, but Apollo gave no person id: not enriched, so credits cannot go to a namesake. Reveal the email in Apollo (it is then pulled free)."})
                     continue
                 email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an email comes back
         except Exception as e:  # noqa: BLE001  the contact stays approved and is tried again next run; stop on repeated failures (a bad key, no credits)
