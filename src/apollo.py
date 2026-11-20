@@ -291,6 +291,36 @@ def apply_accepted(rest, now):
     return n
 
 
+def update_apollo_contact(contact_id, email, key, req=requests.request):
+    """Put the email found onto the saved contact in your Apollo account, so the record you open in Apollo shows it (a saved contact that arrived from the HubSpot sync has none). PATCH first; PUT if Apollo
+    does not accept that verb for this endpoint."""
+    r = None
+    for method in ("PATCH", "PUT"):
+        r = req(method, f"{API}/contacts/{contact_id}", headers=HEADERS(key), json={"email": email}, timeout=60)
+        if r.status_code not in (404, 405):
+            break
+    if not r.ok:
+        raise RuntimeError(f"Apollo {r.status_code}: {r.text[:140]}")
+    return True
+
+
+def writeback_found(rest, key, req=requests.request):
+    """Emails found for people who are saved contacts in Apollo (they came from the HubSpot sync) are written back to the Apollo contact once. Each row records the outcome, so nothing is retried forever. Returns (done, failed)."""
+    done = failed = 0
+    for r in rest.select_all("apollo_queue", "contact_urn,apollo_person_id,apollo_email,note", order="contact_urn", params={"state": "eq.found", "free": "eq.false", "source": "eq.hubspot", "apollo_email": "not.is.null"}):
+        if str(r.get("note") or "").startswith(("written back to Apollo", "Apollo write-back failed")) or not r.get("apollo_person_id"):
+            continue
+        pq = {"contact_urn": f"eq.{r['contact_urn']}"}
+        try:
+            update_apollo_contact(r["apollo_person_id"], r["apollo_email"], key, req)
+            rest.patch("apollo_queue", pq, {"note": "written back to Apollo contact"})
+            done += 1
+        except Exception as e:  # noqa: BLE001  a refused write must not stop the run or repeat every hour
+            rest.patch("apollo_queue", pq, {"note": f"Apollo write-back failed: {str(e)[:120]}"})
+            failed += 1
+    return done, failed
+
+
 def coverage(rest):
     """Practices with a Practice Manager and at least one other Main-role contact (counted from the stored contacts that have an address)."""
     practices = {r["ods_code"] for r in rest.select_all("gp_practices", "ods_code", order="ods_code")}
@@ -448,6 +478,8 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
         out["status_rows_added"] = ensure_status(rest)
     except Exception as e:  # noqa: BLE001  not worth failing the run: it is retried on the next one
         out["status_error"] = str(e)[:120]
+    if mode == "enrich":   # the emails just found (and any from earlier runs) are written back onto the saved contacts in Apollo
+        out["written_back"], out["write_back_failed"] = writeback_found(rest, key)
     out["addresses_found"] = out["found"]   # paid finds only; credits are worked out on the Apollo page from the credits-per-email setting
     out["waiting"] = len(rest.select_all("apollo_queue", "contact_urn", order="contact_urn", params={"state": "eq.approved"}))
     return out

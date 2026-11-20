@@ -2167,3 +2167,31 @@ def test_only_accepts_several_names_separated_by_semicolons():
 
     apollo.run(Rest(), "k", 10, post=post, mode="check", only="ann lee; cy dee")
     assert sorted(set(seen)) == ["Ann Lee", "Cy Dee"]   # Bob is never touched
+
+
+def test_emails_found_for_saved_apollo_contacts_are_written_back_once_and_the_outcome_is_recorded():
+    from src import apollo
+
+    calls = []
+
+    class Rest:
+        def __init__(self): self.notes = {}
+        def select_all(self, table, cols="*", order="", params=None):
+            return [{"contact_urn": 1, "apollo_person_id": "cid1", "apollo_email": "a@x.nhs.net", "note": None},
+                    {"contact_urn": 2, "apollo_person_id": "cid2", "apollo_email": "b@x.nhs.net", "note": "written back to Apollo contact"},
+                    {"contact_urn": 3, "apollo_person_id": "cid3", "apollo_email": "c@x.nhs.net", "note": None}]
+        def patch(self, table, filters, values): self.notes[filters["contact_urn"]] = values["note"]
+
+    class Resp:
+        def __init__(self, code): self.status_code, self.ok, self.text = code, code < 400, "no"
+
+    def req(method, url, **kw):
+        calls.append((method, url.rsplit("/", 1)[-1], kw["json"]))
+        if url.endswith("cid3"):
+            return Resp(422)
+        return Resp(405) if method == "PATCH" else Resp(200)   # this endpoint does not take PATCH: PUT works
+
+    r = Rest()
+    assert apollo.writeback_found(r, "k", req=req) == (1, 1)
+    assert ("PATCH", "cid1", {"email": "a@x.nhs.net"}) in calls and ("PUT", "cid1", {"email": "a@x.nhs.net"}) in calls
+    assert r.notes["eq.1"] == "written back to Apollo contact" and r.notes["eq.3"].startswith("Apollo write-back failed") and "eq.2" not in r.notes   # the one already written is left alone
