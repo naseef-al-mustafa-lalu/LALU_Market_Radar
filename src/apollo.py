@@ -4,6 +4,7 @@ until it has been checked and approved there. Also records, for the Apollo page,
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -70,25 +71,42 @@ def _candidate_score(p, person):
     return title + (1 if HEALTH.search(str((p.get("organization") or {}).get("name") or "")) else 0)
 
 
-def check(person, practice, website, key, post=requests.post):
-    """Free of credits: search Apollo for the person and compare their organisation with the practice. Returns {match, apollo_person_id, apollo_org} where match is matched, no_person or company_mismatch."""
-    r = post(f"{API}/mixed_people/api_search", headers=HEADERS(key), json={"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}, timeout=60)
-    if r.status_code in (401, 403, 422, 429):
+def _people_search(key, post, body):
+    """One free People API Search; None when Apollo rejects a filter (the caller falls back to a plainer search)."""
+    r = post(f"{API}/mixed_people/api_search", headers=HEADERS(key), json=body, timeout=60)
+    if r.status_code in (401, 403, 429):
         raise RuntimeError(f"Apollo {r.status_code}: {r.text[:160]}")
+    if r.status_code == 422:
+        return None
     r.raise_for_status()
-    same = [p for p in ((r.json() or {}).get("people") or []) if _same_person(p, person)]
+    return (r.json() or {}).get("people") or []
+
+
+def check(person, practice, website, key, post=requests.post, alt_names=()):
+    """Free of credits: search Apollo for the person AT THIS PRACTICE and compare their organisation with it (the practice's name in Atlas, or its HubSpot company name). First a search for the name, the practice and the
+    job title; if nobody there is at the practice, a name-only search finds same-name people elsewhere for the review list. Returns {match, apollo_person_id, apollo_org} where match is matched, no_person or company_mismatch."""
+    names = [n for n in (practice, *alt_names) if n]
+    title = str(person.get("job_title") or "").strip()
+    targeted = {"q_keywords": f"{person.get('full_name')} {practice or ''}".strip(), "per_page": 25, "page": 1, **({"person_titles": [title]} if title else {})}
+    same = []
+    for body in (targeted, {"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}):
+        people = _people_search(key, post, body)
+        if people is None:
+            continue
+        found = [p for p in people if _same_person(p, person)]
+        for p in found:
+            if any(company_matches(p.get("organization"), n, website) for n in names):
+                return {"match": "matched", "apollo_person_id": p.get("id"), "apollo_org": (p.get("organization") or {}).get("name")}
+        same += [p for p in found if p.get("id") not in {q.get("id") for q in same}]
     if not same:
         return {"match": "no_person", "apollo_person_id": None, "apollo_org": None}
-    for p in same:
-        if company_matches(p.get("organization"), practice, website):
-            return {"match": "matched", "apollo_person_id": p.get("id"), "apollo_org": (p.get("organization") or {}).get("name")}
     best = max(same, key=lambda p: _candidate_score(p, person))   # not whichever came first: the one whose job title and organisation look most like our person
     org = best.get("organization") or {}
     return {"match": "company_mismatch", "apollo_person_id": best.get("id"), "apollo_org": org.get("name"), "apollo_looks_like_practice": _candidate_score(best, person) >= 3,
             "apollo_org_info": {k: org.get(k) for k in ("name", "primary_domain", "city", "postal_code") if org.get(k)}}
 
 
-def saved_contact(person, practice, website, key, post=requests.post):
+def saved_contact(person, practice, website, key, post=requests.post, alt_names=()):
     """Free of credits: is this person already one of YOUR Apollo contacts (someone enriched them before) with an email? Returns (email, email_status) or None. Only the same person at this practice counts."""
     r = post(f"{API}/contacts/search", headers=HEADERS(key), json={"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}, timeout=60)
     if r.status_code in (401, 403, 422, 429):
@@ -96,7 +114,7 @@ def saved_contact(person, practice, website, key, post=requests.post):
     r.raise_for_status()
     for p in (r.json() or {}).get("contacts") or []:
         email = str(p.get("email") or "").strip().lower()
-        if email and not LOCKED.search(email) and _same_person(p, person) and company_matches({"name": p.get("organization_name") or (p.get("organization") or {}).get("name"), "primary_domain": (p.get("organization") or {}).get("primary_domain")}, practice, website):
+        if email and not LOCKED.search(email) and _same_person(p, person) and any(company_matches({"name": p.get("organization_name") or (p.get("organization") or {}).get("name"), "primary_domain": (p.get("organization") or {}).get("primary_domain")}, n, website) for n in [x for x in (practice, *alt_names) if x]):
             return email, p.get("email_status")
     return None
 
@@ -223,17 +241,24 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
     approved = approved[:max(0, min(cap, MAX_PER_RUN))]
     practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,postcode,hubspot_company_id", order="ods_code")}
+    try:   # the practice's HubSpot company name is a second name to compare with Apollo's organisation
+        hs_names = {r["ods_code"]: r.get("company_name") for r in rest.select_all("hubspot_links", "ods_code,company_name", order="ods_code")}
+    except Exception:  # noqa: BLE001
+        hs_names = {}
+    pause = 0.3 if post is requests.post else 0   # Apollo rate-limits: a short pause between contacts
     out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied}
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
+        alt = [hs_names.get(c["ods_code"])]
         pq = {"contact_urn": f"eq.{c['contact_urn']}"}
+        time.sleep(pause)
         free, reused = False, False
         try:
             if c.get("apollo_email"):   # found on an earlier run but the contact could not be saved: reuse the email, never look it up (or pay) twice
                 saved, reused = (c["apollo_email"], c.get("apollo_email_status")), True
             else:
                 try:   # step 0, free: already enriched in your Apollo account? Then the email is just pulled, no credits
-                    saved = saved_contact(c, pr.get("practice_name"), pr.get("website"), key, post)
+                    saved = saved_contact(c, pr.get("practice_name"), pr.get("website"), key, post, alt)
                 except Exception as e:  # noqa: BLE001  the saved-contacts search is a bonus: if it is refused, the normal check and enrich still work
                     saved = None
                     out["saved_search_error"] = str(e)[:160]
@@ -244,7 +269,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                     out["from_apollo_contacts"] = out.get("from_apollo_contacts", 0) + 1
                     rest.patch("apollo_queue", pq, {"match": "matched", "matched_at": now})
             elif c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
-                res = check(c, pr.get("practice_name"), pr.get("website"), key, post)
+                res = check(c, pr.get("practice_name"), pr.get("website"), key, post, alt)
                 out["checked"] += 1
                 rest.patch("apollo_queue", pq, {**{k: v for k, v in res.items() if k != "apollo_looks_like_practice"}, "matched_at": now})
                 c.update(res)

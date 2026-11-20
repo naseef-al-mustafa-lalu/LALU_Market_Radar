@@ -1873,3 +1873,37 @@ def test_apollo_reports_the_best_same_name_candidate_not_the_first():
 
     res = apollo.check({"full_name": "Shahana Uddin", "first_name": "Shahana", "last_name": "Uddin", "job_title": "Practice Manager"}, "St Andrews Health Centre", "https://www.bbbhp.org.uk/", "k", post=lambda *a, **k: R())
     assert res["match"] == "company_mismatch" and res["apollo_org"] == "Bromley by Bow Health" and res["apollo_person_id"] == "c" and res["apollo_looks_like_practice"] is True
+
+
+def test_apollo_search_asks_for_the_name_at_the_practice_and_title_not_the_name_alone():
+    from src import apollo
+
+    class R:
+        def __init__(self, j, code=200): self.j, self.status_code, self.text = j, code, ""
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    sent = []
+    person = {"full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager"}
+
+    def post(url, **kw):
+        sent.append(kw["json"])
+        return R({"people": [{"id": "p1", "first_name": "Ann", "last_name": "Le*", "title": "Practice Manager", "organization": {"name": "Heath Road Medical Practice"}}]})
+
+    res = apollo.check(person, "Heath Road Surgery", None, "k", post=post)
+    assert res["match"] == "matched" and len(sent) == 1   # found at the practice on the first, targeted search
+    assert sent[0]["q_keywords"] == "Ann Lee Heath Road Surgery" and sent[0]["person_titles"] == ["Practice Manager"]
+
+    # the HubSpot company name counts as a name of the practice too
+    sent.clear()
+    res = apollo.check(person, "Heath Road Surgery", None, "k", post=lambda u, **kw: R({"people": [{"id": "p2", "first_name": "Ann", "last_name": "Lee", "organization": {"name": "Bromley Partnership"}}]}), alt_names=["Bromley Partnership"])
+    assert res["match"] == "matched"
+
+    # a filter Apollo rejects falls back to the plain name search instead of failing
+    calls = []
+
+    def picky(url, **kw):
+        calls.append("person_titles" in kw["json"])
+        return R({}, 422) if "person_titles" in kw["json"] else R({"people": []})
+
+    assert apollo.check(person, "Heath Road Surgery", None, "k", post=picky)["match"] == "no_person" and calls == [True, False]
