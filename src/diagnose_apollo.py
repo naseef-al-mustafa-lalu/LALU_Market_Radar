@@ -28,7 +28,9 @@ def run(rest, key, name, ods, post=requests.post):
                          "same_person": apollo._same_person(p, person), "company_ok": apollo.company_matches({"name": orgname, "primary_domain": org.get("primary_domain")}, pr.get("practice_name"), pr.get("website")),
                          "org_tokens": sorted(apollo._tokens(orgname))})
         if label == "saved_contacts":   # which fields a saved contact carries, and the values of id-like ones (no emails, no credits)
-            out["saved_contact_fields"] = [{"keys": sorted(c.keys()), "ids": {k: v for k, v in c.items() if "id" in k.lower() and isinstance(v, (str, int, type(None)))}} for c in (body.get("contacts") or [])[:3]]
+            out["saved_contact_fields"] = [{"keys_with_values": sorted(k for k, v in c.items() if v not in (None, "", [], {})), "ids": {k: v for k, v in c.items() if "id" in k.lower() and isinstance(v, (str, int, type(None)))},
+                                            "email": ((str(c.get("email"))[:2] + "***@" + str(c.get("email")).split("@")[-1]) if c.get("email") else None), "email_status": c.get("email_status"), "linkedin_url": c.get("linkedin_url"),
+                                            "organization_name": c.get("organization_name"), "title": c.get("title"), "updated_at": c.get("updated_at")} for c in (body.get("contacts") or [])[:3]]
         out[label] = {"status": r.status_code, "total": (body.get("pagination") or {}).get("total_entries"), "returned": len(rows), "rows": rows[:25], "error": None if r.ok else r.text[:200]}
     return out
 
