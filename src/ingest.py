@@ -325,12 +325,15 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
         named = [c for c in noemail if (c.get("full_name") or "").strip()]
         main = apollo.main_titles(rest, [c.get("job_title") or "" for c in named])   # only Main job roles (Contacts > Settings) are queued
         named = [c for c in named if (c.get("job_title") or "") in main]
+        held = {apollo._name_key(r["ods_code"], r.get("full_name")) for r in rest.select_all("contacts", "contact_urn,ods_code,full_name", order="contact_urn", params={"email": "not.is.null"}) if r.get("full_name")}
+        named = [c for c in named if apollo._name_key(c["ods_code"], c.get("full_name")) not in held]   # already held at this practice with an address: nothing to look up
         have = {r["contact_urn"] for r in rest.select_all("apollo_queue", "contact_urn", order="contact_urn")}
         fresh = [{"contact_urn": c["contact_urn"], "ods_code": c["ods_code"], "full_name": c.get("full_name"), "first_name": c.get("first_name"), "last_name": c.get("last_name"), "job_title": c.get("job_title"),
                   "role_tier": contact_quality.role_tier(c.get("job_title"))[0]} for c in named if c["contact_urn"] not in have]
         if fresh:
             rest.insert("apollo_queue", fresh)
         stats["apollo_queued"] = len(fresh)
+        stats["apollo_pruned"] = apollo.prune_known(rest)
     except Exception as e:  # noqa: BLE001  the table arrives with migration 100
         stats["apollo_queue_error"] = str(e)[:150]
     db = {r["contact_urn"]: r for r in rest.select_all("contacts", order="contact_urn")}

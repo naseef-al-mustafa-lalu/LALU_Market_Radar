@@ -108,7 +108,7 @@ def adopt_unaddressed(hub, c, company_id):
 def apollo_targets(rest):
     """Where Apollo's finds belong in HubSpot, by address: the HubSpot contact to update (when HubSpot already held the person), who found them, and the practices involved, for the note. None when it cannot be read."""
     try:
-        rows = rest.select_all("apollo_queue", "apollo_email,hubspot_contact_id,apollo_org,ods_code,original_ods", order="contact_urn", params={"state": "eq.found", "apollo_email": "not.is.null"})
+        rows = rest.select_all("apollo_queue", "apollo_email,hubspot_contact_id,apollo_org,ods_code,original_ods,existing_email", order="contact_urn", params={"state": "eq.found", "apollo_email": "not.is.null"})
         names = {r["ods_code"]: r["practice_name"] for r in rest.select_all("gp_practices", "ods_code,practice_name", order="ods_code")}
     except Exception as e:  # noqa: BLE001  fail closed: without this an Apollo contact would be created as a duplicate in HubSpot, so those contacts wait for the next run
         print(f"Apollo details unavailable: {e}", file=sys.stderr)
@@ -120,8 +120,9 @@ def apollo_note(hub, cid, status, t):
     """A note on the HubSpot contact saying where the address came from, so anyone opening the record can see it. A note that cannot be written (scope, outage) does not undo the update."""
     t = t or {}
     moved = f" The contact was moved from {t.get('original_name') or t.get('original_ods')} ({t.get('original_ods')}) to {t.get('practice_name') or t.get('ods_code')} ({t.get('ods_code')}) after a review in Atlas." if t.get("original_ods") else ""
+    replaced = f" It replaces the previous address {t['existing_email']}." if t.get("existing_email") else ""
     body = (f"<p>Email address added by Lalu Atlas from Apollo{' (Apollo has them at ' + t['apollo_org'] + ')' if t.get('apollo_org') else ''} on {datetime.now(timezone.utc).date().isoformat()}. "
-            f"NeverBounce: {status}.{moved}</p>")
+            f"NeverBounce: {status}.{replaced}{moved}</p>")
     try:
         hub.call("POST", "/crm/v3/objects/notes", json={"properties": {"hs_note_body": body, "hs_timestamp": datetime.now(timezone.utc).isoformat()},
                                                         "associations": [{"to": {"id": cid}, "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 202}]}]})

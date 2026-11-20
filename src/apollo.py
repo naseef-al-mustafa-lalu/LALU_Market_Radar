@@ -100,6 +100,66 @@ def lookup(person, practice, key, post=requests.post):
     return email, p.get("email_status"), None
 
 
+def _name_key(ods, name):
+    return (ods, " ".join(str(name or "").lower().split()))
+
+
+def prune_known(rest):
+    """Anyone waiting for Apollo (waiting, approved or in review) whom Atlas already holds at that practice with an address is taken out of the queue: there is nothing to look up and credits would be wasted."""
+    known = {_name_key(r["ods_code"], r.get("full_name")) for r in rest.select_all("contacts", "contact_urn,ods_code,full_name,email", order="contact_urn", params={"email": "not.is.null"}) if r.get("full_name")}
+    n = 0
+    for c in rest.select_all("apollo_queue", "contact_urn,ods_code,full_name", order="contact_urn", params={"state": "in.(pending,approved,review)"}):
+        if _name_key(c["ods_code"], c.get("full_name")) in known:
+            rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "not_found", "note": "Atlas already holds this person at this practice with an address"})
+            n += 1
+    return n
+
+
+def hubspot_same_name(hub, c, company_id, email):
+    """A contact on the practice's HubSpot company with this name and a different address, as {id, email}; None when there is none (or no company)."""
+    if not hub or not company_id:
+        return None
+    ids = [str(x["toObjectId"]) for x in hub.call("GET", f"/crm/v4/objects/companies/{company_id}/associations/contacts", params={"limit": 100}).get("results", [])]
+    if not ids:
+        return None
+    first, last = str(c.get("first_name") or "").strip().lower(), str(c.get("last_name") or "").strip().lower()
+    for r in hub.call("POST", "/crm/v3/objects/contacts/batch/read", json={"properties": ["firstname", "lastname", "email"], "inputs": [{"id": i} for i in ids[:100]]}).get("results", []):
+        p = r.get("properties") or {}
+        theirs = str(p.get("email") or "").strip().lower()
+        if first and last and theirs and theirs != email and str(p.get("firstname") or "").strip().lower() == first and str(p.get("lastname") or "").strip().lower() == last:
+            return {"id": str(r["id"]), "email": theirs}
+    return None
+
+
+def same_name_other_address(rest, hub, c, company_id, email):
+    """Does Atlas (first) or HubSpot already hold this person at this practice under a different address? Returns {email, where, urn, hubspot_id} or None."""
+    key = _name_key(c["ods_code"], c.get("full_name"))
+    for r in rest.select_all("contacts", "contact_urn,ods_code,full_name,email,hubspot_contact_id", order="contact_urn", params={"ods_code": f"eq.{c['ods_code']}", "email": "not.is.null"}):
+        if _name_key(r["ods_code"], r.get("full_name")) == key and str(r["email"]).strip().lower() != email:
+            return {"email": str(r["email"]).strip().lower(), "where": "Atlas", "urn": r["contact_urn"], "hubspot_id": r.get("hubspot_contact_id")}
+    h = hubspot_same_name(hub, c, company_id, email)
+    return {"email": h["email"], "where": "HubSpot", "urn": None, "hubspot_id": h["id"]} if h else None
+
+
+def apply_accepted(rest, now):
+    """People whose Apollo address was chosen in review: the Atlas contact that already holds them is changed to the Apollo address (and waits for NeverBounce, then HubSpot updates the same record); with no Atlas contact, one is added."""
+    n = 0
+    for c in rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.accepted"}):
+        email = str(c.get("apollo_email") or "").strip().lower()
+        if not email:
+            continue
+        quality, _ = contact_quality.email_quality(email, c.get("first_name"), c.get("last_name"))
+        q = quality if quality in ("direct", "likely_direct", "check", "shared") else None
+        if c.get("existing_urn"):
+            rest.patch("contacts", {"contact_urn": f"eq.{c['existing_urn']}"}, {"email": email, "email_quality": q, "source": "apollo", "nb_state": "pending"})
+        else:
+            rest.insert("contacts", [{"ods_code": c["ods_code"], "full_name": c.get("full_name"), "first_name": c.get("first_name"), "last_name": c.get("last_name"), "job_title": c.get("job_title"), "email": email,
+                                      "email_quality": q, "role_tier": c.get("role_tier"), "source": "apollo", "nb_state": "pending"}])
+        rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "found", "checked_at": now})
+        n += 1
+    return n
+
+
 def coverage(rest):
     """Practices with a Practice Manager and at least one other Main-role contact (counted from the stored contacts that have an address)."""
     practices = {r["ods_code"] for r in rest.select_all("gp_practices", "ods_code", order="ods_code")}
@@ -115,9 +175,10 @@ def coverage(rest):
     return {"practices": len(practices), "no_practice_manager": len(no_pm), "fewer_than_two": len(no_other), "covered": len(practices) - len(set(no_pm) | set(no_other))}
 
 
-def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich"):
+def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich", hub=None):
     """mode 'check': only verify approved contacts at Apollo (no credits). 'enrich': verify, then look up the email of each verified one. Both are capped at `cap` contacts a run."""
     now = (now or datetime.now(timezone.utc)).isoformat()
+    applied = apply_accepted(rest, now)
     approved = rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.approved"})
     main = main_titles(rest, [c.get("job_title") or "" for c in approved])
     for c in [c for c in approved if (c.get("job_title") or "") not in main]:   # the Settings rules changed since it was approved: only Main roles are looked up
@@ -125,8 +186,8 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich")
     approved = [c for c in approved if (c.get("job_title") or "") in main]
     approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
     approved = approved[:max(0, min(cap, MAX_PER_RUN))]
-    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,postcode", order="ods_code")}
-    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0}
+    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,postcode,hubspot_company_id", order="ods_code")}
+    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied}
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
         pq = {"contact_urn": f"eq.{c['contact_urn']}"}
@@ -138,7 +199,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich")
                 c.update(res)
                 if res["match"] == "company_mismatch":   # a review list: move them to the matching practice, then they are re-queued for enrichment
                     out["review"] = out.get("review", 0) + 1
-                    rest.patch("apollo_queue", pq, {"state": "review", "checked_at": now, "suggested_ods": suggest_practices(res.get("apollo_org_info"), practices.values()),
+                    rest.patch("apollo_queue", pq, {"state": "review", "review_reason": "different_practice", "checked_at": now, "suggested_ods": suggest_practices(res.get("apollo_org_info"), practices.values()),
                                                     "note": f"Apollo has them at {res.get('apollo_org') or 'another organisation'}, not this practice"})
                     continue
                 if res["match"] != "matched":
@@ -160,6 +221,22 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich")
             out["not_found"] += 1
             rest.patch("apollo_queue", pq, {"state": "not_found", "note": note, "checked_at": now})
             continue
+        try:   # the same person already held here under a different address: nothing is created or changed, a person decides in review (the credits for the address are spent either way)
+            other = same_name_other_address(rest, hub, c, pr.get("hubspot_company_id"), email)
+        except Exception as e:  # noqa: BLE001  a HubSpot hiccup must not turn into a duplicate: the contact stays approved for the next run
+            out["errors"] += 1
+            out["last_error"] = str(e)[:200]
+            continue
+        if other:
+            out["found"] += 1
+            out["review_email"] = out.get("review_email", 0) + 1
+            patch = {"state": "review", "review_reason": "different_email", "apollo_email": email, "apollo_email_status": status, "existing_email": other["email"], "existing_where": other["where"], "existing_urn": other["urn"],
+                     "checked_at": now, "note": f"Apollo found {email}; {other['where']} already has {other['email']}"}
+            try:
+                rest.patch("apollo_queue", pq, {**patch, **({"hubspot_contact_id": other["hubspot_id"]} if other.get("hubspot_id") and not c.get("hubspot_contact_id") else {})})
+            except Exception:  # noqa: BLE001  the HubSpot id is already on another queue row
+                rest.patch("apollo_queue", pq, patch)
+            continue
         dup = rest.select_all("contacts", "contact_urn", order="contact_urn", params={"ods_code": f"eq.{c['ods_code']}", "email": f"eq.{email}"})
         if not dup:
             quality, _ = contact_quality.email_quality(email, c.get("first_name"), c.get("last_name"))
@@ -179,11 +256,16 @@ def main():
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
     rest = Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"])
+    try:
+        print("Taken out of the queue (already held with an address):", prune_known(rest))
+    except Exception as e:  # noqa: BLE001
+        print("Queue tidy skipped:", e)
     cov = coverage(rest)
     print("Coverage:", cov)
     summary = {"at": datetime.now(timezone.utc).isoformat(), "coverage": cov}
     if env.get("APOLLO_API_KEY") and env.get("APOLLO_MODE", "enrich") != "none":
-        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode="check" if env.get("APOLLO_MODE") == "check" else "enrich")
+        from .hubspot_sync import Hub
+        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode="check" if env.get("APOLLO_MODE") == "check" else "enrich", hub=Hub(env["HUBSPOT_TOKEN"]) if env.get("HUBSPOT_TOKEN") else None)
         print("Apollo:", out)
         summary["run"] = out
     else:

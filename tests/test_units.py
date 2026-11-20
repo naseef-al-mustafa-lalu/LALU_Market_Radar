@@ -1696,3 +1696,63 @@ def test_apollo_only_looks_up_people_whose_role_is_still_main():
     rest = Rest()
     out = apollo.run(rest, "k", 10, post=lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not call Apollo")))
     assert out["looked_up"] == 0 and rest.patched[0]["state"] == "pending"
+
+
+def test_apollo_queue_skips_and_prunes_people_atlas_already_holds_with_an_address():
+    from src import apollo
+
+    class Rest:
+        def __init__(self): self.patched = []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "contacts":
+                return [{"contact_urn": 1, "ods_code": "A1", "full_name": "Ann  Lee", "email": "ann@x.nhs.net"}]
+            return [{"contact_urn": 7, "ods_code": "A1", "full_name": "ann lee"}, {"contact_urn": 8, "ods_code": "A2", "full_name": "Ann Lee"}]
+        def patch(self, table, filters, values): self.patched.append((filters["contact_urn"], values["state"]))
+
+    r = Rest()
+    assert apollo.prune_known(r) == 1 and r.patched == [("eq.7", "not_found")]   # same name at the same practice only
+
+
+def test_apollo_address_for_someone_already_held_under_another_address_goes_to_review_not_created():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j): self.j = j
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    class Rest:
+        def __init__(self): self.inserted, self.patched = [], []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                return [{"contact_urn": 5, "ods_code": "A1", "full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager", "match": "matched", "apollo_person_id": "p1"}]
+            if table == "contacts":
+                return [{"contact_urn": 1, "ods_code": "A1", "full_name": "Ann Lee", "email": "ann.old@x.nhs.net", "hubspot_contact_id": "H1"}]
+            return [{"ods_code": "A1", "practice_name": "Test Surgery", "website": None, "postcode": None, "hubspot_company_id": "9"}]
+        def insert(self, table, rows, **kw): self.inserted.append((table, rows))
+        def patch(self, table, filters, values): self.patched.append((table, values))
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    r = Rest()
+    out = apollo.run(r, "k", 5, post=lambda url, **kw: R({"person": {"email": "ann.new@y.nhs.net", "email_status": "verified"}}))
+    assert out["review_email"] == 1 and r.inserted == []   # nothing created
+    q = next(v for t, v in r.patched if t == "apollo_queue" and v.get("state") == "review")
+    assert q["review_reason"] == "different_email" and q["existing_email"] == "ann.old@x.nhs.net" and q["apollo_email"] == "ann.new@y.nhs.net" and q["hubspot_contact_id"] == "H1"
+
+
+def test_an_apollo_address_chosen_in_review_changes_the_existing_contact_and_waits_for_neverbounce():
+    from src import apollo
+
+    class Rest:
+        def __init__(self): self.patched = []
+        def select_all(self, table, cols="*", order="", params=None):
+            return [{"contact_urn": 5, "ods_code": "A1", "full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "apollo_email": "ann.new@y.nhs.net", "existing_urn": 1}]
+        def patch(self, table, filters, values): self.patched.append((table, filters, values))
+        def insert(self, *a, **k): raise AssertionError("must update, not add")
+
+    r = Rest()
+    assert apollo.apply_accepted(r, "now") == 1
+    t, f, v = r.patched[0]
+    assert t == "contacts" and f == {"contact_urn": "eq.1"} and v["email"] == "ann.new@y.nhs.net" and v["nb_state"] == "pending" and v["source"] == "apollo"

@@ -27,6 +27,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
           APOLLO_CAP: ${{ inputs.cap }}
           APOLLO_MODE: ${{ inputs.mode }}
         run: python -m src.apollo
