@@ -14,6 +14,7 @@ from .common import Rest, refresh_contact_status
 API = "https://api.neverbounce.com/v4"
 HS_STATUS = {"valid": "Valid", "catchall": "Accept All (Unverifiable)", "unknown": "Unknown", "disposable": "Disposable", "invalid": "Invalid"}
 PASS = {"Valid", "Accept All (Unverifiable)"}
+PUSH = PASS | {"Unknown"}   # Unknown cannot be disproved (NHS mail servers will not confirm a mailbox), so those contacts also go to HubSpot, with the status; Atlas's eligibility rules decide whether they are ever emailed. Disposable and Invalid stay out.
 MAX_PER_RUN = 1500
 ROLE_RULES = [   # HubSpot's Job Role (job_role_standardised) from a job title, first match wins
     ("Senior Partner / Managing Partner", r"senior partner|managing partner"), ("GP Partner", r"\bgp\b.*partner|partner.*\bgp\b|^partner$|general practitioner.*partner"),
@@ -163,7 +164,7 @@ def push_waiting(rest, hub, now=None):
     """Create in HubSpot every contact that passed NeverBounce but is not there yet (checks done with auto-push off, or a HubSpot error last time). Returns the counts."""
     now = now or datetime.now(timezone.utc)
     rows = rest.select_all("contacts_full", "contact_urn,ods_code,full_name,first_name,last_name,job_title,email,phone,nb_result,source", order="contact_urn",
-                           params={"nb_state": "eq.checked", "nb_result": f"in.({','.join(chr(34) + x + chr(34) for x in sorted(PASS))})", "hubspot_contact_id": "is.null", "email": "not.is.null"})
+                           params={"nb_state": "eq.checked", "nb_result": f"in.({','.join(chr(34) + x + chr(34) for x in sorted(PUSH))})", "hubspot_contact_id": "is.null", "email": "not.is.null"})
     companies = {r["ods_code"]: r.get("hubspot_company_id") for r in rest.select_all("gp_practices", "ods_code,hubspot_company_id", order="ods_code")}
     targets = apollo_targets(rest)
     out = {"pushed": 0, "created": 0, "errors": 0}
@@ -214,8 +215,8 @@ def run(rest, hub, key, now=None, get=requests.get, force=False, settings=None, 
         out["by_status"][status] = out["by_status"].get(status, 0) + 1
         nb_row = {"contact_urn": c["contact_urn"], "nb_state": "checked", "nb_result": status, "nb_checked_at": now.isoformat()}
         patch = {}
-        if status in PASS:
-            out["passed"] += 1
+        if status in PUSH:
+            out["passed" if status in PASS else "unknown_pushed"] = out.get("passed" if status in PASS else "unknown_pushed", 0) + 1
             if not settings["auto_push"]:   # the result is kept; the contact waits in Atlas until someone pushes it
                 out["waiting_push"] = out.get("waiting_push", 0) + 1
             else:

@@ -2062,3 +2062,43 @@ def test_apollo_match_confidence_none_is_not_a_match_even_though_it_answers_200_
     assert apollo.lookup({"apollo_person_id": "x"}, "P", "k", post=lambda *a, **k: R(weak))[0] is None   # a weak match is not trusted with a name
     good = {"person": {"id": "x", "email": "a@b.nhs.net", "match_confidence": "high", "email_status": "verified"}}
     assert apollo.lookup({"apollo_person_id": "x"}, "P", "k", post=lambda *a, **k: R(good))[0] == "a@b.nhs.net"
+
+
+def test_unknown_neverbounce_contacts_go_to_hubspot_with_their_status_but_invalid_ones_do_not():
+    from datetime import datetime, timezone
+    from src import neverbounce
+
+    answers = {"u@x.nhs.net": "unknown", "v@x.nhs.net": "valid", "i@x.nhs.net": "invalid"}
+
+    def get(url, params=None, timeout=0):
+        class R:
+            def json(self_inner):
+                if url.endswith("/account/info"):
+                    return {"credits_info": {"paid_credits_remaining": 100, "free_credits_remaining": 0}}
+                return {"status": "success", "result": answers[params["email"]]}
+        return R()
+
+    class Rest:
+        def __init__(self): self.upserts = []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "contacts_full":
+                return [{"contact_urn": i, "ods_code": "A1", "full_name": "P", "first_name": "P", "last_name": str(i), "job_title": "Practice Manager", "email": e, "phone": None, "source": "oscar"} for i, e in enumerate(answers, 1)]
+            return []
+        def upsert(self, table, rows, key): self.upserts.append((table, rows))
+        def patch(self, *a, **k): pass
+        def rpc(self, name, args=None): return 0
+
+    class Hub:
+        def __init__(self): self.created = []
+        def call(self, method, path, **kw):
+            if path.endswith("/contacts/search"):
+                return {"results": []}
+            if method == "POST" and path == "/crm/v3/objects/contacts":
+                self.created.append(kw["json"]["properties"])
+                return {"id": str(len(self.created))}
+            return {}
+
+    hub = Hub()
+    out = neverbounce.run(Rest(), hub, "k", datetime(2026, 11, 23, 7, tzinfo=timezone.utc), get=get, force=True)
+    assert sorted(p["neverbounce_status"] for p in hub.created) == ["Unknown", "Valid"]   # Invalid is not pushed
+    assert out["unknown_pushed"] == 1 and out["passed"] == 1 and out["failed"] == 1
