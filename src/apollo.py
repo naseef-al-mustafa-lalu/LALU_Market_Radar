@@ -154,6 +154,15 @@ def same_name_other_address(rest, hub, c, company_id, email):
     return {"email": h["email"], "where": "HubSpot", "urn": None, "hubspot_id": h["id"]} if h else None
 
 
+def add_contact(rest, c, email):
+    """A contact with the email Apollo found (source 'apollo'), waiting in the NeverBounce approval queue. NeverBounce state lives in its own table (contact_nb), so it is written there."""
+    quality, _ = contact_quality.email_quality(email, c.get("first_name"), c.get("last_name"))
+    made = rest.insert("contacts", [{"ods_code": c["ods_code"], "full_name": c.get("full_name"), "first_name": c.get("first_name"), "last_name": c.get("last_name"), "job_title": c.get("job_title"), "email": email,
+                                     "email_quality": quality if quality in ("direct", "likely_direct", "check", "shared") else None, "role_tier": c.get("role_tier"), "source": "apollo"}], returning=True)
+    rest.upsert("contact_nb", [{"contact_urn": made[0]["contact_urn"], "nb_state": "pending"}], "contact_urn")
+    return made[0]["contact_urn"]
+
+
 def apply_accepted(rest, now):
     """People whose Apollo address was chosen in review: the Atlas contact that already holds them is changed to the Apollo address (and waits for NeverBounce, then HubSpot updates the same record); with no Atlas contact, one is added."""
     n = 0
@@ -161,13 +170,12 @@ def apply_accepted(rest, now):
         email = str(c.get("apollo_email") or "").strip().lower()
         if not email:
             continue
-        quality, _ = contact_quality.email_quality(email, c.get("first_name"), c.get("last_name"))
-        q = quality if quality in ("direct", "likely_direct", "check", "shared") else None
         if c.get("existing_urn"):
-            rest.patch("contacts", {"contact_urn": f"eq.{c['existing_urn']}"}, {"email": email, "email_quality": q, "source": "apollo", "nb_state": "pending"})
+            quality, _ = contact_quality.email_quality(email, c.get("first_name"), c.get("last_name"))
+            rest.patch("contacts", {"contact_urn": f"eq.{c['existing_urn']}"}, {"email": email, "email_quality": quality if quality in ("direct", "likely_direct", "check", "shared") else None, "source": "apollo"})
+            rest.upsert("contact_nb", [{"contact_urn": c["existing_urn"], "nb_state": "pending", "nb_result": None}], "contact_urn")
         else:
-            rest.insert("contacts", [{"ods_code": c["ods_code"], "full_name": c.get("full_name"), "first_name": c.get("first_name"), "last_name": c.get("last_name"), "job_title": c.get("job_title"), "email": email,
-                                      "email_quality": q, "role_tier": c.get("role_tier"), "source": "apollo", "nb_state": "pending"}])
+            add_contact(rest, c, email)
         rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "found", "checked_at": now})
         n += 1
     return n
@@ -204,25 +212,35 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
         pq = {"contact_urn": f"eq.{c['contact_urn']}"}
-        free = False
+        free, reused = False, False
         try:
-            try:   # step 0, free: already enriched in your Apollo account? Then the email is just pulled, no credits
-                saved = saved_contact(c, pr.get("practice_name"), pr.get("website"), key, post)
-            except Exception as e:  # noqa: BLE001  the saved-contacts search is a bonus: if it is refused, the normal check and enrich still work
-                saved = None
-                out["saved_search_error"] = str(e)[:160]
+            if c.get("apollo_email"):   # found on an earlier run but the contact could not be saved: reuse the email, never look it up (or pay) twice
+                saved, reused = (c["apollo_email"], c.get("apollo_email_status")), True
+            else:
+                try:   # step 0, free: already enriched in your Apollo account? Then the email is just pulled, no credits
+                    saved = saved_contact(c, pr.get("practice_name"), pr.get("website"), key, post)
+                except Exception as e:  # noqa: BLE001  the saved-contacts search is a bonus: if it is refused, the normal check and enrich still work
+                    saved = None
+                    out["saved_search_error"] = str(e)[:160]
             if saved:
-                email, status, note, free = saved[0], saved[1], None, True
-                out["from_apollo_contacts"] = out.get("from_apollo_contacts", 0) + 1
-                rest.patch("apollo_queue", pq, {"match": "matched", "matched_at": now})
+                email, status, note = saved[0], saved[1], None
+                free = bool(c.get("free")) if reused else True
+                if not reused:
+                    out["from_apollo_contacts"] = out.get("from_apollo_contacts", 0) + 1
+                    rest.patch("apollo_queue", pq, {"match": "matched", "matched_at": now})
             elif c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
                 res = check(c, pr.get("practice_name"), pr.get("website"), key, post)
                 out["checked"] += 1
                 rest.patch("apollo_queue", pq, {**res, "matched_at": now})
                 c.update(res)
-                if res["match"] == "company_mismatch":   # a review list: move them to the matching practice, then they are re-queued for enrichment
-                    out["review"] = out.get("review", 0) + 1
-                    rest.patch("apollo_queue", pq, {"state": "review", "review_reason": "different_practice", "checked_at": now, "suggested_ods": suggest_practices(res.get("apollo_org_info"), practices.values()),
+                if res["match"] == "company_mismatch":
+                    sug = suggest_practices(res.get("apollo_org_info"), practices.values())
+                    if not sug:   # no practice looks like Apollo's organisation (a designer, a publisher): a namesake, not our person
+                        out["no_match"] += 1
+                        rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": f"Apollo has someone of that name at {res.get('apollo_org') or 'another organisation'}, which is not a practice we know"})
+                        continue
+                    out["review"] = out.get("review", 0) + 1   # a review list: move them to the matching practice, then they are re-queued for enrichment
+                    rest.patch("apollo_queue", pq, {"state": "review", "review_reason": "different_practice", "checked_at": now, "suggested_ods": sug,
                                                     "note": f"Apollo has them at {res.get('apollo_org') or 'another organisation'}, not this practice"})
                     continue
                 if res["match"] != "matched":
@@ -240,7 +258,9 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             if out["errors"] >= 3:
                 break
             continue
-        out["looked_up"] += 0 if free else 1
+        out["looked_up"] += 0 if (free or reused) else 1
+        if not reused and email:   # kept straight away: if saving the contact fails below, the email is not lost and not paid for again
+            rest.patch("apollo_queue", pq, {"apollo_email": email, "apollo_email_status": status, "free": free})
         if not email:
             out["not_found"] += 1
             rest.patch("apollo_queue", pq, {"state": "not_found", "note": note, "checked_at": now})
@@ -252,7 +272,8 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             out["last_error"] = str(e)[:200]
             continue
         if other:
-            out["found_free" if free else "found"] = out.get("found_free" if free else "found", 0) + 1
+            if not reused:
+                out["found_free" if free else "found"] = out.get("found_free" if free else "found", 0) + 1
             out["review_email"] = out.get("review_email", 0) + 1
             patch = {"state": "review", "review_reason": "different_email", "apollo_email": email, "apollo_email_status": status, "existing_email": other["email"], "existing_where": other["where"], "existing_urn": other["urn"], "free": free,
                      "checked_at": now, "note": f"Apollo found {email}; {other['where']} already has {other['email']}"}
@@ -263,10 +284,9 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             continue
         dup = rest.select_all("contacts", "contact_urn", order="contact_urn", params={"ods_code": f"eq.{c['ods_code']}", "email": f"eq.{email}"})
         if not dup:
-            quality, _ = contact_quality.email_quality(email, c.get("first_name"), c.get("last_name"))
-            rest.insert("contacts", [{"ods_code": c["ods_code"], "full_name": c.get("full_name"), "first_name": c.get("first_name"), "last_name": c.get("last_name"), "job_title": c.get("job_title"), "email": email,
-                                      "email_quality": quality if quality in ("direct", "likely_direct", "check", "shared") else None, "role_tier": c.get("role_tier"), "source": "apollo", "nb_state": "pending"}])
-        out["found_free" if free else "found"] = out.get("found_free" if free else "found", 0) + 1
+            add_contact(rest, c, email)
+        if not reused:
+            out["found_free" if free else "found"] = out.get("found_free" if free else "found", 0) + 1
         rest.patch("apollo_queue", pq, {"state": "found", "apollo_email": email, "apollo_email_status": status, "free": free, "checked_at": now,
                                         "note": ("already a contact" if dup else None) or ("already in your Apollo contacts: no credits used" if free else None)})
     out["addresses_found"] = out["found"]   # paid finds only; credits are worked out on the Apollo page from the credits-per-email setting

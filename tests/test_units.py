@@ -1550,12 +1550,15 @@ def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verifi
         return R({"person": {"email": "ann.lee@practice.nhs.net", "email_status": "verified"}})
 
     class Rest:
-        def __init__(self): self.inserted, self.patched = [], []
+        def __init__(self): self.inserted, self.patched, self.upserts = [], [], []
+        def upsert(self, table, rows, key): self.upserts.append((table, rows))
         def select_all(self, table, cols="*", order="", params=None):
             if table == "apollo_queue":
                 return [{"contact_urn": u, "ods_code": "A11111", "full_name": f"{f} {l}", "first_name": f, "last_name": l, "job_title": "Practice Manager", "role_tier": "A"} for u, f, l in ((1, "Ann", "Lee"), (2, "Bob", "Ray"), (3, "Cy", "Dee"))]
-            return [{"ods_code": "A11111", "practice_name": "Test Surgery", "website": None}] if table == "gp_practices" else []
-        def insert(self, table, rows, **kw): self.inserted.append((table, rows))
+            return [{"ods_code": "A11111", "practice_name": "Test Surgery", "website": None}, {"ods_code": "B22222", "practice_name": "Somewhere Else Medical Centre", "website": None}] if table == "gp_practices" else []
+        def insert(self, table, rows, **kw):
+            self.inserted.append((table, rows))
+            return [{"contact_urn": 99}]
         def patch(self, table, filters, values): self.patched.append((filters["contact_urn"], values))
         def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
 
@@ -1564,7 +1567,8 @@ def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verifi
     assert out["checked"] == 3 and out["matched"] == 1 and out["no_match"] == 1 and out["review"] == 1 and out["found"] == 1
     assert calls.count("match") == 1   # credits are only spent for the verified person
     (_, rows), = rest.inserted
-    assert rows[0]["email"] == "ann.lee@practice.nhs.net" and rows[0]["source"] == "apollo" and rows[0]["nb_state"] == "pending"
+    assert rows[0]["email"] == "ann.lee@practice.nhs.net" and rows[0]["source"] == "apollo" and "nb_state" not in rows[0]
+    assert rest.upserts == [("contact_nb", [{"contact_urn": 99, "nb_state": "pending"}])]   # NeverBounce state lives in its own table
     notes = {u: v for u, v in rest.patched if v.get("state") in ("not_found", "review")}
     assert "no one of that name" in notes["eq.3"]["note"] and notes["eq.3"]["state"] == "not_found"
     assert notes["eq.2"]["state"] == "review" and "Somewhere Else Ltd" in notes["eq.2"]["note"]   # a different practice goes to the review list, not away
@@ -1748,16 +1752,18 @@ def test_an_apollo_address_chosen_in_review_changes_the_existing_contact_and_wai
     from src import apollo
 
     class Rest:
-        def __init__(self): self.patched = []
+        def __init__(self): self.patched, self.upserts = [], []
         def select_all(self, table, cols="*", order="", params=None):
             return [{"contact_urn": 5, "ods_code": "A1", "full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "apollo_email": "ann.new@y.nhs.net", "existing_urn": 1}]
         def patch(self, table, filters, values): self.patched.append((table, filters, values))
+        def upsert(self, table, rows, key): self.upserts.append((table, rows))
         def insert(self, *a, **k): raise AssertionError("must update, not add")
 
     r = Rest()
     assert apollo.apply_accepted(r, "now") == 1
     t, f, v = r.patched[0]
-    assert t == "contacts" and f == {"contact_urn": "eq.1"} and v["email"] == "ann.new@y.nhs.net" and v["nb_state"] == "pending" and v["source"] == "apollo"
+    assert t == "contacts" and f == {"contact_urn": "eq.1"} and v["email"] == "ann.new@y.nhs.net" and v["source"] == "apollo"
+    assert r.upserts[0][0] == "contact_nb" and r.upserts[0][1][0]["contact_urn"] == 1 and r.upserts[0][1][0]["nb_state"] == "pending"
 
 
 def test_an_email_already_unlocked_in_the_apollo_account_is_pulled_without_spending_credits():
@@ -1780,16 +1786,74 @@ def test_an_email_already_unlocked_in_the_apollo_account_is_pulled_without_spend
 
     class Rest:
         def __init__(self): self.inserted, self.patched = [], []
+        def upsert(self, table, rows, key): pass
         def select_all(self, table, cols="*", order="", params=None):
             if table == "apollo_queue":
                 return [{"contact_urn": 5, "ods_code": "A1", "full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager"}]
             return [{"ods_code": "A1", "practice_name": "Test Surgery", "website": None, "postcode": None, "hubspot_company_id": None}] if table == "gp_practices" else []
-        def insert(self, table, rows, **kw): self.inserted.append(rows)
+        def insert(self, table, rows, **kw):
+            self.inserted.append(rows)
+            return [{"contact_urn": 7}]
         def patch(self, table, filters, values): self.patched.append(values)
         def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
 
     r = Rest()
     out = apollo.run(r, "k", 5, post=post, mode="check")
     assert seen == ["search"] and out["from_apollo_contacts"] == 1 and out["found_free"] == 1 and out["found"] == 0   # the right Ann Lee, no credits
-    assert r.inserted[0][0]["email"] == "ann.lee@x.nhs.net" and r.inserted[0][0]["nb_state"] == "pending"
+    assert r.inserted[0][0]["email"] == "ann.lee@x.nhs.net" and "nb_state" not in r.inserted[0][0]
     assert any(v.get("state") == "found" and v.get("free") is True for v in r.patched)
+
+
+def test_an_email_found_but_not_saved_is_reused_next_run_without_another_lookup():
+    from src import apollo
+
+    class Rest:
+        def __init__(self): self.inserted, self.patched, self.upserts = [], [], []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                return [{"contact_urn": 5, "ods_code": "A1", "full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager", "match": "matched", "apollo_email": "ann@x.nhs.net", "apollo_email_status": "verified", "free": False}]
+            return [{"ods_code": "A1", "practice_name": "Test Surgery", "website": None, "postcode": None, "hubspot_company_id": None}] if table == "gp_practices" else []
+        def insert(self, table, rows, **kw):
+            self.inserted.append(rows)
+            return [{"contact_urn": 8}]
+        def upsert(self, table, rows, key): self.upserts.append(rows)
+        def patch(self, table, filters, values): self.patched.append(values)
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    def no_calls(*a, **k):
+        raise AssertionError("no Apollo call, so no credits, for an email already found")
+
+    r = Rest()
+    out = apollo.run(r, "k", 5, post=no_calls)
+    assert r.inserted[0][0]["email"] == "ann@x.nhs.net" and out["found"] == 0 and out["looked_up"] == 0
+    assert any(v.get("state") == "found" for v in r.patched)
+
+
+def test_a_namesake_at_an_organisation_that_is_not_a_practice_is_not_sent_to_review():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j): self.j = j
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    class Rest:
+        def __init__(self): self.patched = []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                return [{"contact_urn": 5, "ods_code": "A1", "full_name": "James Oconnor", "first_name": "James", "last_name": "Oconnor", "job_title": "Practice Manager"}]
+            return [{"ods_code": "A1", "practice_name": "Test Surgery", "website": None, "postcode": None, "hubspot_company_id": None}] if table == "gp_practices" else []
+        def patch(self, table, filters, values): self.patched.append(values)
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    def post(url, **kw):
+        if url.endswith("contacts/search"):
+            return R({"contacts": []})
+        return R({"people": [{"id": "x", "first_name": "James", "last_name": "Oconnor", "organization": {"name": "Oconnor Design"}}]})
+
+    r = Rest()
+    out = apollo.run(r, "k", 5, post=post, mode="check")
+    assert out.get("review", 0) == 0 and out["no_match"] == 1
+    assert any(v.get("state") == "not_found" and "Oconnor Design" in v["note"] for v in r.patched)
