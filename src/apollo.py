@@ -212,7 +212,7 @@ def collect_waterfall(rest, key, get=requests.get, now=None):
     """Poll every saved waterfall request (free). An email is put on its row, so the normal run finishes the contact; a request that finished with nothing, or that Apollo never answered in 24 hours, is closed with a note."""
     now = now or datetime.now(timezone.utc)
     out = {"ready": 0, "empty": 0, "waiting": 0, "expired": 0}
-    for r in rest.select_all("apollo_queue", "contact_urn,waterfall_request_id,waterfall_requested_at", order="contact_urn", params={"waterfall_request_id": "not.is.null"}):
+    for r in rest.select_all("apollo_queue", "contact_urn,match,waterfall_request_id,waterfall_requested_at", order="contact_urn", params={"waterfall_request_id": "not.is.null"}):
         pq = {"contact_urn": f"eq.{r['contact_urn']}"}
         try:
             email, finished, note = poll_waterfall(r["waterfall_request_id"], key, get)
@@ -223,8 +223,8 @@ def collect_waterfall(rest, key, get=requests.get, now=None):
         if email:
             rest.patch("apollo_queue", pq, {"apollo_email": email, "waterfall_request_id": None, "note": "waterfall email ready"})
             out["ready"] += 1
-        elif finished:
-            rest.patch("apollo_queue", pq, {"waterfall_request_id": None, "note": f"waterfall finished with no email ({note})"})
+        elif finished:   # nothing found: a person not in the people search is closed as not found; a saved contact waits for a reveal in Apollo (the next run pulls it free) and is never resubmitted
+            rest.patch("apollo_queue", pq, {"waterfall_request_id": None, **({"state": "not_found", "checked_at": now.isoformat(), "note": f"Apollo's waterfall found no email ({note})"} if r.get("match") != "matched" else {"note": f"{NEEDS_REVEAL} [waterfall finished with no email ({note})]"})})
             out["empty"] += 1
         elif r.get("waterfall_requested_at") and (now - datetime.fromisoformat(str(r["waterfall_requested_at"]).replace("Z", "+00:00"))).total_seconds() > 86400:
             rest.patch("apollo_queue", pq, {"waterfall_request_id": None, "note": "waterfall: Apollo gave no answer in 24 hours"})
@@ -421,7 +421,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
         alt = [hs_names.get(c["ods_code"])]
         pq = {"contact_urn": f"eq.{c['contact_urn']}"}
         time.sleep(pause)
-        free, reused = False, False
+        free, reused, no_person_route = False, False, False
         try:
             if c.get("apollo_email"):   # found on an earlier run but the contact could not be saved: reuse the email, never look it up (or pay) twice
                 saved, reused = {"email": c["apollo_email"], "status": c.get("apollo_email_status")}, True
@@ -449,16 +449,20 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 out["checked"] += 1
                 rest.patch("apollo_queue", pq, {**res, "matched_at": now})
                 c.update(res)
-                if res["match"] == "company_mismatch":   # a same-name person at another organisation is a namesake: nothing to review, nothing to look up
-                    out["no_match"] += 1
-                    rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": f"Apollo has a same-name person at {res.get('apollo_org') or 'another organisation'}, with nothing to show it is the same person"})
-                    continue
                 if res["match"] != "matched":
                     out["no_match"] += 1
-                    rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": "Apollo has no one of that name"})
-                    continue
+                    why = (f"Apollo has a same-name person at {res.get('apollo_org') or 'another organisation'}, with nothing to show it is the same person" if res["match"] == "company_mismatch" else "Apollo's people search has no one of that name")
+                    if mode == "enrich" and waterfall:   # the waterfall asks by name, practice and domain and does not need the people search to find them: try it
+                        no_person_route = True
+                    elif mode == "check":   # left waiting for the waterfall, not closed: the people search missing someone does not mean Apollo holds no email
+                        rest.patch("apollo_queue", pq, {"note": f"search found no one at this practice ({why}); the waterfall asks by name, practice and domain instead"})
+                        continue
+                    else:
+                        rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": why})
+                        continue
             if not free:
-                out["matched"] += 1
+                if not no_person_route:
+                    out["matched"] += 1
                 if mode == "check":
                     continue
                 if c.get("waterfall_request_id"):   # submitted already: polled by collect_waterfall on every run, never submitted twice
@@ -467,11 +471,14 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 if str(c.get("note") or "").startswith("needs reveal in Apollo"):   # already tried through the API: it is waiting for a reveal in Apollo, which the saved-contact pull above picks up
                     out["needs_reveal"] = out.get("needs_reveal", 0) + 1
                     continue
-                if not c.get("apollo_person_id"):   # no Apollo id to pin the lookup to: enriching from name and company text could land on a namesake and spend credits on the wrong person
+                if no_person_route:   # not in the people search: no id to pin a plain lookup to, so straight to the waterfall
+                    email, status, note = None, None, "no api match: not in Apollo's people search"
+                elif not c.get("apollo_person_id"):   # no Apollo id to pin the lookup to: enriching from name and company text could land on a namesake and spend credits on the wrong person
                     out["needs_apollo_id"] = out.get("needs_apollo_id", 0) + 1
                     rest.patch("apollo_queue", pq, {"note": "matched at the practice, but Apollo gave no person id: not enriched, so credits cannot go to a namesake. Reveal the email in Apollo (it is then pulled free)."})
                     continue
-                email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an email comes back
+                if not no_person_route:
+                    email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an email comes back
                 if not email and waterfall and str(note or "").startswith(("person found", "no api match")):   # opt-in: what Apollo's screen does when the plain lookup has nothing
                     wf_email, wf_pending, wf_note = waterfall_email(c, pr.get("practice_name"), pr.get("website"), key, post, get, sleep=time.sleep if post is requests.post else (lambda s: None))
                     out["waterfall_tried"] = out.get("waterfall_tried", 0) + 1
@@ -481,6 +488,10 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                     elif wf_pending:   # still working: the request id is kept and every later run polls it, so no run waits on Apollo
                         rest.patch("apollo_queue", pq, {"waterfall_request_id": wf_pending, "waterfall_requested_at": now, "note": "waterfall pending: Apollo is still working on it; checked again on every run"})
                         out["waterfall_pending"] = out.get("waterfall_pending", 0) + 1
+                        continue
+                    elif no_person_route:   # not in the people search and the waterfall finished with nothing: genuinely not found
+                        out["not_found"] += 1
+                        rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": f"Apollo's waterfall found no email ({wf_note})"})
                         continue
                     else:
                         note = f"{note} | {wf_note}"

@@ -1821,34 +1821,52 @@ def test_an_email_found_but_not_saved_is_reused_next_run_without_another_lookup(
     assert any(v.get("state") == "found" for v in r.patched)
 
 
-def test_a_namesake_at_an_organisation_that_is_not_a_practice_is_not_sent_to_review():
+def test_someone_the_people_search_misses_is_left_for_the_waterfall_and_only_closed_when_it_finds_nothing():
     from src import apollo
 
     class R:
         status_code = 200
         text = ""
-        def __init__(self, j): self.j = j
+        def __init__(self, j, code=200): self.j, self.status_code = j, code
         def json(self): return self.j
         def raise_for_status(self): pass
-
-    class Rest:
-        def __init__(self): self.patched = []
-        def select_all(self, table, cols="*", order="", params=None):
-            if table == "apollo_queue":
-                return [{"contact_urn": 5, "ods_code": "A1", "full_name": "James Oconnor", "first_name": "James", "last_name": "Oconnor", "job_title": "Practice Manager"}]
-            return [{"ods_code": "A1", "practice_name": "Test Surgery", "website": None, "postcode": None, "hubspot_company_id": None}] if table == "gp_practices" else []
-        def patch(self, table, filters, values): self.patched.append(values)
-        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
 
     def post(url, **kw):
         if url.endswith("contacts/search"):
             return R({"contacts": []})
-        return R({"people": [{"id": "x", "first_name": "James", "last_name": "Oconnor", "organization": {"name": "Oconnor Design"}}]})
+        if url.endswith("api_search"):
+            return R({"people": [{"id": "x", "first_name": "James", "last_name": "Oconnor", "organization": {"name": "Oconnor Design"}}]})   # a namesake elsewhere
+        return R({"person": {}, "request_id_str": "55"})   # the waterfall request
 
+    class Rest:
+        def __init__(self): self.patched, self.inserted = [], []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                return [] if (params or {}).get("state") in ("eq.review", "eq.not_found") else [{"contact_urn": 5, "ods_code": "A1", "full_name": "James Oconnor", "first_name": "James", "last_name": "Oconnor", "job_title": "Practice Manager"}]
+            return [{"ods_code": "A1", "practice_name": "Test Surgery", "website": "https://testsurgery.nhs.uk", "hubspot_website": None, "hubspot_company_id": None}] if table == "gp_practices" else []
+        def insert(self, table, rows, **kw):
+            self.inserted.append(rows)
+            return [{"contact_urn": 9}]
+        def upsert(self, *a, **k): pass
+        def patch(self, table, filters, values): self.patched.append(values)
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    # hourly check (free): not closed, left for the waterfall
     r = Rest()
-    out = apollo.run(r, "k", 5, post=post, mode="check")
-    assert out.get("review", 0) == 0 and out["no_match"] == 1
-    assert any(v.get("state") == "not_found" and "Oconnor Design" in v["note"] for v in r.patched)
+    apollo.run(r, "k", 5, post=post, mode="check")
+    assert not any(v.get("state") == "not_found" for v in r.patched) and any("waterfall asks by name" in str(v.get("note")) for v in r.patched)
+    # enrich without the waterfall: closed as before
+    r = Rest()
+    apollo.run(r, "k", 5, post=post, mode="enrich")
+    assert any(v.get("state") == "not_found" for v in r.patched)
+    # enrich with the waterfall: asked by name, practice and domain; an email that arrives makes a contact
+    r = Rest()
+    out = apollo.run(r, "k", 5, post=post, mode="enrich", waterfall=True, get=lambda u, **k: R({"webhook_result": {"people": [{"email": "james.oconnor@testsurgery.nhs.uk"}]}}))
+    assert out["waterfall_tried"] == 1 and out["waterfall_found"] == 1 and r.inserted[0][0]["email"] == "james.oconnor@testsurgery.nhs.uk"
+    # the waterfall finishes with nothing: genuinely not found
+    r = Rest()
+    apollo.run(r, "k", 5, post=post, mode="enrich", waterfall=True, get=lambda u, **k: R({"webhook_result": {"credits_consumed": 0, "email_records_not_found": 1}}))
+    assert any(v.get("state") == "not_found" and "waterfall found no email" in v["note"] for v in r.patched)
 
 
 def test_apollo_search_narrows_by_name_and_job_title_then_compares_the_organisation():
