@@ -8,6 +8,10 @@ on:
         description: 'Most contacts to look up this run (each address found costs Apollo credits)'
         required: false
         default: '100'
+      only:
+        description: 'Only this person (part of the full name), for a test: nobody else is looked up or paid for'
+        required: false
+        default: ''
       mode:
         description: 'check = only verify approved contacts exist at Apollo at their practice (no credits); enrich = verify, then look up the email of each verified one (uses credits); none = only refresh the coverage counts'
         required: false
@@ -32,4 +36,5 @@ jobs:
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
           APOLLO_CAP: ${{ inputs.cap || 200 }}
           APOLLO_MODE: ${{ inputs.mode || 'check' }}
+          APOLLO_ONLY: ${{ inputs.only }}
         run: python -m src.apollo

@@ -263,7 +263,7 @@ def recheck_stale_review(rest):
     return n
 
 
-def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich", hub=None):
+def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich", hub=None, only=None):
     """mode 'check': only verify approved contacts at Apollo (no credits). 'enrich': verify, then look up the email of each verified one. Both are capped at `cap` contacts a run."""
     now = (now or datetime.now(timezone.utc)).isoformat()
     applied = apply_accepted(rest, now)
@@ -273,6 +273,8 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     for c in [c for c in approved if (c.get("job_title") or "") not in main]:   # the Settings rules changed since it was approved: only Main roles are looked up
         rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "pending", "approved_by": None, "approved_at": None, "note": "no longer a Main role, taken back to waiting"})
     approved = [c for c in approved if (c.get("job_title") or "") in main]
+    if only:   # a test on one named person: nobody else is looked up or paid for
+        approved = [c for c in approved if only.strip().lower() in str(c.get("full_name") or "").lower()]
     approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
     approved = approved[:max(0, min(cap, MAX_PER_RUN))]
     practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,postcode,town,hubspot_company_id", order="ods_code")}
@@ -396,7 +398,7 @@ def main():
     mode = env.get("APOLLO_MODE") if env.get("APOLLO_MODE") in ("enrich", "check", "none") else "check"   # credits are only spent when enrich is asked for by name
     if env.get("APOLLO_API_KEY") and mode != "none":
         from .hubspot_sync import Hub
-        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode=mode, hub=Hub(env["HUBSPOT_TOKEN"]) if env.get("HUBSPOT_TOKEN") else None)
+        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode=mode, hub=Hub(env["HUBSPOT_TOKEN"]) if env.get("HUBSPOT_TOKEN") else None, only=env.get("APOLLO_ONLY") or None)
         print("Apollo:", out)
         summary["run"] = out
     else:
