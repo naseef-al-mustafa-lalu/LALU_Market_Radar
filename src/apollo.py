@@ -150,7 +150,7 @@ def _emails_in(obj):
     return []
 
 
-def waterfall_email(person, practice, website, key, post=requests.post, get=requests.get, wait=90, step=5, sleep=time.sleep):
+def waterfall_email(person, practice, website, key, post=requests.post, get=requests.get, wait=240, step=10, sleep=time.sleep):
     """The email Apollo's screen reveals through its waterfall (extra third-party email sources), for someone the plain lookup holds no email for. Sent as a fresh identity match from external identifiers
     (name, the practice, the employer's website domain, LinkedIn when known), because a saved contact's own id is an empty shell that anchors the lookup to nothing; the Apollo id is only added when it is a real
     person id (from the people search). Apollo answers at once with a request id and the result is polled for (no webhook needed). Some vendors charge per lookup even when they find nothing, so this only
@@ -191,7 +191,9 @@ def waterfall_email(person, practice, website, key, post=requests.post, get=requ
         if str(last.get("status") or "").lower() in ("complete", "completed", "done", "failed", "error", "no_results"):
             break
     nested = last.get("webhook_result") if isinstance(last.get("webhook_result"), dict) else {}
-    return None, f"waterfall: no email ({accepted}; polls {codes[:3]}..x{len(codes)}; last answer keys {sorted(last)[:10]}; webhook_result {('keys ' + str(sorted(nested)[:10])) if nested else str(last.get('webhook_result'))[:80]})"
+    outcome = (f"finished: credits consumed {nested.get('credits_consumed')}, emails enriched {nested.get('email_records_enriched')}, emails not found {nested.get('email_records_not_found')}" if nested
+               else f"not ready after {len(codes) * step}s, last answer keys {sorted(last)[:6]}")   # Apollo's own account of the waterfall, so a miss is distinguishable from a slow answer
+    return None, f"waterfall: no email ({outcome}; polls {codes[:3]}..x{len(codes)}; {accepted})"
 
 
 def _name_key(ods, name):
