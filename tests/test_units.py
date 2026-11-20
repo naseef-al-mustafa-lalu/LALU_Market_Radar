@@ -2105,3 +2105,21 @@ def test_waterfall_email_asks_with_name_domain_and_id_then_polls_for_the_result(
     # nothing found: a note, no email, and no endless polling
     email, note = apollo.waterfall_email(person, None, "k", post=post, get=lambda u, **k: R({"status": "complete"}), sleep=lambda s: None)
     assert email is None and note.startswith("waterfall: no email")
+
+
+def test_the_same_person_at_the_same_practice_is_in_the_apollo_queue_once_and_later_rows_never_win_over_earlier_ones():
+    from src import apollo
+
+    class Rest:
+        def __init__(self): self.deleted = []
+        def select_all(self, table, cols="*", order="", params=None):
+            return [{"contact_urn": 1, "ods_code": "A1", "full_name": "Kim M", "state": "approved", "source": "hubspot", "first_seen": "2026-11-20T12:00"},
+                    {"contact_urn": 2, "ods_code": "A1", "full_name": "kim  m", "state": "pending", "source": "oscar", "first_seen": "2026-11-20T16:00"},
+                    {"contact_urn": 3, "ods_code": "A2", "full_name": "Ann L", "state": "pending", "source": "oscar", "first_seen": "2026-11-20T16:00"},
+                    {"contact_urn": 4, "ods_code": "A2", "full_name": "Ann L", "state": "pending", "source": "hubspot", "first_seen": "2026-11-20T12:00"},
+                    {"contact_urn": 5, "ods_code": "A3", "full_name": "Bo P", "state": "found", "source": "oscar", "first_seen": "2026-11-20T10:00"},
+                    {"contact_urn": 6, "ods_code": "A3", "full_name": "Bo P", "state": "approved", "source": "hubspot", "first_seen": "2026-11-20T12:00"}]
+        def delete_in(self, table, column, values, **kw): self.deleted += list(values)
+
+    r = Rest()
+    assert apollo.drop_duplicates(r) == 2 and sorted(r.deleted) == [2, 3]   # the waiting Oscar copies go; Ann keeps the HubSpot row; Bo's two advanced rows both stay

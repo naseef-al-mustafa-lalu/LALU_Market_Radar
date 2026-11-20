@@ -203,6 +203,23 @@ def prune_known(rest):
     return n
 
 
+def drop_duplicates(rest):
+    """The same person at the same practice must be in the queue once (queued from HubSpot and again from Oscar, for example). The row furthest along wins, then the HubSpot one (it carries the HubSpot id the email is added to), then the oldest;
+    waiting duplicates are deleted. Rows that are further along are never deleted. Returns how many were removed."""
+    rank = {"approved": 0, "accepted": 0, "found": 1, "review": 1, "not_found": 2, "pending": 3}
+    groups = {}
+    for r in rest.select_all("apollo_queue", "contact_urn,ods_code,full_name,state,source,first_seen", order="contact_urn"):
+        groups.setdefault(_name_key(r["ods_code"], r.get("full_name")), []).append(r)
+    drop = []
+    for rows in groups.values():
+        if len(rows) > 1:
+            rows.sort(key=lambda r: (rank.get(r["state"], 3), 0 if r.get("source") == "hubspot" else 1, str(r.get("first_seen") or "")))
+            drop += [r["contact_urn"] for r in rows[1:] if r["state"] == "pending"]
+    if drop:
+        rest.delete_in("apollo_queue", "contact_urn", drop)
+    return len(drop)
+
+
 def hubspot_same_name(hub, c, company_id, email):
     """A contact on the practice's HubSpot company with this name and a different address, as {id, email}; None when there is none (or no company)."""
     if not hub or not company_id:
