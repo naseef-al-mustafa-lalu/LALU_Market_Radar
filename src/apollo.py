@@ -86,6 +86,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None):
                                       "email_quality": quality if quality in ("direct", "likely_direct", "check", "shared") else None, "role_tier": c.get("role_tier"), "source": "apollo", "nb_state": "pending"}])
         out["found"] += 1
         rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "found", "apollo_email": email, "apollo_email_status": status, "checked_at": now, "note": "already a contact" if dup else None})
+    out["credits_used"] = out["found"]   # one credit per address found
     out["waiting"] = len(rest.select_all("apollo_queue", "contact_urn", order="contact_urn", params={"state": "eq.approved"}))
     return out
 
