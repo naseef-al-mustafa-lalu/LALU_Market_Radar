@@ -1527,7 +1527,7 @@ def test_neverbounce_list_parses_lines_and_writes_only_the_status():
     assert "credits" in nl.run(Hub(), "k", [(str(i), f"u{i}@nhs.net") for i in range(9)], get)["stopped"]      # not enough credits: nothing is checked
 
 
-def test_apollo_looks_up_only_approved_people_and_queues_found_addresses_for_neverbounce():
+def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verified_people():
     from src import apollo
 
     class R:
@@ -1535,25 +1535,47 @@ def test_apollo_looks_up_only_approved_people_and_queues_found_addresses_for_nev
         def json(self): return self.j
         def raise_for_status(self): pass
 
-    answers = {"Ann": {"person": {"email": "ann.lee@practice.nhs.net", "email_status": "verified"}}, "Bob": {"person": {"email": "email_not_unlocked@domain.com"}}}
+    people = {"Ann": [{"id": "p1", "first_name": "Ann", "last_name": "Lee", "organization": {"name": "Test Surgery"}}],
+              "Bob": [{"id": "p2", "first_name": "Bob", "last_name": "Ray", "organization": {"name": "Somewhere Else Ltd"}}],
+              "Cy": []}
+    calls = []
+
+    def post(url, **kw):
+        calls.append(url.rsplit("/", 1)[-1])
+        if url.endswith("api_search"):
+            return R({"people": people[kw["json"]["q_keywords"].split()[0]]})
+        assert kw["json"]["id"] == "p1"   # only the verified person is enriched, by Apollo's own id
+        return R({"person": {"email": "ann.lee@practice.nhs.net", "email_status": "verified"}})
 
     class Rest:
         def __init__(self): self.inserted, self.patched = [], []
         def select_all(self, table, cols="*", order="", params=None):
             if table == "apollo_queue":
-                return [{"contact_urn": 1, "ods_code": "A11111", "full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager", "role_tier": "A"},
-                        {"contact_urn": 2, "ods_code": "A11111", "full_name": "Bob Ray", "first_name": "Bob", "last_name": "Ray", "job_title": "Business Manager", "role_tier": "A"}]
-            return [{"ods_code": "A11111", "practice_name": "Test Surgery"}] if table == "gp_practices" else []
+                return [{"contact_urn": u, "ods_code": "A11111", "full_name": f"{f} {l}", "first_name": f, "last_name": l, "job_title": "Practice Manager", "role_tier": "A"} for u, f, l in ((1, "Ann", "Lee"), (2, "Bob", "Ray"), (3, "Cy", "Dee"))]
+            return [{"ods_code": "A11111", "practice_name": "Test Surgery", "website": None}] if table == "gp_practices" else []
         def insert(self, table, rows, **kw): self.inserted.append((table, rows))
-        def patch(self, table, filters, values): self.patched.append((filters, values))
-        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"] if t != "Cleaner"]
+        def patch(self, table, filters, values): self.patched.append((filters["contact_urn"], values))
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
 
     rest = Rest()
-    out = apollo.run(rest, "k", 10, post=lambda url, **kw: R(answers[kw["json"]["first_name"]]))
-    assert out["looked_up"] == 2 and out["found"] == 1 and out["not_found"] == 1
+    out = apollo.run(rest, "k", 10, post=post)
+    assert out["checked"] == 3 and out["matched"] == 1 and out["no_match"] == 2 and out["found"] == 1
+    assert calls.count("match") == 1   # credits are only spent for the verified person
     (_, rows), = rest.inserted
     assert rows[0]["email"] == "ann.lee@practice.nhs.net" and rows[0]["source"] == "apollo" and rows[0]["nb_state"] == "pending"
-    assert [v["state"] for _, v in rest.patched] == ["found", "not_found"]
+    notes = {u: v.get("note") for u, v in rest.patched if v.get("state") == "not_found"}
+    assert "no one of that name" in notes["eq.3"] and "Somewhere Else Ltd" in notes["eq.2"]
+    only_check = apollo.run(Rest(), "k", 10, post=lambda url, **kw: R({"people": people["Ann"]}) if url.endswith("api_search") else (_ for _ in ()).throw(AssertionError("check mode must not enrich")), mode="check")
+    assert only_check["found"] == 0 and only_check["matched"] == 1
+
+
+def test_apollo_company_match_uses_domain_or_the_practices_distinctive_words():
+    from src import apollo
+
+    assert apollo.company_matches({"name": "Staverton Medical Practice"}, "Staverton Surgery")
+    assert apollo.company_matches({"name": "Dr Smith and Partners", "primary_domain": "www.smithgp.nhs.uk"}, "Heath Road Surgery", "https://smithgp.nhs.uk/")
+    assert not apollo.company_matches({"name": "Staverton Dental"}, "Heath Road Surgery")
+    assert not apollo.company_matches(None, "Heath Road Surgery")
 
 
 def test_contact_found_by_apollo_is_created_in_hubspot_with_apollo_as_its_first_touch():

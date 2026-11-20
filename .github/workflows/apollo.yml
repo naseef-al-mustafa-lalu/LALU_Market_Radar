@@ -6,10 +6,10 @@ on:
         description: 'Most contacts to look up this run (each address found costs Apollo credits)'
         required: false
         default: '100'
-      lookup:
-        description: 'Look up approved contacts (1) or only refresh the coverage counts (0)'
+      mode:
+        description: 'check = only verify approved contacts exist at Apollo at their practice (no credits); enrich = verify, then look up the email of each verified one (uses credits); none = only refresh the coverage counts'
         required: false
-        default: '1'
+        default: 'check'
 
 concurrency: apollo
 
@@ -28,5 +28,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
           APOLLO_CAP: ${{ inputs.cap }}
-          APOLLO_LOOKUP: ${{ inputs.lookup }}
+          APOLLO_MODE: ${{ inputs.mode }}
         run: python -m src.apollo

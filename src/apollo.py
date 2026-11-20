@@ -27,10 +27,55 @@ def main_titles(rest, titles):
     return out
 
 
+HEADERS = lambda key: {"X-Api-Key": key, "Content-Type": "application/json", "Cache-Control": "no-cache"}   # noqa: E731
+STOP = {"the", "and", "of", "surgery", "medical", "centre", "center", "practice", "group", "health", "healthcare", "gp", "partnership", "clinic", "limited", "ltd", "nhs", "primary", "care", "general"}
+
+
+def _tokens(name):
+    return {t for t in re.findall(r"[a-z0-9]+", str(name or "").lower()) if t not in STOP}
+
+
+def _domain(url):
+    return re.sub(r"^(https?://)?(www\.)?", "", str(url or "").strip().lower()).split("/")[0]
+
+
+def company_matches(org, practice, website=None):
+    """Is Apollo's organisation this practice? Same website domain, or the names share their distinctive words (Staverton Surgery = Staverton Medical Practice)."""
+    org = org or {}
+    d1, d2 = _domain(org.get("primary_domain") or org.get("website_url")), _domain(website)
+    if d1 and d2 and d1 == d2:
+        return True
+    a, b = _tokens(org.get("name")), _tokens(practice)
+    return bool(a and b and (a <= b or b <= a or len(a & b) / len(a | b) >= 0.5))
+
+
+def _same_person(p, person):
+    first = str(person.get("first_name") or "").strip().lower()
+    last = str(person.get("last_name") or "").strip().lower()
+    last_p = str(p.get("last_name") or p.get("last_name_obfuscated") or "").strip().lower().split("*")[0]   # Apollo's search may hide the end of a surname
+    return bool(first and last and str(p.get("first_name") or "").strip().lower() == first and last_p and last.startswith(last_p))
+
+
+def check(person, practice, website, key, post=requests.post):
+    """Free of credits: search Apollo for the person and compare their organisation with the practice. Returns {match, apollo_person_id, apollo_org} where match is matched, no_person or company_mismatch."""
+    r = post(f"{API}/mixed_people/api_search", headers=HEADERS(key), json={"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}, timeout=60)
+    if r.status_code in (401, 403, 422, 429):
+        raise RuntimeError(f"Apollo {r.status_code}: {r.text[:160]}")
+    r.raise_for_status()
+    same = [p for p in ((r.json() or {}).get("people") or []) if _same_person(p, person)]
+    if not same:
+        return {"match": "no_person", "apollo_person_id": None, "apollo_org": None}
+    for p in same:
+        if company_matches(p.get("organization"), practice, website):
+            return {"match": "matched", "apollo_person_id": p.get("id"), "apollo_org": (p.get("organization") or {}).get("name")}
+    return {"match": "company_mismatch", "apollo_person_id": same[0].get("id"), "apollo_org": (same[0].get("organization") or {}).get("name")}
+
+
 def lookup(person, practice, key, post=requests.post):
-    """(email, email_status, note). One people/match call; it spends a credit only when an address comes back."""
-    r = post(f"{API}/people/match", headers={"X-Api-Key": key, "Content-Type": "application/json", "Cache-Control": "no-cache"},
-             json={"first_name": person.get("first_name"), "last_name": person.get("last_name"), "name": person.get("full_name"), "organization_name": practice, "reveal_personal_emails": False}, timeout=60)
+    """(email, email_status, note). One people/match call for the verified person; it spends credits only when an address comes back."""
+    body = {"reveal_personal_emails": False, "organization_name": practice}
+    body.update({"id": person["apollo_person_id"]} if person.get("apollo_person_id") else {"first_name": person.get("first_name"), "last_name": person.get("last_name"), "name": person.get("full_name")})
+    r = post(f"{API}/people/match", headers=HEADERS(key), json=body, timeout=60)
     if r.status_code in (401, 403, 422, 429):
         raise RuntimeError(f"Apollo {r.status_code}: {r.text[:160]}")
     r.raise_for_status()
@@ -56,18 +101,35 @@ def coverage(rest):
     return {"practices": len(practices), "no_practice_manager": len(no_pm), "fewer_than_two": len(no_other), "covered": len(practices) - len(set(no_pm) | set(no_other))}
 
 
-def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None):
+def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich"):
+    """mode 'check': only verify approved contacts at Apollo (no credits). 'enrich': verify, then look up the email of each verified one. Both are capped at `cap` contacts a run."""
     now = (now or datetime.now(timezone.utc)).isoformat()
     approved = rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.approved"})
     main = main_titles(rest, [c.get("job_title") or "" for c in approved])
     for c in [c for c in approved if (c.get("job_title") or "") not in main]:   # the Settings rules changed since it was approved: only Main roles are looked up
         rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "pending", "approved_by": None, "approved_at": None, "note": "no longer a Main role, taken back to waiting"})
-    approved = [c for c in approved if (c.get("job_title") or "") in main][:max(0, min(cap, MAX_PER_RUN))]
-    names = {r["ods_code"]: r["practice_name"] for r in rest.select_all("gp_practices", "ods_code,practice_name", order="ods_code")}
-    out = {"looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0}
+    approved = [c for c in approved if (c.get("job_title") or "") in main]
+    approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
+    approved = approved[:max(0, min(cap, MAX_PER_RUN))]
+    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website", order="ods_code")}
+    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0}
     for c in approved:
+        pr = practices.get(c["ods_code"]) or {}
+        pq = {"contact_urn": f"eq.{c['contact_urn']}"}
         try:
-            email, status, note = lookup(c, names.get(c["ods_code"]), key, post)
+            if c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
+                res = check(c, pr.get("practice_name"), pr.get("website"), key, post)
+                out["checked"] += 1
+                rest.patch("apollo_queue", pq, {**res, "matched_at": now})
+                c.update(res)
+                if res["match"] != "matched":
+                    out["no_match"] += 1
+                    rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": "Apollo has no one of that name" if res["match"] == "no_person" else f"Apollo has them at {res.get('apollo_org') or 'another organisation'}, not this practice"})
+                    continue
+            out["matched"] += 1
+            if mode == "check":
+                continue
+            email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an address comes back
         except Exception as e:  # noqa: BLE001  the contact stays approved and is tried again next run; stop on repeated failures (a bad key, no credits)
             out["errors"] += 1
             out["last_error"] = str(e)[:200]
@@ -77,7 +139,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None):
         out["looked_up"] += 1
         if not email:
             out["not_found"] += 1
-            rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "not_found", "note": note, "checked_at": now})
+            rest.patch("apollo_queue", pq, {"state": "not_found", "note": note, "checked_at": now})
             continue
         dup = rest.select_all("contacts", "contact_urn", order="contact_urn", params={"ods_code": f"eq.{c['ods_code']}", "email": f"eq.{email}"})
         if not dup:
@@ -85,7 +147,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None):
             rest.insert("contacts", [{"ods_code": c["ods_code"], "full_name": c.get("full_name"), "first_name": c.get("first_name"), "last_name": c.get("last_name"), "job_title": c.get("job_title"), "email": email,
                                       "email_quality": quality if quality in ("direct", "likely_direct", "check", "shared") else None, "role_tier": c.get("role_tier"), "source": "apollo", "nb_state": "pending"}])
         out["found"] += 1
-        rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "found", "apollo_email": email, "apollo_email_status": status, "checked_at": now, "note": "already a contact" if dup else None})
+        rest.patch("apollo_queue", pq, {"state": "found", "apollo_email": email, "apollo_email_status": status, "checked_at": now, "note": "already a contact" if dup else None})
     out["addresses_found"] = out["found"]   # credits are worked out on the Apollo page from the credits-per-address setting
     out["waiting"] = len(rest.select_all("apollo_queue", "contact_urn", order="contact_urn", params={"state": "eq.approved"}))
     return out
@@ -101,12 +163,12 @@ def main():
     cov = coverage(rest)
     print("Coverage:", cov)
     summary = {"at": datetime.now(timezone.utc).isoformat(), "coverage": cov}
-    if env.get("APOLLO_API_KEY") and env.get("APOLLO_LOOKUP", "1") != "0":
-        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN))
+    if env.get("APOLLO_API_KEY") and env.get("APOLLO_MODE", "enrich") != "none":
+        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode="check" if env.get("APOLLO_MODE") == "check" else "enrich")
         print("Apollo:", out)
         summary["run"] = out
     else:
-        print("Apollo key not set or lookups off: coverage only")
+        print("Apollo key not set or mode none: coverage only")
     rest.upsert("app_flags", [{"key": "apollo_status", "value": summary, "updated_at": summary["at"]}], "key")
 
 
