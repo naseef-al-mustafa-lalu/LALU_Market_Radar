@@ -1694,6 +1694,8 @@ def test_apollo_only_looks_up_people_whose_role_is_still_main():
         def __init__(self): self.patched = []
         def select_all(self, table, cols="*", order="", params=None):
             if table == "apollo_queue":
+                if (params or {}).get("state") == "eq.review":
+                    return []   # nobody waiting in review
                 return [{"contact_urn": 1, "ods_code": "A11111", "full_name": "Cy Cleaner", "first_name": "Cy", "last_name": "Cleaner", "job_title": "Cleaner", "role_tier": "x"}]
             return [{"ods_code": "A11111", "practice_name": "Test Surgery"}] if table == "gp_practices" else []
         def patch(self, table, filters, values): self.patched.append(values)
