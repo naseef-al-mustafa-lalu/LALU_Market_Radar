@@ -1922,3 +1922,46 @@ def test_review_rows_from_an_older_search_are_rechecked_automatically_and_newer_
 
     r = Rest()
     assert apollo.recheck_stale_review(r) == 2 and r.patched == [("eq.1", "approved"), ("eq.3", "approved")]
+
+
+def test_a_saved_apollo_contact_at_the_practice_without_an_email_counts_as_a_match_and_is_enriched_by_its_own_id():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j): self.j = j
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    seen = []
+
+    def post(url, **kw):
+        seen.append((url.rsplit("/", 1)[-1], kw["json"].get("id")))
+        if url.endswith("contacts/search"):
+            return R({"contacts": [{"first_name": "Shahana", "last_name": "Uddin", "email": None, "person_id": "pid-1", "organization_name": "St Andrews Health Centre"}]})
+        if url.endswith("people/match"):
+            return R({"person": {"email": "shahana.uddin@x.nhs.net", "email_status": "verified"}})
+        raise AssertionError("no name search is needed: the saved contact is the match")
+
+    class Rest:
+        def __init__(self): self.patched, self.inserted = [], []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                return [{"contact_urn": 5, "ods_code": "Y03023", "full_name": "Shahana Uddin", "first_name": "Shahana", "last_name": "Uddin", "job_title": "Practice Manager"}]
+            return [{"ods_code": "Y03023", "practice_name": "St Andrews Health Centre", "website": None, "postcode": None, "hubspot_company_id": None}] if table == "gp_practices" else []
+        def insert(self, table, rows, **kw):
+            self.inserted.append(rows)
+            return [{"contact_urn": 9}]
+        def upsert(self, *a, **k): pass
+        def patch(self, table, filters, values): self.patched.append(values)
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    r = Rest()
+    out = apollo.run(r, "k", 5, post=post, mode="enrich")
+    assert seen == [("search", None), ("match", "pid-1")] and out["found"] == 1 and out["from_saved_contact_match"] == 1
+    assert r.inserted[0][0]["email"] == "shahana.uddin@x.nhs.net"
+    seen.clear()
+    r2 = Rest()
+    out = apollo.run(r2, "k", 5, post=post, mode="check")
+    assert seen == [("search", None)] and out["found"] == 0 and out["matched"] == 1   # check mode: matched, no credits

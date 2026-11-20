@@ -107,16 +107,24 @@ def check(person, practice, website, key, post=requests.post, alt_names=()):
 
 
 def saved_contact(person, practice, website, key, post=requests.post, alt_names=()):
-    """Free of credits: is this person already one of YOUR Apollo contacts (someone enriched them before) with an email? Returns (email, email_status) or None. Only the same person at this practice counts."""
+    """Free of credits: is this person already one of YOUR Apollo contacts, at this practice? Returns {email, status, person_id, org} (email is None when the contact has none yet) or None.
+    A saved contact at the practice is a verified match, with or without an email; with one, nothing more is needed."""
     r = post(f"{API}/contacts/search", headers=HEADERS(key), json={"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}, timeout=60)
     if r.status_code in (401, 403, 422, 429):
         raise RuntimeError(f"Apollo {r.status_code}: {r.text[:160]}")
     r.raise_for_status()
+    names = [x for x in (practice, *alt_names) if x]
+    best = None
     for p in (r.json() or {}).get("contacts") or []:
+        org = p.get("organization_name") or (p.get("organization") or {}).get("name")
+        if not _same_person(p, person) or not any(company_matches({"name": org, "primary_domain": (p.get("organization") or {}).get("primary_domain")}, n, website) for n in names):
+            continue
         email = str(p.get("email") or "").strip().lower()
-        if email and not LOCKED.search(email) and _same_person(p, person) and any(company_matches({"name": p.get("organization_name") or (p.get("organization") or {}).get("name"), "primary_domain": (p.get("organization") or {}).get("primary_domain")}, n, website) for n in [x for x in (practice, *alt_names) if x]):
-            return email, p.get("email_status")
-    return None
+        hit = {"email": None if (not email or LOCKED.search(email)) else email, "status": p.get("email_status"), "person_id": p.get("person_id"), "org": org}
+        if hit["email"]:
+            return hit
+        best = best or hit
+    return best
 
 
 def suggest_practices(org_info, practices, limit=5):
@@ -229,7 +237,7 @@ def coverage(rest):
     return {"practices": len(practices), "no_practice_manager": len(no_pm), "fewer_than_two": len(no_other), "covered": len(practices) - len(set(no_pm) | set(no_other))}
 
 
-CHECK_LOGIC_SINCE = "2026-11-20T14:40:00+00:00"   # review rows decided by an older, name-only search are re-checked by the job itself
+CHECK_LOGIC_SINCE = "2026-11-20T14:55:00+00:00"   # review rows decided by an older, name-only search are re-checked by the job itself
 
 
 def recheck_stale_review(rest):
@@ -270,19 +278,24 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
         free, reused = False, False
         try:
             if c.get("apollo_email"):   # found on an earlier run but the contact could not be saved: reuse the email, never look it up (or pay) twice
-                saved, reused = (c["apollo_email"], c.get("apollo_email_status")), True
+                saved, reused = {"email": c["apollo_email"], "status": c.get("apollo_email_status")}, True
             else:
-                try:   # step 0, free: already enriched in your Apollo account? Then the email is just pulled, no credits
+                try:   # step 0, free: already one of your Apollo contacts, at this practice?
                     saved = saved_contact(c, pr.get("practice_name"), pr.get("website"), key, post, alt)
                 except Exception as e:  # noqa: BLE001  the saved-contacts search is a bonus: if it is refused, the normal check and enrich still work
                     saved = None
                     out["saved_search_error"] = str(e)[:160]
-            if saved:
-                email, status, note = saved[0], saved[1], None
+            if saved and saved.get("email"):   # enriched before: the email is just pulled, no credits
+                email, status, note = saved["email"], saved.get("status"), None
                 free = bool(c.get("free")) if reused else True
                 if not reused:
                     out["from_apollo_contacts"] = out.get("from_apollo_contacts", 0) + 1
                     rest.patch("apollo_queue", pq, {"match": "matched", "matched_at": now})
+            elif saved:   # a saved Apollo contact at this practice but with no email yet: a verified match, enriched below by its own Apollo id
+                res = {"match": "matched", "apollo_person_id": saved.get("person_id"), "apollo_org": saved.get("org")}
+                rest.patch("apollo_queue", pq, {**res, "matched_at": now})
+                c.update(res)
+                out["from_saved_contact_match"] = out.get("from_saved_contact_match", 0) + 1
             elif c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
                 res = check(c, pr.get("practice_name"), pr.get("website"), key, post, alt)
                 out["checked"] += 1
