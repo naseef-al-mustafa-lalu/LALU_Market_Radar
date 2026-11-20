@@ -16,6 +16,17 @@ MAX_PER_RUN = 200
 LOCKED = re.compile(r"not_unlocked|@domain\.com$", re.I)   # Apollo's placeholder when the address is not revealed
 
 
+def main_titles(rest, titles):
+    """The job titles (of those given) that are Main under the saved Contacts > Settings rules, as decided by the database (apollo_title_sections). Raises if the database function is not there yet."""
+    uniq = sorted({t for t in titles if t is not None})
+    if not uniq:
+        return set()
+    out = set()
+    for i in range(0, len(uniq), 500):
+        out |= {r["title"] for r in (rest.rpc("apollo_title_sections", {"p_titles": uniq[i:i + 500]}) or []) if r.get("section") == "main"}
+    return out
+
+
 def lookup(person, practice, key, post=requests.post):
     """(email, email_status, note). One people/match call; it spends a credit only when an address comes back."""
     r = post(f"{API}/people/match", headers={"X-Api-Key": key, "Content-Type": "application/json", "Cache-Control": "no-cache"},
@@ -47,7 +58,11 @@ def coverage(rest):
 
 def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None):
     now = (now or datetime.now(timezone.utc)).isoformat()
-    approved = rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.approved"})[:max(0, min(cap, MAX_PER_RUN))]
+    approved = rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.approved"})
+    main = main_titles(rest, [c.get("job_title") or "" for c in approved])
+    for c in [c for c in approved if (c.get("job_title") or "") not in main]:   # the Settings rules changed since it was approved: only Main roles are looked up
+        rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "pending", "approved_by": None, "approved_at": None, "note": "no longer a Main role, taken back to waiting"})
+    approved = [c for c in approved if (c.get("job_title") or "") in main][:max(0, min(cap, MAX_PER_RUN))]
     names = {r["ods_code"]: r["practice_name"] for r in rest.select_all("gp_practices", "ods_code,practice_name", order="ods_code")}
     out = {"looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0}
     for c in approved:

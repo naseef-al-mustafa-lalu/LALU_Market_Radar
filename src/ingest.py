@@ -6,7 +6,7 @@ import traceback
 import re
 from datetime import date, datetime, timedelta, timezone
 
-from . import branches, contact_quality, cqc, jobs, maintenance, neverbounce, oscar, slack, software, sources
+from . import apollo, branches, contact_quality, cqc, jobs, maintenance, neverbounce, oscar, slack, software, sources
 from .common import Rest, need_env, refresh_contact_status, send_alert, title_case
 
 TRACKED = ["practice_name", "postcode", "website", "pcn_code", "pcn_name", "icb_name", "total_patients",
@@ -322,7 +322,9 @@ def contacts_step(rest, contacts, existing, records, stats, rejects):
             stats["noemail_error"] = str(e)[:150]
     stats["contacts_noemail"] = len(noemail)
     try:   # a named person with a decision-maker role and no address waits for Apollo (a person approves the credit spend); rows already there keep their state
-        named = [c for c in noemail if (c.get("full_name") or "").strip() and contact_quality.role_tier(c.get("job_title"))[0] in ("A", "B")]
+        named = [c for c in noemail if (c.get("full_name") or "").strip()]
+        main = apollo.main_titles(rest, [c.get("job_title") or "" for c in named])   # only Main job roles (Contacts > Settings) are queued
+        named = [c for c in named if (c.get("job_title") or "") in main]
         have = {r["contact_urn"] for r in rest.select_all("apollo_queue", "contact_urn", order="contact_urn")}
         fresh = [{"contact_urn": c["contact_urn"], "ods_code": c["ods_code"], "full_name": c.get("full_name"), "first_name": c.get("first_name"), "last_name": c.get("last_name"), "job_title": c.get("job_title"),
                   "role_tier": contact_quality.role_tier(c.get("job_title"))[0]} for c in named if c["contact_urn"] not in have]

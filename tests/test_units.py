@@ -1546,6 +1546,7 @@ def test_apollo_looks_up_only_approved_people_and_queues_found_addresses_for_nev
             return [{"ods_code": "A11111", "practice_name": "Test Surgery"}] if table == "gp_practices" else []
         def insert(self, table, rows, **kw): self.inserted.append((table, rows))
         def patch(self, table, filters, values): self.patched.append((filters, values))
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"] if t != "Cleaner"]
 
     rest = Rest()
     out = apollo.run(rest, "k", 10, post=lambda url, **kw: R(answers[kw["json"]["first_name"]]))
@@ -1582,6 +1583,7 @@ def test_hubspot_people_with_a_role_and_no_email_are_queued_for_apollo_once():
         def select_all(self, table, cols="*", order="", params=None):
             return {"apollo_queue": [{"hubspot_contact_id": "9", "ods_code": "E1", "full_name": "Already Queued"}], "contacts": [{"ods_code": "E1", "full_name": "Has Address"}]}[table]
         def insert(self, table, rows): self.ins.append((table, rows))
+        def rpc(self, name, args=None): return [{"title": t, "section": "main" if t == "Practice Manager" else "other"} for t in args["p_titles"]]
 
     contacts = {"1": {"firstname": "Kajal", "lastname": "Shah", "jobtitle": "Practice Manager"}, "2": {"firstname": "No", "lastname": "Role", "jobtitle": "Cleaner"},
                 "3": {"firstname": "Has", "lastname": "Address", "jobtitle": "Practice Manager"}, "4": {"firstname": "Kajal", "lastname": "Mail", "jobtitle": "Practice Manager", "email": "k@nhs.net"},
@@ -1615,3 +1617,20 @@ def test_an_apollo_address_goes_onto_the_existing_hubspot_person_not_a_new_recor
     assert not any(m == "POST" and p == "/crm/v3/objects/contacts" for m, p, _ in calls)
     patch = next(kw["json"]["properties"] for m, p, kw in calls if m == "PATCH")
     assert patch == {"neverbounce_status": "Valid", "email": "kajal.shah@practice.nhs.net"}
+
+
+def test_apollo_only_looks_up_people_whose_role_is_still_main():
+    from src import apollo
+
+    class Rest:
+        def __init__(self): self.patched = []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                return [{"contact_urn": 1, "ods_code": "A11111", "full_name": "Cy Cleaner", "first_name": "Cy", "last_name": "Cleaner", "job_title": "Cleaner", "role_tier": "x"}]
+            return [{"ods_code": "A11111", "practice_name": "Test Surgery"}] if table == "gp_practices" else []
+        def patch(self, table, filters, values): self.patched.append(values)
+        def rpc(self, name, args=None): return []   # nothing is Main
+
+    rest = Rest()
+    out = apollo.run(rest, "k", 10, post=lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not call Apollo")))
+    assert out["looked_up"] == 0 and rest.patched[0]["state"] == "pending"

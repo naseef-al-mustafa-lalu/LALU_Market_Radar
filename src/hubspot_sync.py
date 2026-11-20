@@ -199,6 +199,8 @@ def queue_hubspot_noemail(rest, by_ods, to_contacts, contacts):
     have_ids = {r["hubspot_contact_id"] for r in queued if r.get("hubspot_contact_id")}
     have_names = {(r["ods_code"], str(r.get("full_name") or "").strip().lower()) for r in queued}
     have_names |= {(r["ods_code"], str(r.get("full_name") or "").strip().lower()) for r in rest.select_all("contacts", "contact_urn,ods_code,full_name", order="contact_urn", params={"email": "not.is.null"})}
+    from . import apollo
+    main = apollo.main_titles(rest, [(contacts.get(str(cid)) or {}).get("jobtitle") or "" for cs in by_ods.values() for c in cs for cid in to_contacts.get(str(c["id"]), [])])   # only Main job roles (Contacts > Settings)
     rows = []
     for ods, cs in by_ods.items():
         for c in cs:
@@ -209,7 +211,7 @@ def queue_hubspot_noemail(rest, by_ods, to_contacts, contacts):
                 first, last = (pr.get("firstname") or "").strip(), (pr.get("lastname") or "").strip()
                 tier = contact_quality.role_tier(pr.get("jobtitle"))[0]
                 key = (ods, f"{first} {last}".strip().lower())
-                if not first or not last or tier not in ("A", "B") or key in have_names:
+                if not first or not last or (pr.get("jobtitle") or "") not in main or key in have_names:
                     continue
                 have_ids.add(cid)
                 have_names.add(key)
