@@ -1877,7 +1877,7 @@ def test_apollo_reports_the_best_same_name_candidate_not_the_first():
     assert res["match"] == "company_mismatch" and res["apollo_org"] == "Bromley by Bow Health" and res["apollo_person_id"] == "c" and res["apollo_looks_like_practice"] is True
 
 
-def test_apollo_search_asks_for_the_name_at_the_practice_and_title_not_the_name_alone():
+def test_apollo_search_narrows_by_name_and_job_title_then_compares_the_organisation():
     from src import apollo
 
     class R:
@@ -1885,24 +1885,32 @@ def test_apollo_search_asks_for_the_name_at_the_practice_and_title_not_the_name_
         def json(self): return self.j
         def raise_for_status(self): pass
 
-    sent = []
     person = {"full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager"}
+    sent = []
 
     def post(url, **kw):
         sent.append(kw["json"])
         return R({"people": [{"id": "p1", "first_name": "Ann", "last_name": "Le*", "title": "Practice Manager", "organization": {"name": "Heath Road Medical Practice"}}]})
 
     res = apollo.check(person, "Heath Road Surgery", None, "k", post=post)
-    assert res["match"] == "matched" and len(sent) == 1   # found at the practice on the first, targeted search
-    assert sent[0]["q_keywords"] == "Ann Lee Heath Road Surgery" and sent[0]["person_titles"] == ["Practice Manager"]
+    assert res["match"] == "matched" and len(sent) == 1
+    assert sent[0]["q_keywords"] == "Ann Lee" and sent[0]["person_titles"] == ["Practice Manager"]   # the practice goes nowhere near the keywords: Apollo returns nothing for that
 
     # the HubSpot company name counts as a name of the practice too
-    sent.clear()
     res = apollo.check(person, "Heath Road Surgery", None, "k", post=lambda u, **kw: R({"people": [{"id": "p2", "first_name": "Ann", "last_name": "Lee", "organization": {"name": "Bromley Partnership"}}]}), alt_names=["Bromley Partnership"])
     assert res["match"] == "matched"
 
-    # a filter Apollo rejects falls back to the plain name search instead of failing
+    # people of that title exist but none at the practice: stop, do not widen to same-name people with other jobs
     calls = []
+
+    def titled(url, **kw):
+        calls.append("person_titles" in kw["json"])
+        return R({"people": [{"id": "x", "first_name": "Ann", "last_name": "Lee", "title": "Practice Manager", "organization": {"name": "Elsewhere Health"}}]})
+
+    assert apollo.check(person, "Heath Road Surgery", None, "k", post=titled)["match"] == "company_mismatch" and calls == [True]
+
+    # nobody of that title: the name-only search; a filter Apollo rejects (422) also falls back to it
+    calls.clear()
 
     def picky(url, **kw):
         calls.append("person_titles" in kw["json"])

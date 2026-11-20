@@ -83,13 +83,14 @@ def _people_search(key, post, body):
 
 
 def check(person, practice, website, key, post=requests.post, alt_names=()):
-    """Free of credits: search Apollo for the person AT THIS PRACTICE and compare their organisation with it (the practice's name in Atlas, or its HubSpot company name). First a search for the name, the practice and the
-    job title; if nobody there is at the practice, a name-only search finds same-name people elsewhere for the review list. Returns {match, apollo_person_id, apollo_org} where match is matched, no_person or company_mismatch."""
+    """Free of credits: find the person in Apollo and compare their organisation with the practice (its Atlas name, or its HubSpot company name). Tested against the real API: a search for the name AND the job
+    title (person_titles) is the one that narrows a common name to the right person; putting the practice in the keywords, or filtering by organisation name or domain, returns nothing. So: search name + title; if
+    nobody of that title comes back, search the name alone. Returns {match, apollo_person_id, apollo_org} where match is matched, no_person or company_mismatch."""
     names = [n for n in (practice, *alt_names) if n]
     title = str(person.get("job_title") or "").strip()
-    targeted = {"q_keywords": f"{person.get('full_name')} {practice or ''}".strip(), "per_page": 25, "page": 1, **({"person_titles": [title]} if title else {})}
+    base = {"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}
     same = []
-    for body in (targeted, {"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}):
+    for body in ([{**base, "person_titles": [title]}] if title else []) + [base]:
         people = _people_search(key, post, body)
         if people is None:
             continue
@@ -98,6 +99,8 @@ def check(person, practice, website, key, post=requests.post, alt_names=()):
             if any(company_matches(p.get("organization"), n, website) for n in names):
                 return {"match": "matched", "apollo_person_id": p.get("id"), "apollo_org": (p.get("organization") or {}).get("name")}
         same += [p for p in found if p.get("id") not in {q.get("id") for q in same}]
+        if found:   # people of that title exist but none at this practice: do not widen to same-name people with other jobs
+            break
     if not same:
         return {"match": "no_person", "apollo_person_id": None, "apollo_org": None}
     best = max(same, key=lambda p: _candidate_score(p, person))   # not whichever came first: the one whose job title and organisation look most like our person
