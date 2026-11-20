@@ -123,7 +123,7 @@ def saved_contact(person, practice, website, key, post=requests.post, alt_names=
         if not _same_person(p, person) or not any(company_matches({"name": org, "primary_domain": (p.get("organization") or {}).get("primary_domain")}, n, website) for n in names):
             continue
         email = str(p.get("email") or "").strip().lower()
-        hit = {"email": None if (not email or LOCKED.search(email)) else email, "status": p.get("email_status"), "person_id": p.get("person_id"), "org": org}
+        hit = {"email": None if (not email or LOCKED.search(email)) else email, "status": p.get("email_status"), "person_id": p.get("person_id") or p.get("id"), "org": org}   # the contact's own id when it is not linked to a person record: the id Apollo itself shows for them
         if hit["email"]:
             return hit
         best = best or hit

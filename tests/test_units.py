@@ -1947,7 +1947,7 @@ def test_a_saved_apollo_contact_at_the_practice_without_an_email_counts_as_a_mat
     def post(url, **kw):
         seen.append((url.rsplit("/", 1)[-1], kw["json"].get("id")))
         if url.endswith("contacts/search"):
-            return R({"contacts": [{"first_name": "Shahana", "last_name": "Uddin", "email": None, "person_id": "pid-1", "organization_name": "St Andrews Health Centre"}]})
+            return R({"contacts": [{"id": "pid-1", "first_name": "Shahana", "last_name": "Uddin", "email": None, "person_id": None, "organization_name": "St Andrews Health Centre"}]})
         if url.endswith("people/match"):
             return R({"person": {"email": "shahana.uddin@x.nhs.net", "email_status": "verified"}})
         raise AssertionError("no name search is needed: the saved contact is the match")
@@ -1967,7 +1967,7 @@ def test_a_saved_apollo_contact_at_the_practice_without_an_email_counts_as_a_mat
 
     r = Rest()
     out = apollo.run(r, "k", 5, post=post, mode="enrich")
-    assert seen == [("search", None), ("match", "pid-1")] and out["found"] == 1 and out["from_saved_contact_match"] == 1   # pinned to the saved contact's own Apollo id
+    assert seen == [("search", None), ("match", "pid-1")] and out["found"] == 1 and out["from_saved_contact_match"] == 1   # pinned to the id Apollo shows for the saved contact (its person_id is empty)
     assert r.inserted[0][0]["email"] == "shahana.uddin@x.nhs.net"
     seen.clear()
     r2 = Rest()
@@ -1996,7 +1996,7 @@ def test_enrich_never_spends_credits_on_a_contact_without_an_apollo_id():
 
     def post(url, **kw):
         if url.endswith("contacts/search"):
-            return R({"contacts": [{"first_name": "Shahana", "last_name": "Uddin", "email": None, "person_id": None, "organization_name": "St Andrews Health Centre"}]})
+            return R({"contacts": [{"first_name": "Shahana", "last_name": "Uddin", "email": None, "person_id": None, "organization_name": "St Andrews Health Centre"}]})   # no id of any kind
         raise AssertionError("no enrichment without an Apollo id")
 
     class Rest:
