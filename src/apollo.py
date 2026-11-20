@@ -328,8 +328,9 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     for c in [c for c in approved if (c.get("job_title") or "") not in main]:   # the Settings rules changed since it was approved: only Main roles are looked up
         rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "pending", "approved_by": None, "approved_at": None, "note": "no longer a Main role, taken back to waiting"})
     approved = [c for c in approved if (c.get("job_title") or "") in main]
-    if only:   # a test on one named person: nobody else is looked up or paid for
-        approved = [c for c in approved if only.strip().lower() in str(c.get("full_name") or "").lower()]
+    if only:   # a test on named people (separated by semicolons): nobody else is looked up or paid for
+        wanted = [x.strip().lower() for x in only.split(";") if x.strip()]
+        approved = [c for c in approved if any(w in str(c.get("full_name") or "").lower() for w in wanted)]
     approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
     approved = approved[:max(0, min(cap, MAX_PER_RUN))]
     practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,hubspot_website,hubspot_company_id", order="ods_code")}

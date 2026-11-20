@@ -2143,3 +2143,27 @@ def test_waterfall_for_a_saved_contact_sends_external_identifiers_and_never_its_
     saved = {"first_name": "Faz", "last_name": "S", "apollo_person_id": "contact-id", "id_kind": "contact", "linkedin_url": "https://www.linkedin.com/in/faz"}
     apollo.waterfall_email(saved, "Brooklands Health Centre", "https://onemedicalgroup.co.uk/surgeries/brooklands/", "k", post=post, get=lambda *a, **k: R(), wait=5, step=5, sleep=lambda s: None)
     assert "id" not in sent[0] and sent[0]["organization_name"] == "Brooklands Health Centre" and sent[0]["domain"] == "onemedicalgroup.co.uk" and sent[0]["linkedin_url"].endswith("/faz")
+
+
+def test_only_accepts_several_names_separated_by_semicolons():
+    from src import apollo
+
+    class Rest:
+        def __init__(self): self.looked = []
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":
+                if (params or {}).get("state") != "eq.approved":
+                    return []
+                return [{"contact_urn": i, "ods_code": "A1", "full_name": n, "first_name": n.split()[0], "last_name": n.split()[1], "job_title": "Practice Manager", "match": "matched"} for i, n in enumerate(["Ann Lee", "Bob Ray", "Cy Dee"], 1)]
+            return [{"ods_code": "A1", "practice_name": "P", "website": None, "hubspot_website": None, "hubspot_company_id": None}] if table == "gp_practices" else []
+        def patch(self, table, filters, values): pass
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    seen = []
+
+    def post(url, **kw):
+        seen.append(kw["json"].get("q_keywords"))
+        raise RuntimeError("stop")
+
+    apollo.run(Rest(), "k", 10, post=post, mode="check", only="ann lee; cy dee")
+    assert sorted(set(seen)) == ["Ann Lee", "Cy Dee"]   # Bob is never touched

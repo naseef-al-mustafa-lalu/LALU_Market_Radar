@@ -13,7 +13,7 @@ on:
         required: false
         default: '0'
       only:
-        description: 'Only this person (part of the full name), for a test: nobody else is looked up or paid for'
+        description: 'Only these people (part of the full name; separate several with semicolons), for a test: nobody else is looked up or paid for'
         required: false
         default: ''
       mode:
