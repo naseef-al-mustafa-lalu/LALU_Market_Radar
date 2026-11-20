@@ -1,14 +1,14 @@
 /* ---------- Apollo: addresses for named decision-makers Oscar has no email for ---------- */
 // Oscar contacts with a name and a decision-maker role but no address wait here. A person approves the credit spend; the Apollo job (GitHub Action "Apollo lookup") looks approved ones up, and an address
 // found becomes a contact that enters the NeverBounce queue. Nothing goes to HubSpot from this page.
-let ctApollo = { rows: [], counts: {}, status: null, names: {} }, ctApSel = new Set(), ctApF = { role: "", q: "" }, ctApLimit = 300, ctApCredits = { balance: null, at: null, foundSince: 0, per: 15 };   // balance is typed in by hand (Apollo's own figure) and spend since then is counted from the addresses found
+let ctApollo = { rows: [], review: [], counts: {}, status: null, names: {} }, ctApSel = new Set(), ctApF = { role: "", q: "" }, ctApLimit = 300, ctApView = "queue", ctApRevQ = {}, ctApCredits = { balance: null, at: null, foundSince: 0, per: 15 };   // balance is typed in by hand (Apollo's own figure) and spend since then is counted from the addresses found
 const CT_AP_CAP = 200;   // matches MAX_PER_RUN in src/apollo.py
 async function ctLoadApollo() {
   const cnt = s => db.from("apollo_queue").select("contact_urn", { count: "exact", head: true }).eq("state", s);
   const pages = async (table, cols, filter) => { const out = []; for (let from = 0; ; from += 1000) { let q = db.from(table).select(cols).order(table === "gp_practices" ? "ods_code" : "contact_urn").range(from, from + 999); if (filter) q = filter(q); const { data, error } = await q; if (error) throw error; out.push(...(data || [])); if (!data || data.length < 1000) break; } return out; };   // the queue can hold thousands: read it all so search and the role filter see everyone
-  const [p, a, f, n, allRows, allPractices, st] = await Promise.all([cnt("pending"), cnt("approved"), cnt("found"), cnt("not_found"),
-    pages("apollo_queue", "*", q => q.in("state", ["pending", "approved"])), pages("gp_practices", "ods_code,practice_name"), db.from("app_flags").select("value").eq("key", "apollo_status").maybeSingle()]);
-  const rows = { data: allRows };
+  const [p, a, f, n, rv, allRows, allPractices, st] = await Promise.all([cnt("pending"), cnt("approved"), cnt("found"), cnt("not_found"), cnt("review"),
+    pages("apollo_queue", "*", q => q.in("state", ["pending", "approved", "review"])), pages("gp_practices", "ods_code,practice_name"), db.from("app_flags").select("value").eq("key", "apollo_status").maybeSingle()]);
+  const rows = { data: allRows.filter(r => r.state !== "review") }, review = allRows.filter(r => r.state === "review");
   const set = await db.from("app_flags").select("value").eq("key", "apollo_settings").maybeSingle(), cs = (set.data || {}).value || {};
   ctApCredits = { balance: Number.isFinite(Number(cs.balance)) && cs.balance !== null ? Number(cs.balance) : null, at: cs.at || null, foundSince: 0, per: Number(cs.per) > 0 ? Number(cs.per) : 15 };
   if (ctApCredits.at) { const fs = await db.from("apollo_queue").select("contact_urn", { count: "exact", head: true }).eq("state", "found").gt("checked_at", ctApCredits.at); ctApCredits.foundSince = fs.count || 0; }
@@ -16,10 +16,10 @@ async function ctLoadApollo() {
   if (titles.length) { const t = await db.rpc("apollo_title_sections", { p_titles: titles }); (t.data || []).forEach(x => secs.set(x.title, x)); }
   (rows.data || []).forEach(r => { const x = secs.get(r.job_title || "") || {}; r.role_id = x.role_id || "other"; r.section = x.section || "other"; });
   const names = {}; allPractices.forEach(x => names[x.ods_code] = x.practice_name);
-  ctApollo = { rows: rows.data || [], counts: { pending: p.count || 0, approved: a.count || 0, found: f.count || 0, not_found: n.count || 0 }, status: (st.data || {}).value || null, names };
+  ctApollo = { rows: rows.data || [], review, counts: { pending: p.count || 0, approved: a.count || 0, found: f.count || 0, not_found: n.count || 0, review: rv.count || 0 }, status: (st.data || {}).value || null, names };
 }
 const ctApShown = () => { const q = ctApF.q.trim().toLowerCase(); return ctApollo.rows.filter(r => (!ctApF.role || r.role_id === ctApF.role) && (!q || (r.full_name + " " + r.job_title + " " + (ctApollo.names[r.ods_code] || "") + " " + r.ods_code).toLowerCase().includes(q))); };
-function ctApolloView() {
+function ctApolloQueueView() {
   const { counts: c, status, names } = ctApollo, all = ctApShown(), rows = all.slice(0, ctApLimit), roleOpts = [...new Set(ctApollo.rows.map(r => r.role_id))].map(id => [id, (CT_ROLE[id] || { label: id }).label]).sort((a, b) => a[1].localeCompare(b[1])),
     cov = (status || {}).coverage, run = (status || {}).run;
   const tile = (k, v, sub = "") => `<div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-2xl font-bold">${v}</div><div class="text-xs text-slate-500">${sub}</div></div>`;
@@ -42,13 +42,38 @@ function ctApolloView() {
       ${rows.map(r => `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5"><input type="checkbox" class="ap-chk" data-u="${r.contact_urn}" ${ctApSel.has(r.contact_urn) ? "checked" : ""} aria-label="Tick ${esc(r.full_name || "contact")}"></td><td class="px-2">${esc(r.full_name || "")}${r.source === "hubspot" ? " " + chip("In HubSpot", "bg-sky-100 text-sky-800", "HubSpot holds this person with no email address; the address found is added to that record") : ""}</td><td class="px-2">${esc(r.job_title || "")} <span class="text-xs text-slate-400">${esc((CT_ROLE[r.role_id] || { label: "" }).label)}</span></td><td class="px-2">${esc(names[r.ods_code] || r.ods_code)} <span class="text-xs text-slate-400">${esc(r.ods_code)}</span></td><td class="px-2">${r.state === "approved" ? chip("Approved", "bg-emerald-100 text-emerald-800", "by " + (r.approved_by || "")) : chip("Waiting", "bg-slate-100 text-slate-600")}${r.match === "matched" ? " " + chip("Verified at Apollo", "bg-sky-100 text-sky-800", "Apollo has this person at " + (r.apollo_org || "this practice") + ". The address is looked up next.") : ""}</td></tr>`).join("") || '<tr><td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500">Nothing is waiting. New names appear after the daily Oscar import.</td></tr>'}
     </tbody></table></div>${all.length > rows.length ? `<div class="text-center"><button type="button" id="ap-more" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Show 300 more (${(all.length - rows.length).toLocaleString()} left)</button></div>` : ""}</div>`;
 }
+const ctApTabs = () => `<div class="flex gap-1 text-sm"><button data-apv="queue" class="ap-tab rounded-md px-3 py-1 ${ctApView === "queue" ? "bg-white shadow-sm font-semibold" : "text-slate-500"}">Queue</button><button data-apv="review" class="ap-tab rounded-md px-3 py-1 ${ctApView === "review" ? "bg-white shadow-sm font-semibold" : "text-slate-500"}">Review${ctApollo.counts.review ? ` <span class="rounded-full bg-amber-100 px-1.5 text-xs text-amber-800">${ctApollo.counts.review}</span>` : ""}</button></div>`;
+const ctApolloView = () => `<div class="space-y-3">${ctApTabs()}${ctApView === "review" ? ctApolloReviewView() : ctApolloQueueView()}</div>`;
+const ctApPick = (urn) => { const q = String(ctApRevQ[urn] || "").trim().toLowerCase(); if (q.length < 3) return []; return Object.entries(ctApollo.names).filter(([ods, n]) => (n + " " + ods).toLowerCase().includes(q)).slice(0, 6).map(([ods, n]) => ({ ods_code: ods, practice_name: n })); };
+function ctApolloReviewView() {
+  const rows = ctApollo.review, names = ctApollo.names, btn = (urn, p) => `<button type="button" class="ap-move mt-1 mr-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-emerald-50" data-u="${urn}" data-ods="${esc(p.ods_code)}">${esc(p.practice_name)} <span class="text-slate-400">${esc(p.ods_code)}</span></button>`;
+  return `<p class="text-sm text-slate-600">Apollo has these approved people at a <b>different organisation</b> than the practice Atlas holds them at, so no credits were spent. If Apollo's organisation is the right practice, click it (or search for it) to <b>move the contact there and re-queue them for enrichment</b>. If it is not the same person, dismiss them.${ctMsg ? ` <span class="text-xs text-slate-500">${esc(ctMsg)}</span>` : ""}</p>
+    <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-2 py-2">Contact</th><th class="px-2">Atlas has them at</th><th class="px-2">Apollo has them at</th><th class="px-2">Move to practice</th><th class="px-2"></th></tr></thead><tbody>
+    ${rows.map(r => { const o = r.apollo_org_info || {}, sug = r.suggested_ods || [], pick = ctApPick(r.contact_urn);
+      return `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5">${esc(r.full_name || "")}${r.source === "hubspot" ? " " + chip("In HubSpot", "bg-sky-100 text-sky-800", "HubSpot holds this person; moving them here does not change their company in HubSpot") : ""}<div class="text-xs text-slate-500">${esc(r.job_title || "")}</div></td>
+        <td class="px-2">${esc(names[r.ods_code] || r.ods_code)} <span class="text-xs text-slate-400">${esc(r.ods_code)}</span></td>
+        <td class="px-2">${esc(r.apollo_org || o.name || "unknown")}<div class="text-xs text-slate-500">${esc([o.city, o.postal_code, o.primary_domain].filter(Boolean).join(" · "))}</div></td>
+        <td class="px-2">${sug.length ? `<div class="text-xs text-slate-500">Looks like:</div>${sug.map(p => btn(r.contact_urn, p)).join("")}` : '<div class="text-xs text-slate-400">No likely practice found</div>'}
+          <input class="ap-rq mt-1 w-56 rounded-lg border border-slate-300 px-2 py-1 text-xs" data-u="${r.contact_urn}" value="${esc(ctApRevQ[r.contact_urn] || "")}" placeholder="Search another practice (3+ letters)" aria-label="Search a practice for ${esc(r.full_name || "contact")}">${pick.length ? `<div>${pick.map(p => btn(r.contact_urn, p)).join("")}</div>` : ""}</td>
+        <td class="px-2"><button type="button" class="ap-dismiss rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50" data-u="${r.contact_urn}">Not them</button></td></tr>`; }).join("") || '<tr><td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500">Nothing to review. People Apollo has at a different practice appear here after a check.</td></tr>'}
+    </tbody></table></div>`;
+}
+async function ctApReviewAct(fn, args, done) {
+  const { error } = await db.rpc(fn, args);
+  if (error) { ctMsg = "Could not save: " + (error.message || error); renderContacts(); return; }
+  ctTabReady.apollo = false; await ctLoadApollo(); ctTabReady.apollo = true; ctMsg = done; renderContacts();
+}
 async function ctApolloApprove(approve) {
   const urns = [...ctApSel]; if (!urns.length) return;
   const { error } = await db.rpc("set_apollo_approval", { p_urns: urns, p_approve: approve });
   if (error) { ctMsg = "Could not save: " + (error.message || error); renderContacts(); return; }
   ctApSel.clear(); ctTabReady.apollo = false; await ctLoadApollo(); ctTabReady.apollo = true; ctMsg = approve ? `${urns.length} approved. They are looked up the next time the Apollo lookup action runs.` : `${urns.length} taken back to waiting.`; renderContacts();
 }
-document.addEventListener("click", e => { const t = e.target; if (t.id === "ap-approve") ctApolloApprove(true); else if (t.id === "ap-takeback") ctApolloApprove(false); else if (t.id === "ap-tick-all") { ctApShown().forEach(r => ctApSel.add(r.contact_urn)); renderContacts(); } else if (t.id === "ap-more") { ctApLimit += 300; renderContacts(); } else if (t.id === "ap-clear") { ctApSel.clear(); renderContacts(); } else if (t.classList && t.classList.contains("ap-chk")) { const u = Number(t.dataset.u); t.checked ? ctApSel.add(u) : ctApSel.delete(u); renderContacts(); } });
+document.addEventListener("click", e => { const t = e.target.closest ? (e.target.closest(".ap-move, .ap-dismiss, .ap-tab") || e.target) : e.target;
+  if (t.classList && t.classList.contains("ap-tab")) { ctApView = t.dataset.apv; ctMsg = ""; renderContacts(); return; }
+  if (t.classList && t.classList.contains("ap-move")) { ctApReviewAct("apollo_move_to_practice", { p_urn: Number(t.dataset.u), p_ods: t.dataset.ods }, "Moved and re-queued: the address is looked up on the next Apollo run (enrich mode)."); return; }
+  if (t.classList && t.classList.contains("ap-dismiss")) { ctApReviewAct("apollo_dismiss_review", { p_urns: [Number(t.dataset.u)] }, "Dismissed."); return; }
+  if (t.id === "ap-approve") ctApolloApprove(true); else if (t.id === "ap-takeback") ctApolloApprove(false); else if (t.id === "ap-tick-all") { ctApShown().forEach(r => ctApSel.add(r.contact_urn)); renderContacts(); } else if (t.id === "ap-more") { ctApLimit += 300; renderContacts(); } else if (t.id === "ap-clear") { ctApSel.clear(); renderContacts(); } else if (t.classList && t.classList.contains("ap-chk")) { const u = Number(t.dataset.u); t.checked ? ctApSel.add(u) : ctApSel.delete(u); renderContacts(); } });
 document.addEventListener("change", e => { const t = e.target; if (t.id === "ap-all") { document.querySelectorAll(".ap-chk").forEach(c => { t.checked ? ctApSel.add(Number(c.dataset.u)) : ctApSel.delete(Number(c.dataset.u)); }); renderContacts(); } });
 document.addEventListener("change", e => { if (e.target.id === "ap-role") { ctApF.role = e.target.value; ctApLimit = 300; renderContacts(); } });
 document.addEventListener("input", e => { if (e.target.id === "ap-q") { ctApF.q = e.target.value; ctApLimit = 300; renderContacts(); const el = $("ap-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } } });
@@ -61,3 +86,4 @@ document.addEventListener("change", e => {
   if (e.target.id === "ap-bal") ctApSaveSettings(e.target.value === "" ? null : Math.max(0, Number(e.target.value)), ctApCredits.per);
   else if (e.target.id === "ap-per") ctApSaveSettings(ctApCredits.balance, Math.max(1, Number(e.target.value) || 15));
 });
+document.addEventListener("input", e => { if (!(e.target.classList && e.target.classList.contains("ap-rq"))) return; ctApRevQ[e.target.dataset.u] = e.target.value; const u = e.target.dataset.u; renderContacts(); const el = document.querySelector(`.ap-rq[data-u="${u}"]`); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });

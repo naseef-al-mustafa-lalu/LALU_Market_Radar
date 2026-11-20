@@ -68,7 +68,21 @@ def check(person, practice, website, key, post=requests.post):
     for p in same:
         if company_matches(p.get("organization"), practice, website):
             return {"match": "matched", "apollo_person_id": p.get("id"), "apollo_org": (p.get("organization") or {}).get("name")}
-    return {"match": "company_mismatch", "apollo_person_id": same[0].get("id"), "apollo_org": (same[0].get("organization") or {}).get("name")}
+    org = same[0].get("organization") or {}
+    return {"match": "company_mismatch", "apollo_person_id": same[0].get("id"), "apollo_org": org.get("name"),
+            "apollo_org_info": {k: org.get(k) for k in ("name", "primary_domain", "city", "postal_code") if org.get(k)}}
+
+
+def suggest_practices(org_info, practices, limit=5):
+    """Practices that look like the organisation Apollo has the person at: same website domain first, then the most shared distinctive words in the name (and the same postcode area breaks a tie)."""
+    a, dom, post = _tokens((org_info or {}).get("name")), _domain((org_info or {}).get("primary_domain")), str((org_info or {}).get("postal_code") or "").replace(" ", "").upper()
+    scored = []
+    for p in practices:
+        b = _tokens(p.get("practice_name"))
+        score = (10 if dom and dom == _domain(p.get("website")) else 0) + (len(a & b) / len(a | b) if a and b else 0) + (0.2 if post and post[:4] == str(p.get("postcode") or "").replace(" ", "").upper()[:4] else 0)
+        if score >= 0.5:
+            scored.append((score, p))
+    return [{"ods_code": p["ods_code"], "practice_name": p["practice_name"]} for _, p in sorted(scored, key=lambda x: -x[0])[:limit]]
 
 
 def lookup(person, practice, key, post=requests.post):
@@ -111,7 +125,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich")
     approved = [c for c in approved if (c.get("job_title") or "") in main]
     approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
     approved = approved[:max(0, min(cap, MAX_PER_RUN))]
-    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website", order="ods_code")}
+    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,postcode", order="ods_code")}
     out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0}
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
@@ -122,9 +136,14 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich")
                 out["checked"] += 1
                 rest.patch("apollo_queue", pq, {**res, "matched_at": now})
                 c.update(res)
+                if res["match"] == "company_mismatch":   # a review list: move them to the matching practice, then they are re-queued for enrichment
+                    out["review"] = out.get("review", 0) + 1
+                    rest.patch("apollo_queue", pq, {"state": "review", "checked_at": now, "suggested_ods": suggest_practices(res.get("apollo_org_info"), practices.values()),
+                                                    "note": f"Apollo has them at {res.get('apollo_org') or 'another organisation'}, not this practice"})
+                    continue
                 if res["match"] != "matched":
                     out["no_match"] += 1
-                    rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": "Apollo has no one of that name" if res["match"] == "no_person" else f"Apollo has them at {res.get('apollo_org') or 'another organisation'}, not this practice"})
+                    rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": "Apollo has no one of that name"})
                     continue
             out["matched"] += 1
             if mode == "check":

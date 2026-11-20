@@ -1559,14 +1559,25 @@ def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verifi
 
     rest = Rest()
     out = apollo.run(rest, "k", 10, post=post)
-    assert out["checked"] == 3 and out["matched"] == 1 and out["no_match"] == 2 and out["found"] == 1
+    assert out["checked"] == 3 and out["matched"] == 1 and out["no_match"] == 1 and out["review"] == 1 and out["found"] == 1
     assert calls.count("match") == 1   # credits are only spent for the verified person
     (_, rows), = rest.inserted
     assert rows[0]["email"] == "ann.lee@practice.nhs.net" and rows[0]["source"] == "apollo" and rows[0]["nb_state"] == "pending"
-    notes = {u: v.get("note") for u, v in rest.patched if v.get("state") == "not_found"}
-    assert "no one of that name" in notes["eq.3"] and "Somewhere Else Ltd" in notes["eq.2"]
+    notes = {u: v for u, v in rest.patched if v.get("state") in ("not_found", "review")}
+    assert "no one of that name" in notes["eq.3"]["note"] and notes["eq.3"]["state"] == "not_found"
+    assert notes["eq.2"]["state"] == "review" and "Somewhere Else Ltd" in notes["eq.2"]["note"]   # a different practice goes to the review list, not away
     only_check = apollo.run(Rest(), "k", 10, post=lambda url, **kw: R({"people": people["Ann"]}) if url.endswith("api_search") else (_ for _ in ()).throw(AssertionError("check mode must not enrich")), mode="check")
     assert only_check["found"] == 0 and only_check["matched"] == 1
+
+
+def test_apollo_suggests_practices_that_look_like_the_organisation_it_has_the_person_at():
+    from src import apollo
+
+    practices = [{"ods_code": "A1", "practice_name": "Staverton Surgery", "website": "https://www.staverton.nhs.uk", "postcode": "TQ9 6PA"},
+                 {"ods_code": "A2", "practice_name": "Heath Road Medical Centre", "website": None, "postcode": "TQ1 1AA"},
+                 {"ods_code": "A3", "practice_name": "Staverton Road Practice", "website": None, "postcode": "EX1 1AA"}]
+    got = apollo.suggest_practices({"name": "Staverton Health", "primary_domain": "staverton.nhs.uk", "postal_code": "TQ9 6PA"}, practices)
+    assert [p["ods_code"] for p in got][:2] == ["A1", "A3"] and "A2" not in [p["ods_code"] for p in got]
 
 
 def test_apollo_company_match_uses_domain_or_the_practices_distinctive_words():
