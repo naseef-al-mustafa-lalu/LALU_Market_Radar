@@ -1857,3 +1857,19 @@ def test_a_namesake_at_an_organisation_that_is_not_a_practice_is_not_sent_to_rev
     out = apollo.run(r, "k", 5, post=post, mode="check")
     assert out.get("review", 0) == 0 and out["no_match"] == 1
     assert any(v.get("state") == "not_found" and "Oconnor Design" in v["note"] for v in r.patched)
+
+
+def test_apollo_reports_the_best_same_name_candidate_not_the_first():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def json(self): return {"people": [
+            {"id": "a", "first_name": "Shahana", "last_name": "Ud***n", "title": "Talent Acquisition Partner", "organization": {"name": "MS Reinsurance"}},
+            {"id": "b", "first_name": "Shahana", "last_name": "Ud***n", "title": "Pharmacist Manager", "organization": {"name": "Well Pharmacy"}},
+            {"id": "c", "first_name": "Shahana", "last_name": "Ud***n", "title": "Practice Manager", "organization": {"name": "Bromley by Bow Health"}}]}
+        def raise_for_status(self): pass
+
+    res = apollo.check({"full_name": "Shahana Uddin", "first_name": "Shahana", "last_name": "Uddin", "job_title": "Practice Manager"}, "St Andrews Health Centre", "https://www.bbbhp.org.uk/", "k", post=lambda *a, **k: R())
+    assert res["match"] == "company_mismatch" and res["apollo_org"] == "Bromley by Bow Health" and res["apollo_person_id"] == "c" and res["apollo_looks_like_practice"] is True

@@ -56,6 +56,20 @@ def _same_person(p, person):
     return bool(first and last and str(p.get("first_name") or "").strip().lower() == first and last_p and last.startswith(last_p))
 
 
+HEALTH = re.compile(r"health|medical|surgery|practice|centre|center|clinic|pcn|partnership|\bgp\b|\bnhs\b|primary care|doctors", re.I)
+
+
+def _words(text):
+    return set(re.findall(r"[a-z]+", str(text or "").lower())) - {"and", "of", "the", "a"}
+
+
+def _candidate_score(p, person):
+    """How much a same-name Apollo result looks like our person: the job title (+2 when it holds all the words of ours, +1 for some, so a Practice Manager beats a Pharmacist Manager) and a healthcare-looking organisation (+1)."""
+    theirs, ours = _words(p.get("title")), _words(person.get("job_title"))
+    title = 2 if ours and ours <= theirs else (1 if theirs & ours else 0)
+    return title + (1 if HEALTH.search(str((p.get("organization") or {}).get("name") or "")) else 0)
+
+
 def check(person, practice, website, key, post=requests.post):
     """Free of credits: search Apollo for the person and compare their organisation with the practice. Returns {match, apollo_person_id, apollo_org} where match is matched, no_person or company_mismatch."""
     r = post(f"{API}/mixed_people/api_search", headers=HEADERS(key), json={"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}, timeout=60)
@@ -68,8 +82,9 @@ def check(person, practice, website, key, post=requests.post):
     for p in same:
         if company_matches(p.get("organization"), practice, website):
             return {"match": "matched", "apollo_person_id": p.get("id"), "apollo_org": (p.get("organization") or {}).get("name")}
-    org = same[0].get("organization") or {}
-    return {"match": "company_mismatch", "apollo_person_id": same[0].get("id"), "apollo_org": org.get("name"),
+    best = max(same, key=lambda p: _candidate_score(p, person))   # not whichever came first: the one whose job title and organisation look most like our person
+    org = best.get("organization") or {}
+    return {"match": "company_mismatch", "apollo_person_id": best.get("id"), "apollo_org": org.get("name"), "apollo_looks_like_practice": _candidate_score(best, person) >= 3,
             "apollo_org_info": {k: org.get(k) for k in ("name", "primary_domain", "city", "postal_code") if org.get(k)}}
 
 
@@ -231,11 +246,11 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             elif c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
                 res = check(c, pr.get("practice_name"), pr.get("website"), key, post)
                 out["checked"] += 1
-                rest.patch("apollo_queue", pq, {**res, "matched_at": now})
+                rest.patch("apollo_queue", pq, {**{k: v for k, v in res.items() if k != "apollo_looks_like_practice"}, "matched_at": now})
                 c.update(res)
                 if res["match"] == "company_mismatch":
                     sug = suggest_practices(res.get("apollo_org_info"), practices.values())
-                    if not sug:   # no practice looks like Apollo's organisation (a designer, a publisher): a namesake, not our person
+                    if not sug and not res.get("apollo_looks_like_practice"):   # no practice looks like Apollo's organisation and the person does not look like ours (a designer, a publisher): a namesake
                         out["no_match"] += 1
                         rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": f"Apollo has someone of that name at {res.get('apollo_org') or 'another organisation'}, which is not a practice we know"})
                         continue
