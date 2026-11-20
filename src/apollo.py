@@ -150,11 +150,26 @@ def _emails_in(obj):
     return []
 
 
-def waterfall_email(person, practice, website, key, post=requests.post, get=requests.get, wait=240, step=10, sleep=time.sleep):
-    """The email Apollo's screen reveals through its waterfall (extra third-party email sources), for someone the plain lookup holds no email for. Sent as a fresh identity match from external identifiers
-    (name, the practice, the employer's website domain, LinkedIn when known), because a saved contact's own id is an empty shell that anchors the lookup to nothing; the Apollo id is only added when it is a real
-    person id (from the people search). Apollo answers at once with a request id and the result is polled for (no webhook needed). Some vendors charge per lookup even when they find nothing, so this only
-    runs when asked for. Returns (email, note), the note saying what Apollo answered."""
+def poll_waterfall(rid, key, get=requests.get):
+    """One free poll of a waterfall request. Returns (email, finished, note): finished is True once Apollo has an answer (an email, or its own account that it found none), False while it is still working."""
+    pr = get(f"{API}/webhook_result/{rid}", headers=HEADERS(key), timeout=60)
+    if pr.status_code == 404:
+        return None, False, "not ready yet"
+    pr.raise_for_status()
+    ans = pr.json() or {}
+    found = _emails_in(ans)
+    if found:
+        return found[0], True, "email found"
+    nested = ans.get("webhook_result") if isinstance(ans.get("webhook_result"), dict) else {}
+    if nested or ans.get("failure_reason"):
+        return None, True, (f"credits consumed {nested.get('credits_consumed')}, emails enriched {nested.get('email_records_enriched')}, emails not found {nested.get('email_records_not_found')}" if nested else f"failure: {str(ans.get('failure_reason'))[:100]}")
+    return None, False, f"not ready yet (answer keys {sorted(ans)[:6]})"
+
+
+def submit_waterfall(person, practice, website, key, post=requests.post):
+    """Ask Apollo's waterfall (extra third-party email sources, what its screen uses) for someone the plain lookup holds no email for. Sent as a fresh identity match from external identifiers (name, the practice,
+    the employer's website domain, LinkedIn when known), because a saved contact's own id is an empty shell that anchors the lookup to nothing; the Apollo id is only added when it is a real person id (from the
+    people search). Poll-only, no webhook. Some vendors charge per lookup even when they find nothing, so this only runs when asked for. Returns (email, request_id, note)."""
     body = {"run_waterfall_email": True, "poll_only": True, "reveal_personal_emails": False, "first_name": person.get("first_name"), "last_name": person.get("last_name")}
     if practice:
         body["organization_name"] = practice
@@ -171,29 +186,52 @@ def waterfall_email(person, practice, website, key, post=requests.post, get=requ
     j = r.json() or {}
     found = _emails_in(j.get("person") or {})
     if found:
-        return found[0], "waterfall: email in the first answer"
+        return found[0], None, "waterfall: email in the first answer"
     rid = j.get("request_id_str") or j.get("request_id")
-    accepted = f"first answer keys {sorted(j)[:8]}, waterfall {str(j.get('waterfall'))[:100]}, match_confidence {(j.get('person') or {}).get('match_confidence')}"   # kept in the note: the reply is read, not guessed
-    if not rid:
-        return None, f"waterfall: no request id ({accepted})"
-    codes, last = [], {}
+    seen = f"first answer keys {sorted(j)[:8]}, waterfall {str(j.get('waterfall'))[:100]}, match_confidence {(j.get('person') or {}).get('match_confidence')}"   # kept in the note: the reply is read, not guessed
+    return None, (str(rid) if rid else None), (f"waterfall submitted ({seen})" if rid else f"waterfall: no request id ({seen})")
+
+
+def waterfall_email(person, practice, website, key, post=requests.post, get=requests.get, wait=40, step=10, sleep=time.sleep):
+    """Submit the waterfall and poll briefly. Returns (email, pending_request_id, note): when Apollo is still working after the short wait, the request id comes back so it can be kept and polled by later runs,
+    instead of the job waiting for however long Apollo takes."""
+    email, rid, note = submit_waterfall(person, practice, website, key, post)
+    if email or not rid:
+        return email, None, note
     for _ in range(max(1, wait // step)):
         sleep(step)
-        pr = get(f"{API}/webhook_result/{rid}", headers=HEADERS(key), timeout=60)
-        codes.append(pr.status_code)
-        if pr.status_code == 404:
+        email, finished, pnote = poll_waterfall(rid, key, get)
+        if email:
+            return email, None, "waterfall: email found"
+        if finished:
+            return None, None, f"waterfall: finished, no email ({pnote})"
+    return None, rid, "waterfall: still working"
+
+
+def collect_waterfall(rest, key, get=requests.get, now=None):
+    """Poll every saved waterfall request (free). An email is put on its row, so the normal run finishes the contact; a request that finished with nothing, or that Apollo never answered in 24 hours, is closed with a note."""
+    now = now or datetime.now(timezone.utc)
+    out = {"ready": 0, "empty": 0, "waiting": 0, "expired": 0}
+    for r in rest.select_all("apollo_queue", "contact_urn,waterfall_request_id,waterfall_requested_at", order="contact_urn", params={"waterfall_request_id": "not.is.null"}):
+        pq = {"contact_urn": f"eq.{r['contact_urn']}"}
+        try:
+            email, finished, note = poll_waterfall(r["waterfall_request_id"], key, get)
+        except Exception as e:  # noqa: BLE001  tried again on the next run
+            out["waiting"] += 1
+            print(f"Waterfall poll failed for {r['contact_urn']}: {str(e)[:100]}", file=sys.stderr)
             continue
-        pr.raise_for_status()
-        last = pr.json() or {}
-        found = _emails_in(last)
-        if found:
-            return found[0], "waterfall: email found"
-        if str(last.get("status") or "").lower() in ("complete", "completed", "done", "failed", "error", "no_results"):
-            break
-    nested = last.get("webhook_result") if isinstance(last.get("webhook_result"), dict) else {}
-    outcome = (f"finished: credits consumed {nested.get('credits_consumed')}, emails enriched {nested.get('email_records_enriched')}, emails not found {nested.get('email_records_not_found')}" if nested
-               else f"not ready after {len(codes) * step}s, last answer keys {sorted(last)[:6]}")   # Apollo's own account of the waterfall, so a miss is distinguishable from a slow answer
-    return None, f"waterfall: no email ({outcome}; polls {codes[:3]}..x{len(codes)}; {accepted})"
+        if email:
+            rest.patch("apollo_queue", pq, {"apollo_email": email, "waterfall_request_id": None, "note": "waterfall email ready"})
+            out["ready"] += 1
+        elif finished:
+            rest.patch("apollo_queue", pq, {"waterfall_request_id": None, "note": f"waterfall finished with no email ({note})"})
+            out["empty"] += 1
+        elif r.get("waterfall_requested_at") and (now - datetime.fromisoformat(str(r["waterfall_requested_at"]).replace("Z", "+00:00"))).total_seconds() > 86400:
+            rest.patch("apollo_queue", pq, {"waterfall_request_id": None, "note": "waterfall: Apollo gave no answer in 24 hours"})
+            out["expired"] += 1
+        else:
+            out["waiting"] += 1
+    return out
 
 
 def _name_key(ods, name):
@@ -354,6 +392,10 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     """mode 'check': only verify approved contacts at Apollo (no credits). 'enrich': verify, then look up the email of each verified one. Both are capped at `cap` contacts a run."""
     now = (now or datetime.now(timezone.utc)).isoformat()
     applied = apply_accepted(rest, now)
+    try:   # waterfall requests saved by earlier runs: free to poll, and an email that has arrived is put on its row for this run to finish
+        collected = collect_waterfall(rest, key, get)
+    except Exception as e:  # noqa: BLE001
+        collected = {"error": str(e)[:100]}
     reopened = reopen_unrevealed(rest)
     approved = rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.approved"})
     main = main_titles(rest, [c.get("job_title") or "" for c in approved])
@@ -373,7 +415,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     except Exception:  # noqa: BLE001
         hs_names = {}
     pause = 0.3 if post is requests.post else 0   # Apollo rate-limits: a short pause between contacts
-    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied, "reopened_for_reveal": reopened}
+    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied, "reopened_for_reveal": reopened, "waterfall_collected": collected}
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
         alt = [hs_names.get(c["ods_code"])]
@@ -419,6 +461,9 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 out["matched"] += 1
                 if mode == "check":
                     continue
+                if c.get("waterfall_request_id"):   # submitted already: polled by collect_waterfall on every run, never submitted twice
+                    out["waterfall_waiting"] = out.get("waterfall_waiting", 0) + 1
+                    continue
                 if str(c.get("note") or "").startswith("needs reveal in Apollo"):   # already tried through the API: it is waiting for a reveal in Apollo, which the saved-contact pull above picks up
                     out["needs_reveal"] = out.get("needs_reveal", 0) + 1
                     continue
@@ -428,11 +473,15 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                     continue
                 email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an email comes back
                 if not email and waterfall and str(note or "").startswith(("person found", "no api match")):   # opt-in: what Apollo's screen does when the plain lookup has nothing
-                    wf_email, wf_note = waterfall_email(c, pr.get("practice_name"), pr.get("website"), key, post, get, sleep=time.sleep if post is requests.post else (lambda s: None))
+                    wf_email, wf_pending, wf_note = waterfall_email(c, pr.get("practice_name"), pr.get("website"), key, post, get, sleep=time.sleep if post is requests.post else (lambda s: None))
                     out["waterfall_tried"] = out.get("waterfall_tried", 0) + 1
                     if wf_email:
                         email, status, note = wf_email, None, None
                         out["waterfall_found"] = out.get("waterfall_found", 0) + 1
+                    elif wf_pending:   # still working: the request id is kept and every later run polls it, so no run waits on Apollo
+                        rest.patch("apollo_queue", pq, {"waterfall_request_id": wf_pending, "waterfall_requested_at": now, "note": "waterfall pending: Apollo is still working on it; checked again on every run"})
+                        out["waterfall_pending"] = out.get("waterfall_pending", 0) + 1
+                        continue
                     else:
                         note = f"{note} | {wf_note}"
         except Exception as e:  # noqa: BLE001  the contact stays approved and is tried again next run; stop on repeated failures (a bad key, no credits)

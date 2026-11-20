@@ -2099,12 +2099,15 @@ def test_waterfall_email_asks_with_name_domain_and_id_then_polls_for_the_result(
         return R({"status": "pending"}, 404) if len(polls) == 1 else R({"status": "complete", "data": {"emails": [{"email": "Kim.M@Practice.nhs.net"}]}})
 
     person = {"first_name": "Kim", "last_name": "M", "apollo_person_id": "pid", "id_kind": "person"}
-    email, note = apollo.waterfall_email(person, "Practice Surgery", "https://www.practice.nhs.uk/page", "k", post=post, get=get, sleep=lambda s: None)
-    assert email == "kim.m@practice.nhs.net" and polls == ["999", "999"]
+    email, pending, note = apollo.waterfall_email(person, "Practice Surgery", "https://www.practice.nhs.uk/page", "k", post=post, get=get, sleep=lambda s: None)
+    assert email == "kim.m@practice.nhs.net" and pending is None and polls == ["999", "999"]
     assert sent[0]["run_waterfall_email"] is True and sent[0]["poll_only"] is True and sent[0]["domain"] == "practice.nhs.uk" and sent[0]["id"] == "pid" and sent[0]["organization_name"] == "Practice Surgery" and "webhook_url" not in sent[0]
-    # nothing found: a note, no email, and no endless polling
-    email, note = apollo.waterfall_email(person, None, None, "k", post=post, get=lambda u, **k: R({"status": "complete"}), sleep=lambda s: None)
-    assert email is None and note.startswith("waterfall: no email")
+    # finished with nothing: no email, nothing pending
+    email, pending, note = apollo.waterfall_email(person, None, None, "k", post=post, get=lambda u, **k: R({"status": "complete", "webhook_result": {"credits_consumed": 0, "email_records_not_found": 1}}), sleep=lambda s: None)
+    assert email is None and pending is None and "finished, no email" in note and "credits consumed 0" in note
+    # still not ready after the short wait: the request id comes back to be kept and polled later, not waited on
+    email, pending, note = apollo.waterfall_email(person, None, None, "k", post=post, get=lambda u, **k: R({}, 404), sleep=lambda s: None)
+    assert email is None and pending == "999" and note == "waterfall: still working"
 
 
 def test_the_same_person_at_the_same_practice_is_in_the_apollo_queue_once_and_later_rows_never_win_over_earlier_ones():
@@ -2195,3 +2198,33 @@ def test_emails_found_for_saved_apollo_contacts_are_written_back_once_and_the_ou
     assert apollo.writeback_found(r, "k", req=req) == (1, 1)
     assert ("PATCH", "cid1", {"email": "a@x.nhs.net"}) in calls and ("PUT", "cid1", {"email": "a@x.nhs.net"}) in calls
     assert r.notes["eq.1"] == "written back to Apollo contact" and r.notes["eq.3"].startswith("Apollo write-back failed") and "eq.2" not in r.notes   # the one already written is left alone
+
+
+
+def test_a_pending_waterfall_is_kept_and_a_later_run_collects_the_email_for_free():
+    from datetime import datetime, timezone
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j, code=200): self.j, self.status_code = j, code
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    class Rest:
+        def __init__(self): self.patched = []
+        def select_all(self, table, cols="*", order="", params=None):
+            return [{"contact_urn": 1, "waterfall_request_id": "A", "waterfall_requested_at": "2026-11-20T17:00:00+00:00"},
+                    {"contact_urn": 2, "waterfall_request_id": "B", "waterfall_requested_at": "2026-11-20T17:00:00+00:00"},
+                    {"contact_urn": 3, "waterfall_request_id": "C", "waterfall_requested_at": "2026-11-18T09:00:00+00:00"},
+                    {"contact_urn": 4, "waterfall_request_id": "D", "waterfall_requested_at": "2026-11-20T17:00:00+00:00"}]
+        def patch(self, table, filters, values): self.patched.append((filters["contact_urn"], values))
+
+    answers = {"A": R({"webhook_result": {"people": [{"email": "Ann@x.nhs.net"}]}}), "B": R({"webhook_result": {"credits_consumed": 0, "email_records_not_found": 1}}), "C": R({}, 404), "D": R({}, 404)}
+    r = Rest()
+    out = apollo.collect_waterfall(r, "k", get=lambda url, **k: answers[url.rsplit("/", 1)[-1]], now=datetime(2026, 11, 20, 18, 0, tzinfo=timezone.utc))
+    assert out == {"ready": 1, "empty": 1, "waiting": 1, "expired": 1}
+    got = dict(r.patched)
+    assert got["eq.1"] == {"apollo_email": "ann@x.nhs.net", "waterfall_request_id": None, "note": "waterfall email ready"}   # the normal run finishes the contact from the stored email
+    assert got["eq.2"]["waterfall_request_id"] is None and "no email" in got["eq.2"]["note"] and got["eq.3"]["note"].startswith("waterfall: Apollo gave no answer") and "eq.4" not in got
