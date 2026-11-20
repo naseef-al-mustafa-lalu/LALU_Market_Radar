@@ -126,13 +126,14 @@ def lookup(person, practice, key, post=requests.post):
     email = (p.get("email") or "").strip().lower()
     confidence = str(p.get("match_confidence") or "").lower()
     has_email = bool(email) and not LOCKED.search(email)
+    seen = f"Apollo said: match_confidence {confidence or 'missing'}, email_status {p.get('email_status') or 'none'}, result {p.get('result') or 'none'}"   # kept on the row, so a failure can be read, not guessed
     if has_email and confidence in ("high", "medium"):
         return email, p.get("email_status"), None
     if has_email:   # a weak match is not trusted with a contact's name
-        return None, None, f"no api match: low-confidence match ({confidence or 'none'}), email not used"
+        return None, None, f"no api match: low-confidence match, email not used ({seen})"
     if not p:
-        return None, None, "no email found"
-    return None, None, "person found, email not available" if confidence in ("high", "medium") else "no api match: Apollo could not match them to a person record"
+        return None, None, "no email found (Apollo returned no person)"
+    return None, None, (f"person found, email not available ({seen})" if confidence in ("high", "medium") else f"no api match: Apollo could not match them to a person record ({seen})")
 
 
 def _name_key(ods, name):
@@ -323,7 +324,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
         out["looked_up"] += 0 if (free or reused) else 1
         if not email and str(note or "").startswith(("person found", "no api match")):   # the person exists but the API revealed no email: wait for a reveal in Apollo, do not give up on them
             out["needs_reveal"] = out.get("needs_reveal", 0) + 1
-            rest.patch("apollo_queue", pq, {"note": NEEDS_REVEAL, "checked_at": now})
+            rest.patch("apollo_queue", pq, {"note": f"{NEEDS_REVEAL} [{note}]", "checked_at": now})
             continue
         if not reused and email:   # kept straight away: if saving the contact fails below, the email is not lost and not paid for again
             rest.patch("apollo_queue", pq, {"apollo_email": email, "apollo_email_status": status, "free": free})
