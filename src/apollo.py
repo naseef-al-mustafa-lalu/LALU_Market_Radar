@@ -153,7 +153,8 @@ def suggest_practices(org_info, practices, limit=5):
 
 
 def lookup(person, practice, key, post=requests.post):
-    """(email, email_status, note). One people/match call for the verified person; it spends credits only when an address comes back."""
+    """(email, email_status, note). One people/match call for the verified person (pinned by its Apollo id); it spends credits only when an email comes back. Apollo answers 200 with the submitted details echoed back
+    even when it found no one, so the answer is read from match_confidence: only high or medium counts as a match (none means Apollo could not identify the person, and no credits are charged)."""
     body = {"reveal_personal_emails": False, "id": person["apollo_person_id"]}   # always pinned to the person that was verified
     r = post(f"{API}/people/match", headers=HEADERS(key), json=body, timeout=60)
     if r.status_code in (401, 403, 422, 429):
@@ -161,9 +162,15 @@ def lookup(person, practice, key, post=requests.post):
     r.raise_for_status()
     p = (r.json() or {}).get("person") or {}
     email = (p.get("email") or "").strip().lower()
-    if not email or LOCKED.search(email):
-        return None, None, "no email found" if not p else "person found, email not available"
-    return email, p.get("email_status"), None
+    confidence = str(p.get("match_confidence") or "").lower()
+    has_email = bool(email) and not LOCKED.search(email)
+    if has_email and confidence in ("high", "medium"):
+        return email, p.get("email_status"), None
+    if has_email:   # a weak match is not trusted with a contact's name
+        return None, None, f"no api match: low-confidence match ({confidence or 'none'}), email not used"
+    if not p:
+        return None, None, "no email found"
+    return None, None, "person found, email not available" if confidence in ("high", "medium") else "no api match: Apollo could not match them to a person record"
 
 
 def _name_key(ods, name):
@@ -249,7 +256,7 @@ def coverage(rest):
     return {"practices": len(practices), "no_practice_manager": len(no_pm), "fewer_than_two": len(no_other), "covered": len(practices) - len(set(no_pm) | set(no_other))}
 
 
-NEEDS_REVEAL = "needs reveal in Apollo: Apollo's API found them but did not return an email. Reveal it in Apollo and it is pulled in free within the hour."
+NEEDS_REVEAL = "needs reveal in Apollo: Apollo's API could not give an email for them (it cannot match them to a person record, or holds no email). Reveal it in Apollo and it is pulled in free within the hour."
 
 
 def reopen_unrevealed(rest):
@@ -362,7 +369,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 break
             continue
         out["looked_up"] += 0 if (free or reused) else 1
-        if not email and str(note or "").startswith("person found"):   # the person exists but the API revealed no email: wait for a reveal in Apollo, do not give up on them
+        if not email and str(note or "").startswith(("person found", "no api match")):   # the person exists but the API revealed no email: wait for a reveal in Apollo, do not give up on them
             out["needs_reveal"] = out.get("needs_reveal", 0) + 1
             rest.patch("apollo_queue", pq, {"note": NEEDS_REVEAL, "checked_at": now})
             continue

@@ -1547,7 +1547,7 @@ def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verifi
         if url.endswith("api_search"):
             return R({"people": people[kw["json"]["q_keywords"].split()[0]]})
         assert kw["json"]["id"] == "p1"   # only the verified person is enriched, by Apollo's own id
-        return R({"person": {"email": "ann.lee@practice.nhs.net", "email_status": "verified"}})
+        return R({"person": {"email": "ann.lee@practice.nhs.net", "email_status": "verified", "match_confidence": "high"}})
 
     class Rest:
         def __init__(self): self.inserted, self.patched, self.upserts = [], [], []
@@ -1744,7 +1744,7 @@ def test_apollo_address_for_someone_already_held_under_another_address_goes_to_r
         def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
 
     r = Rest()
-    out = apollo.run(r, "k", 5, post=lambda url, **kw: R({"person": {"email": "ann.new@y.nhs.net", "email_status": "verified"}}))
+    out = apollo.run(r, "k", 5, post=lambda url, **kw: R({"person": {"email": "ann.new@y.nhs.net", "email_status": "verified", "match_confidence": "high"}}))
     assert out["review_email"] == 1 and r.inserted == []   # nothing created
     q = next(v for t, v in r.patched if t == "apollo_queue" and v.get("state") == "review")
     assert q["review_reason"] == "different_email" and q["existing_email"] == "ann.old@x.nhs.net" and q["apollo_email"] == "ann.new@y.nhs.net" and q["hubspot_contact_id"] == "H1"
@@ -1949,7 +1949,7 @@ def test_a_saved_apollo_contact_at_the_practice_without_an_email_counts_as_a_mat
         if url.endswith("contacts/search"):
             return R({"contacts": [{"id": "pid-1", "first_name": "Shahana", "last_name": "Uddin", "email": None, "person_id": None, "organization_name": "St Andrews Health Centre"}]})
         if url.endswith("people/match"):
-            return R({"person": {"email": "shahana.uddin@x.nhs.net", "email_status": "verified"}})
+            return R({"person": {"email": "shahana.uddin@x.nhs.net", "email_status": "verified", "match_confidence": "medium"}})
         raise AssertionError("no name search is needed: the saved contact is the match")
 
     class Rest:
@@ -2044,3 +2044,21 @@ def test_a_person_found_without_an_email_waits_for_a_reveal_in_apollo_instead_of
     assert out["needs_reveal"] == 1 and out["found"] == 0 and out["reopened_for_reveal"] == 1
     assert ("eq.9", {"state": "approved", "note": apollo.NEEDS_REVEAL, "checked_at": None}) in r.patched   # the earlier wrong 'not found' is reopened
     assert not any(v.get("state") == "not_found" for _, v in r.patched)
+
+
+def test_apollo_match_confidence_none_is_not_a_match_even_though_it_answers_200_with_a_person():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j): self.j = j
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    echoed = {"person": {"id": "x", "first_name": "Fazilat", "last_name": "Shivji", "match_confidence": "none", "result": "N/A"}}   # Apollo echoes the input back when it found no one
+    assert apollo.lookup({"apollo_person_id": "x"}, "P", "k", post=lambda *a, **k: R(echoed))[2].startswith("no api match")
+    weak = {"person": {"id": "x", "email": "a@b.nhs.net", "match_confidence": "low"}}
+    assert apollo.lookup({"apollo_person_id": "x"}, "P", "k", post=lambda *a, **k: R(weak))[0] is None   # a weak match is not trusted with a name
+    good = {"person": {"id": "x", "email": "a@b.nhs.net", "match_confidence": "high", "email_status": "verified"}}
+    assert apollo.lookup({"apollo_person_id": "x"}, "P", "k", post=lambda *a, **k: R(good))[0] == "a@b.nhs.net"
