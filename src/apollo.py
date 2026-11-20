@@ -168,12 +168,14 @@ def waterfall_email(person, website, key, post=requests.post, get=requests.get, 
     if found:
         return found[0], "waterfall: email in the first answer"
     rid = j.get("request_id_str") or j.get("request_id")
+    accepted = f"first answer keys {sorted(j)[:8]}, waterfall {str(j.get('waterfall'))[:100]}, match_confidence {(j.get('person') or {}).get('match_confidence')}"   # kept in the note: the reply is read, not guessed
     if not rid:
-        return None, f"waterfall: no request id (Apollo said: {str(j.get('waterfall'))[:120]})"
-    last = {}
+        return None, f"waterfall: no request id ({accepted})"
+    codes, last = [], {}
     for _ in range(max(1, wait // step)):
         sleep(step)
         pr = get(f"{API}/webhook_result/{rid}", headers=HEADERS(key), timeout=60)
+        codes.append(pr.status_code)
         if pr.status_code == 404:
             continue
         pr.raise_for_status()
@@ -183,7 +185,7 @@ def waterfall_email(person, website, key, post=requests.post, get=requests.get, 
             return found[0], "waterfall: email found"
         if str(last.get("status") or "").lower() in ("complete", "completed", "done", "failed", "error", "no_results"):
             break
-    return None, f"waterfall: no email (poll answer keys {sorted(last)[:8]}, status {last.get('status')})"
+    return None, f"waterfall: no email ({accepted}; polls {codes[:3]}..x{len(codes)}; last answer {str(last)[:160]})"
 
 
 def _name_key(ods, name):
