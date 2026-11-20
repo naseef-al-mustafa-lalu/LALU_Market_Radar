@@ -453,7 +453,7 @@ def main():
             sys.exit(2)
     rest = Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"])
     try:
-        print("Taken out of the queue (already held with an address):", prune_known(rest))
+        print("Taken out of the queue (already held with an email):", prune_known(rest), "| duplicates removed:", drop_duplicates(rest))
     except Exception as e:  # noqa: BLE001
         print("Queue tidy skipped:", e)
     cov = coverage(rest)
