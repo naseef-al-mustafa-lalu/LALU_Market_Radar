@@ -1907,3 +1907,16 @@ def test_apollo_search_asks_for_the_name_at_the_practice_and_title_not_the_name_
         return R({}, 422) if "person_titles" in kw["json"] else R({"people": []})
 
     assert apollo.check(person, "Heath Road Surgery", None, "k", post=picky)["match"] == "no_person" and calls == [True, False]
+
+
+def test_review_rows_from_an_older_search_are_rechecked_automatically_and_newer_ones_are_left():
+    from src import apollo
+
+    class Rest:
+        def __init__(self): self.patched = []
+        def select_all(self, table, cols="*", order="", params=None):
+            return [{"contact_urn": 1, "matched_at": "2026-11-20T13:59:00+00:00"}, {"contact_urn": 2, "matched_at": "2026-11-20T15:00:00+00:00"}, {"contact_urn": 3, "matched_at": None}]
+        def patch(self, table, filters, values): self.patched.append((filters["contact_urn"], values["state"]))
+
+    r = Rest()
+    assert apollo.recheck_stale_review(r) == 2 and r.patched == [("eq.1", "approved"), ("eq.3", "approved")]

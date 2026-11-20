@@ -229,10 +229,25 @@ def coverage(rest):
     return {"practices": len(practices), "no_practice_manager": len(no_pm), "fewer_than_two": len(no_other), "covered": len(practices) - len(set(no_pm) | set(no_other))}
 
 
+CHECK_LOGIC_SINCE = "2026-11-20T14:40:00+00:00"   # review rows decided by an older, name-only search are re-checked by the job itself
+
+
+def recheck_stale_review(rest):
+    """People sent to the review list (a different practice) by an earlier version of the check go back to approved, so the current search judges them again. Nobody has to do it by hand."""
+    n = 0
+    for c in rest.select_all("apollo_queue", "contact_urn,matched_at", order="contact_urn", params={"state": "eq.review", "review_reason": "eq.different_practice", "apollo_email": "is.null"}):
+        if str(c.get("matched_at") or "") < CHECK_LOGIC_SINCE:
+            rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "approved", "match": None, "apollo_person_id": None, "apollo_org": None, "apollo_org_info": None, "suggested_ods": None,
+                                                                                   "review_reason": None, "matched_at": None, "checked_at": None, "note": "re-checked automatically with the improved search"})
+            n += 1
+    return n
+
+
 def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich", hub=None):
     """mode 'check': only verify approved contacts at Apollo (no credits). 'enrich': verify, then look up the email of each verified one. Both are capped at `cap` contacts a run."""
     now = (now or datetime.now(timezone.utc)).isoformat()
     applied = apply_accepted(rest, now)
+    rechecked = recheck_stale_review(rest)
     approved = rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.approved"})
     main = main_titles(rest, [c.get("job_title") or "" for c in approved])
     for c in [c for c in approved if (c.get("job_title") or "") not in main]:   # the Settings rules changed since it was approved: only Main roles are looked up
@@ -246,7 +261,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     except Exception:  # noqa: BLE001
         hs_names = {}
     pause = 0.3 if post is requests.post else 0   # Apollo rate-limits: a short pause between contacts
-    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied}
+    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied, "rechecked_review": rechecked}
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
         alt = [hs_names.get(c["ods_code"])]
@@ -348,9 +363,10 @@ def main():
     cov = coverage(rest)
     print("Coverage:", cov)
     summary = {"at": datetime.now(timezone.utc).isoformat(), "coverage": cov}
-    if env.get("APOLLO_API_KEY") and env.get("APOLLO_MODE", "enrich") != "none":
+    mode = env.get("APOLLO_MODE") if env.get("APOLLO_MODE") in ("enrich", "check", "none") else "check"   # credits are only spent when enrich is asked for by name
+    if env.get("APOLLO_API_KEY") and mode != "none":
         from .hubspot_sync import Hub
-        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode="check" if env.get("APOLLO_MODE") == "check" else "enrich", hub=Hub(env["HUBSPOT_TOKEN"]) if env.get("HUBSPOT_TOKEN") else None)
+        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode=mode, hub=Hub(env["HUBSPOT_TOKEN"]) if env.get("HUBSPOT_TOKEN") else None)
         print("Apollo:", out)
         summary["run"] = out
     else:

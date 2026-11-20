@@ -1,5 +1,7 @@
 name: Apollo lookup
 on:
+  schedule:
+    - cron: '20 * * * *'   # hourly, check mode only: approved contacts are checked (and emails already in your Apollo contacts pulled) with no credits; enrich is only ever started by hand
   workflow_dispatch:
     inputs:
       cap:
@@ -28,6 +30,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
-          APOLLO_CAP: ${{ inputs.cap }}
-          APOLLO_MODE: ${{ inputs.mode }}
+          APOLLO_CAP: ${{ inputs.cap || 200 }}
+          APOLLO_MODE: ${{ inputs.mode || 'check' }}
         run: python -m src.apollo
