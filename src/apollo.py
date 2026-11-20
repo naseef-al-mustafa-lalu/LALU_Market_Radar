@@ -107,7 +107,7 @@ def saved_contact(person, practice, website, key, post=requests.post, alt_names=
         if not _same_person(p, person) or not any(company_matches({"name": org, "primary_domain": (p.get("organization") or {}).get("primary_domain")}, n, website) for n in names):
             continue
         email = str(p.get("email") or "").strip().lower()
-        hit = {"email": None if (not email or LOCKED.search(email)) else email, "status": p.get("email_status"), "person_id": p.get("person_id") or p.get("id"), "org": org}   # the contact's own id when it is not linked to a person record: the id Apollo itself shows for them
+        hit = {"email": None if (not email or LOCKED.search(email)) else email, "status": p.get("email_status"), "person_id": p.get("person_id") or p.get("id"), "org": org, "linkedin_url": p.get("linkedin_url")}   # the contact's own id when it is not linked to a person record: the id Apollo itself shows for them
         if hit["email"]:
             return hit
         best = best or hit
@@ -150,14 +150,19 @@ def _emails_in(obj):
     return []
 
 
-def waterfall_email(person, website, key, post=requests.post, get=requests.get, wait=90, step=5, sleep=time.sleep):
-    """The email Apollo's screen reveals through its waterfall (extra third-party email sources), for someone the plain lookup holds no email for. Sent with the identifiers Apollo matches on (name, the employer's
-    domain, and the person's id if there is one); Apollo answers at once with a request id, and the result is polled for (no webhook is needed). Some vendors charge per lookup even when they find nothing, so this only
+def waterfall_email(person, practice, website, key, post=requests.post, get=requests.get, wait=90, step=5, sleep=time.sleep):
+    """The email Apollo's screen reveals through its waterfall (extra third-party email sources), for someone the plain lookup holds no email for. Sent as a fresh identity match from external identifiers
+    (name, the practice, the employer's website domain, LinkedIn when known), because a saved contact's own id is an empty shell that anchors the lookup to nothing; the Apollo id is only added when it is a real
+    person id (from the people search). Apollo answers at once with a request id and the result is polled for (no webhook needed). Some vendors charge per lookup even when they find nothing, so this only
     runs when asked for. Returns (email, note), the note saying what Apollo answered."""
     body = {"run_waterfall_email": True, "poll_only": True, "reveal_personal_emails": False, "first_name": person.get("first_name"), "last_name": person.get("last_name")}
+    if practice:
+        body["organization_name"] = practice
     if _domain(website):
         body["domain"] = _domain(website)
-    if person.get("apollo_person_id"):
+    if person.get("linkedin_url"):
+        body["linkedin_url"] = person["linkedin_url"]
+    if person.get("apollo_person_id") and person.get("id_kind") == "person":
         body["id"] = person["apollo_person_id"]
     r = post(f"{API}/people/match", headers=HEADERS(key), json=body, timeout=60)
     if r.status_code in (401, 403, 422, 429):
@@ -361,6 +366,8 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 res = {"match": "matched", "apollo_person_id": saved.get("person_id"), "apollo_org": saved.get("org")}
                 rest.patch("apollo_queue", pq, {**res, "matched_at": now})
                 c.update(res)
+                c["id_kind"] = "person"   # from the people search
+                c["id_kind"], c["linkedin_url"] = "contact", saved.get("linkedin_url")   # a saved contact's own id, not a person id
                 out["from_saved_contact_match"] = out.get("from_saved_contact_match", 0) + 1
             elif c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
                 res = check(c, pr.get("practice_name"), pr.get("website"), key, post, alt)
@@ -388,7 +395,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                     continue
                 email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an email comes back
                 if not email and waterfall and str(note or "").startswith(("person found", "no api match")):   # opt-in: what Apollo's screen does when the plain lookup has nothing
-                    wf_email, wf_note = waterfall_email(c, pr.get("website"), key, post, get, sleep=time.sleep if post is requests.post else (lambda s: None))
+                    wf_email, wf_note = waterfall_email(c, pr.get("practice_name"), pr.get("website"), key, post, get, sleep=time.sleep if post is requests.post else (lambda s: None))
                     out["waterfall_tried"] = out.get("waterfall_tried", 0) + 1
                     if wf_email:
                         email, status, note = wf_email, None, None

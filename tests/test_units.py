@@ -2098,12 +2098,12 @@ def test_waterfall_email_asks_with_name_domain_and_id_then_polls_for_the_result(
         polls.append(url.rsplit("/", 1)[-1])
         return R({"status": "pending"}, 404) if len(polls) == 1 else R({"status": "complete", "data": {"emails": [{"email": "Kim.M@Practice.nhs.net"}]}})
 
-    person = {"first_name": "Kim", "last_name": "M", "apollo_person_id": "pid"}
-    email, note = apollo.waterfall_email(person, "https://www.practice.nhs.uk/page", "k", post=post, get=get, sleep=lambda s: None)
+    person = {"first_name": "Kim", "last_name": "M", "apollo_person_id": "pid", "id_kind": "person"}
+    email, note = apollo.waterfall_email(person, "Practice Surgery", "https://www.practice.nhs.uk/page", "k", post=post, get=get, sleep=lambda s: None)
     assert email == "kim.m@practice.nhs.net" and polls == ["999", "999"]
-    assert sent[0]["run_waterfall_email"] is True and sent[0]["poll_only"] is True and sent[0]["domain"] == "practice.nhs.uk" and sent[0]["id"] == "pid" and "webhook_url" not in sent[0]
+    assert sent[0]["run_waterfall_email"] is True and sent[0]["poll_only"] is True and sent[0]["domain"] == "practice.nhs.uk" and sent[0]["id"] == "pid" and sent[0]["organization_name"] == "Practice Surgery" and "webhook_url" not in sent[0]
     # nothing found: a note, no email, and no endless polling
-    email, note = apollo.waterfall_email(person, None, "k", post=post, get=lambda u, **k: R({"status": "complete"}), sleep=lambda s: None)
+    email, note = apollo.waterfall_email(person, None, None, "k", post=post, get=lambda u, **k: R({"status": "complete"}), sleep=lambda s: None)
     assert email is None and note.startswith("waterfall: no email")
 
 
@@ -2123,3 +2123,23 @@ def test_the_same_person_at_the_same_practice_is_in_the_apollo_queue_once_and_la
 
     r = Rest()
     assert apollo.drop_duplicates(r) == 2 and sorted(r.deleted) == [2, 3]   # the waiting Oscar copies go; Ann keeps the HubSpot row; Bo's two advanced rows both stay
+
+
+def test_waterfall_for_a_saved_contact_sends_external_identifiers_and_never_its_own_contact_id():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def json(self): return {"person": {}, "request_id_str": "1"}
+        def raise_for_status(self): pass
+
+    sent = []
+
+    def post(url, **kw):
+        sent.append(kw["json"])
+        return R()
+
+    saved = {"first_name": "Faz", "last_name": "S", "apollo_person_id": "contact-id", "id_kind": "contact", "linkedin_url": "https://www.linkedin.com/in/faz"}
+    apollo.waterfall_email(saved, "Brooklands Health Centre", "https://onemedicalgroup.co.uk/surgeries/brooklands/", "k", post=post, get=lambda *a, **k: R(), wait=5, step=5, sleep=lambda s: None)
+    assert "id" not in sent[0] and sent[0]["organization_name"] == "Brooklands Health Centre" and sent[0]["domain"] == "onemedicalgroup.co.uk" and sent[0]["linkedin_url"].endswith("/faz")
