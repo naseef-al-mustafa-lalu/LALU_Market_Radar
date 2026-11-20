@@ -80,13 +80,15 @@ def enrich_variants(rest, key, name, ods, post=requests.post):
                 ("B linkedin_url", {"linkedin_url": saved.get("linkedin_url")} if saved.get("linkedin_url") else None),
                 ("C id + name + organisation", {"id": saved.get("id"), "first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org}),
                 ("D name + organisation", {"first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org}),
-                ("E name + organisation + linkedin", {"first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org, **({"linkedin_url": saved.get("linkedin_url")} if saved.get("linkedin_url") else {})})]
+                ("E name + organisation + linkedin", {"first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org, **({"linkedin_url": saved.get("linkedin_url")} if saved.get("linkedin_url") else {})}),
+                ("F name + organisation + domain", {"first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org, **({"domain": apollo._domain(pr.get("website"))} if apollo._domain(pr.get("website")) else {})}),
+                ("G name + organisation + personal emails", {"first_name": saved["first_name"], "last_name": saved["last_name"], "organization_name": org, "reveal_personal_emails": True})]
     out = {"saved_contact": {"id": saved.get("id"), "person_id": saved.get("person_id"), "org": org, "has_linkedin": bool(saved.get("linkedin_url")), "email_status": saved.get("email_status"), "email_present": bool(saved.get("email"))}, "attempts": []}
     for label, body in attempts:
         if not body:
             out["attempts"].append({label: "skipped"})
             continue
-        resp = post(f"{apollo.API}/people/match", headers=apollo.HEADERS(key), json={"reveal_personal_emails": False, **body}, timeout=60)
+        resp = post(f"{apollo.API}/people/match", headers=apollo.HEADERS(key), json={"reveal_personal_emails": False, **body}, timeout=60)   # a body's own reveal_personal_emails wins
         try:
             j = resp.json()
         except Exception:  # noqa: BLE001
@@ -95,6 +97,7 @@ def enrich_variants(rest, key, name, ods, post=requests.post):
         email = str(pers.get("email") or "")
         got = bool(email) and not apollo.LOCKED.search(email)
         out["attempts"].append({label: {"status": resp.status_code, "person_found": bool(pers), "person_keys_with_values": sorted(k for k, v in pers.items() if v)[:25], "email_status": pers.get("email_status"),
+                                        "values": {k: pers.get(k) for k in ("match_confidence", "result", "email_domain_catchall_verdict", "revealed_for_current_team", "email_status", "extrapolated_email_confidence") if k in pers}, "top_level": {k: v for k, v in j.items() if k != "person" and isinstance(v, (str, int, bool, type(None)))},
                                         "email_revealed": got, "email_masked": (email[:2] + "***@" + email.split("@")[-1]) if got else None, "error": None if resp.ok else resp.text[:140]}})
         if got:
             break
