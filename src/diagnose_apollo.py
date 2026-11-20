@@ -27,6 +27,8 @@ def run(rest, key, name, ods, post=requests.post):
             rows.append({"name": f"{p.get('first_name')} {p.get('last_name') or p.get('last_name_obfuscated')}", "title": p.get("title"), "org": orgname, "domain": org.get("primary_domain"),
                          "same_person": apollo._same_person(p, person), "company_ok": apollo.company_matches({"name": orgname, "primary_domain": org.get("primary_domain")}, pr.get("practice_name"), pr.get("website")),
                          "org_tokens": sorted(apollo._tokens(orgname))})
+        if label == "saved_contacts":   # which fields a saved contact carries, and the values of id-like ones (no emails, no credits)
+            out["saved_contact_fields"] = [{"keys": sorted(c.keys()), "ids": {k: v for k, v in c.items() if "id" in k.lower() and isinstance(v, (str, int, type(None)))}} for c in (body.get("contacts") or [])[:3]]
         out[label] = {"status": r.status_code, "total": (body.get("pagination") or {}).get("total_entries"), "returned": len(rows), "rows": rows[:25], "error": None if r.ok else r.text[:200]}
     return out
 
