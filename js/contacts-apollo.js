@@ -6,8 +6,8 @@ const CT_AP_CAP = 200;   // matches MAX_PER_RUN in src/apollo.py
 async function ctLoadApollo() {
   const cnt = s => db.from("apollo_queue").select("contact_urn", { count: "exact", head: true }).eq("state", s);
   const pages = async (table, cols, filter) => { const out = []; for (let from = 0; ; from += 1000) { let q = db.from(table).select(cols).order(table === "gp_practices" ? "ods_code" : "contact_urn").range(from, from + 999); if (filter) q = filter(q); const { data, error } = await q; if (error) throw error; out.push(...(data || [])); if (!data || data.length < 1000) break; } return out; };   // the queue can hold thousands: read it all so search and the role filter see everyone
-  const [p, a, f, n, rv, allRows, allPractices, st] = await Promise.all([cnt("pending"), cnt("approved"), cnt("found"), cnt("not_found"), cnt("review"),
-    pages("apollo_queue", "*", q => q.in("state", ["pending", "approved", "review"])), pages("gp_practices", "ods_code,practice_name,country,price_tier"), db.from("app_flags").select("value").eq("key", "apollo_status").maybeSingle()]);
+  const [p, a, f, n, rv, allRows, st] = await Promise.all([cnt("pending"), cnt("approved"), cnt("found"), cnt("not_found"), cnt("review"),
+    pages("apollo_queue", "*", q => q.in("state", ["pending", "approved", "review"])), db.from("app_flags").select("value").eq("key", "apollo_status").maybeSingle()]);
   const rows = { data: allRows.filter(r => r.state !== "review") }, review = allRows.filter(r => r.state === "review");
   const set = await db.from("app_flags").select("value").eq("key", "apollo_settings").maybeSingle(), cs = (set.data || {}).value || {};
   ctApCredits = { balance: Number.isFinite(Number(cs.balance)) && cs.balance !== null ? Number(cs.balance) : null, at: cs.at || null, foundSince: 0, per: Number(cs.per) > 0 ? Number(cs.per) : 15 };
@@ -15,7 +15,7 @@ async function ctLoadApollo() {
   const secs = new Map(), titles = [...new Set(allRows.map(r => r.job_title || ""))];   // the role group and Main / Other of each title, from the database rules
   if (titles.length) { const t = await db.rpc("apollo_title_sections", { p_titles: titles }); (t.data || []).forEach(x => secs.set(x.title, x)); }
   allRows.forEach(r => { const x = secs.get(r.job_title || "") || {}; r.role_id = x.role_id || "other"; r.section = x.section || "other"; });
-  const names = {}, countries = {}, tiers = {}; allPractices.forEach(x => { names[x.ods_code] = x.practice_name; countries[x.ods_code] = x.country || "England"; tiers[x.ods_code] = x.price_tier ? "Tier " + x.price_tier : "No tier"; });
+  const names = {}, countries = {}, tiers = {}; byOds.forEach((x, ods) => { names[ods] = x.practice_name; countries[ods] = x.country || "England"; tiers[ods] = x.price_tier ? "Tier " + x.price_tier : "No tier"; });   // the practices already loaded for the Practices table (name, country, tier), so nothing more is fetched
   ctApollo = { rows: rows.data || [], review, counts: { pending: p.count || 0, approved: a.count || 0, found: f.count || 0, not_found: n.count || 0, review: rv.count || 0 }, status: (st.data || {}).value || null, names, countries, tiers };
 }
 const ctApPractice = (names, ods) => `<a href="#" class="ct-open text-lalu-teal-700 hover:underline" data-ods="${esc(ods)}">${esc(names[ods] || ods)}</a> <span class="text-xs text-slate-400">${esc(ods)}</span>`;   // opens the practice profile in the side drawer
