@@ -31,12 +31,48 @@ def run(rest, key, name, ods, post=requests.post):
     return out
 
 
+def variants(rest, key, name, ods, post=requests.post):
+    """Free search variants for one person at one practice: which way of asking puts the right person first? Prints each variant's status, how many people came back, and who (name, title, organisation)."""
+    pr = next(iter(rest.select_all("gp_practices", "ods_code,practice_name,website", order="ods_code", params={"ods_code": f"eq.{ods}"})), {})
+    dom, practice = apollo._domain(pr.get("website")), pr.get("practice_name") or ""
+    first, last = name.split()[0], name.split()[-1]
+    base = {"per_page": 10, "page": 1}
+    tries = {
+        "A name only": {"q_keywords": name},
+        "B name + practice": {"q_keywords": f"{name} {practice}"},
+        "C name + title": {"q_keywords": name, "person_titles": ["Practice Manager"]},
+        "D name + practice domain": {"q_keywords": name, "q_organization_domains_list": [dom]} if dom else None,
+        "E q_person_name": {"q_person_name": name},
+        "F q_person_name + q_organization_name": {"q_person_name": name, "q_organization_name": practice},
+        "G name + organization_names": {"q_keywords": name, "organization_names": [practice]},
+        "H q_keywords name + q_organization_name": {"q_keywords": name, "q_organization_name": practice},
+        "I first and last name fields": {"first_name": first, "last_name": last},
+    }
+    out = {"practice": practice, "domain": dom}
+    for label, body in tries.items():
+        if not body:
+            out[label] = "skipped (no website domain)"
+            continue
+        r = post(f"{apollo.API}/mixed_people/api_search", headers=apollo.HEADERS(key), json={**base, **body}, timeout=60)
+        try:
+            j = r.json()
+        except Exception:  # noqa: BLE001
+            j = {}
+        people = j.get("people") or []
+        out[label] = {"status": r.status_code, "returned": len(people), "total": (j.get("pagination") or {}).get("total_entries"), "error": None if r.ok else r.text[:140],
+                      "top": [f"{x.get('first_name')} {x.get('last_name') or x.get('last_name_obfuscated')} | {x.get('title')} | {(x.get('organization') or {}).get('name')}" for x in people[:4]]}
+    return out
+
+
 def main():
     env = os.environ
     for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "APOLLO_API_KEY", "NAME", "ODS"):
         if not env.get(k):
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
+    if env.get("VARIANTS") == "1":
+        print("VARIANTS " + json.dumps(variants(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), env["APOLLO_API_KEY"], env["NAME"].strip(), env["ODS"].strip().upper()), default=str))
+        return
     print("RESULT " + json.dumps(run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), env["APOLLO_API_KEY"], env["NAME"].strip(), env["ODS"].strip().upper()), default=str))
 
 

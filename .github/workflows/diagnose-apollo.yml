@@ -10,6 +10,10 @@ on:
         description: 'Practice ODS code to compare with'
         required: true
         default: 'Y03023'
+      variants:
+        description: 'Try several ways of asking Apollo (1 = yes, free) instead of the plain comparison'
+        required: false
+        default: '1'
 
 jobs:
   look:
@@ -27,4 +31,5 @@ jobs:
           APOLLO_API_KEY: ${{ secrets.APOLLO_API_KEY }}
           NAME: ${{ inputs.name }}
           ODS: ${{ inputs.ods }}
+          VARIANTS: ${{ inputs.variants }}
         run: python -m src.diagnose_apollo
