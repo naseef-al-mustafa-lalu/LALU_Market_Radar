@@ -96,7 +96,7 @@ def lookup(person, practice, key, post=requests.post):
     p = (r.json() or {}).get("person") or {}
     email = (p.get("email") or "").strip().lower()
     if not email or LOCKED.search(email):
-        return None, None, "no address found" if not p else "person found, address not available"
+        return None, None, "no email found" if not p else "person found, email not available"
     return email, p.get("email_status"), None
 
 
@@ -105,12 +105,12 @@ def _name_key(ods, name):
 
 
 def prune_known(rest):
-    """Anyone waiting for Apollo (waiting, approved or in review) whom Atlas already holds at that practice with an address is taken out of the queue: there is nothing to look up and credits would be wasted."""
+    """Anyone waiting for Apollo (waiting, approved or in review) whom Atlas already holds at that practice with an email is taken out of the queue: there is nothing to look up and credits would be wasted."""
     known = {_name_key(r["ods_code"], r.get("full_name")) for r in rest.select_all("contacts", "contact_urn,ods_code,full_name,email", order="contact_urn", params={"email": "not.is.null"}) if r.get("full_name")}
     n = 0
     for c in rest.select_all("apollo_queue", "contact_urn,ods_code,full_name", order="contact_urn", params={"state": "in.(pending,approved,review)"}):
         if _name_key(c["ods_code"], c.get("full_name")) in known:
-            rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "not_found", "note": "Atlas already holds this person at this practice with an address"})
+            rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "not_found", "note": "Atlas already holds this person at this practice with an email"})
             n += 1
     return n
 

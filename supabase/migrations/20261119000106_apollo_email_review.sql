@@ -11,7 +11,7 @@ declare n integer;
 begin
   if not private.is_allowed() then raise exception 'not allowed'; end if;
   update public.apollo_queue set state = case when p_use_apollo then 'accepted' else 'not_found' end,
-         note = case when p_use_apollo then 'same person: Apollo address chosen in review' else 'same person: existing address kept in review' end, checked_at = now()
+         note = case when p_use_apollo then 'same person: Apollo email chosen in review' else 'same person: existing email kept in review' end, checked_at = now()
     where contact_urn = p_urn and state = 'review' and review_reason = 'different_email'; get diagnostics n = row_count; return n;
 end $$;
 revoke all on function public.apollo_resolve_email_review(bigint, boolean) from public, anon;
