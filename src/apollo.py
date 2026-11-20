@@ -185,7 +185,8 @@ def waterfall_email(person, website, key, post=requests.post, get=requests.get, 
             return found[0], "waterfall: email found"
         if str(last.get("status") or "").lower() in ("complete", "completed", "done", "failed", "error", "no_results"):
             break
-    return None, f"waterfall: no email ({accepted}; polls {codes[:3]}..x{len(codes)}; last answer {str(last)[:160]})"
+    nested = last.get("webhook_result") if isinstance(last.get("webhook_result"), dict) else {}
+    return None, f"waterfall: no email ({accepted}; polls {codes[:3]}..x{len(codes)}; last answer keys {sorted(last)[:10]}; webhook_result {('keys ' + str(sorted(nested)[:10])) if nested else str(last.get('webhook_result'))[:80]})"
 
 
 def _name_key(ods, name):
@@ -326,7 +327,9 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
         approved = [c for c in approved if only.strip().lower() in str(c.get("full_name") or "").lower()]
     approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
     approved = approved[:max(0, min(cap, MAX_PER_RUN))]
-    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,hubspot_company_id", order="ods_code")}
+    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,hubspot_website,hubspot_company_id", order="ods_code")}
+    for r in practices.values():   # Atlas's own website first, else the one on the practice's HubSpot company: the employer domain is what Apollo (and its waterfall vendors) match on
+        r["website"] = r.get("website") or r.get("hubspot_website")
     try:   # the practice's HubSpot company name is a second name to compare with Apollo's organisation
         hs_names = {r["ods_code"]: r.get("company_name") for r in rest.select_all("hubspot_links", "ods_code,company_name", order="ods_code")}
     except Exception:  # noqa: BLE001
