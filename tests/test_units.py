@@ -1564,26 +1564,16 @@ def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verifi
 
     rest = Rest()
     out = apollo.run(rest, "k", 10, post=post)
-    assert out["checked"] == 3 and out["matched"] == 1 and out["no_match"] == 1 and out["review"] == 1 and out["found"] == 1
+    assert out["checked"] == 3 and out["matched"] == 1 and out["no_match"] == 2 and out["found"] == 1
     assert calls.count("match") == 1   # credits are only spent for the verified person
     (_, rows), = rest.inserted
     assert rows[0]["email"] == "ann.lee@practice.nhs.net" and rows[0]["source"] == "apollo" and "nb_state" not in rows[0]
     assert rest.upserts == [("contact_nb", [{"contact_urn": 99, "nb_state": "pending"}])]   # NeverBounce state lives in its own table
     notes = {u: v for u, v in rest.patched if v.get("state") in ("not_found", "review")}
     assert "no one of that name" in notes["eq.3"]["note"] and notes["eq.3"]["state"] == "not_found"
-    assert notes["eq.2"]["state"] == "review" and "Somewhere Else Ltd" in notes["eq.2"]["note"]   # an organisation in the same area goes to review, not away
+    assert notes["eq.2"]["state"] == "not_found" and "Somewhere Else Ltd" in notes["eq.2"]["note"]   # a same-name person at another organisation is a namesake
     only_check = apollo.run(Rest(), "k", 10, post=lambda url, **kw: R({"people": people["Ann"]}) if url.endswith("api_search") else (_ for _ in ()).throw(AssertionError("check mode must not enrich")), mode="check")
     assert only_check["found"] == 0 and only_check["matched"] == 1
-
-
-def test_apollo_suggests_practices_that_look_like_the_organisation_it_has_the_person_at():
-    from src import apollo
-
-    practices = [{"ods_code": "A1", "practice_name": "Staverton Surgery", "website": "https://www.staverton.nhs.uk", "postcode": "TQ9 6PA"},
-                 {"ods_code": "A2", "practice_name": "Heath Road Medical Centre", "website": None, "postcode": "TQ1 1AA"},
-                 {"ods_code": "A3", "practice_name": "Staverton Road Practice", "website": None, "postcode": "EX1 1AA"}]
-    got = apollo.suggest_practices({"name": "Staverton Health", "primary_domain": "staverton.nhs.uk", "postal_code": "TQ9 6PA"}, practices)
-    assert [p["ods_code"] for p in got][:2] == ["A1", "A3"] and "A2" not in [p["ods_code"] for p in got]
 
 
 def test_apollo_company_match_uses_domain_or_the_practices_distinctive_words():
@@ -1861,22 +1851,6 @@ def test_a_namesake_at_an_organisation_that_is_not_a_practice_is_not_sent_to_rev
     assert any(v.get("state") == "not_found" and "Oconnor Design" in v["note"] for v in r.patched)
 
 
-def test_apollo_reports_the_best_same_name_candidate_not_the_first():
-    from src import apollo
-
-    class R:
-        status_code = 200
-        text = ""
-        def json(self): return {"people": [
-            {"id": "a", "first_name": "Shahana", "last_name": "Ud***n", "title": "Talent Acquisition Partner", "organization": {"name": "MS Reinsurance"}},
-            {"id": "b", "first_name": "Shahana", "last_name": "Ud***n", "title": "Pharmacist Manager", "organization": {"name": "Well Pharmacy"}},
-            {"id": "c", "first_name": "Shahana", "last_name": "Ud***n", "title": "Practice Manager", "organization": {"name": "Bromley by Bow Health"}}]}
-        def raise_for_status(self): pass
-
-    res = apollo.check({"full_name": "Shahana Uddin", "first_name": "Shahana", "last_name": "Uddin", "job_title": "Practice Manager"}, "St Andrews Health Centre", "https://www.bbbhp.org.uk/", "k", post=lambda *a, **k: R())
-    assert res["match"] == "company_mismatch" and res["apollo_org"] == "Bromley by Bow Health" and res["apollo_person_id"] == "c" and res["apollo_looks_like_practice"] is True
-
-
 def test_apollo_search_narrows_by_name_and_job_title_then_compares_the_organisation():
     from src import apollo
 
@@ -1917,19 +1891,6 @@ def test_apollo_search_narrows_by_name_and_job_title_then_compares_the_organisat
         return R({}, 422) if "person_titles" in kw["json"] else R({"people": []})
 
     assert apollo.check(person, "Heath Road Surgery", None, "k", post=picky)["match"] == "no_person" and calls == [True, False]
-
-
-def test_review_rows_from_an_older_search_are_rechecked_automatically_and_newer_ones_are_left():
-    from src import apollo
-
-    class Rest:
-        def __init__(self): self.patched = []
-        def select_all(self, table, cols="*", order="", params=None):
-            return [{"contact_urn": 1, "matched_at": "2026-11-20T13:59:00+00:00"}, {"contact_urn": 2, "matched_at": "2026-11-20T15:00:00+00:00"}, {"contact_urn": 3, "matched_at": None}]
-        def patch(self, table, filters, values): self.patched.append((filters["contact_urn"], values["state"]))
-
-    r = Rest()
-    assert apollo.recheck_stale_review(r) == 2 and r.patched == [("eq.1", "approved"), ("eq.3", "approved")]
 
 
 def test_a_saved_apollo_contact_at_the_practice_without_an_email_counts_as_a_match_and_is_enriched_by_its_own_id():
@@ -1973,15 +1934,6 @@ def test_a_saved_apollo_contact_at_the_practice_without_an_email_counts_as_a_mat
     r2 = Rest()
     out = apollo.run(r2, "k", 5, post=post, mode="check")
     assert seen == [("search", None)] and out["found"] == 0 and out["matched"] == 1   # check mode: matched, no credits
-
-
-def test_a_same_name_same_title_person_elsewhere_is_a_namesake_unless_the_organisation_is_in_the_same_place():
-    from src import apollo
-
-    assert apollo.location_matches({"postal_code": "E3 3FF"}, {"postcode": "E3 4AB"})
-    assert apollo.location_matches({"city": "London"}, {"town": "london"})
-    assert not apollo.location_matches({"name": "Bromley by Bow Health"}, {"postcode": "E3 3FF", "town": "London"})   # no location from Apollo: nothing to show it is the same person
-    assert not apollo.location_matches({"postal_code": "M1 1AA"}, {"postcode": "E3 3FF"})
 
 
 def test_enrich_never_spends_credits_on_a_contact_without_an_apollo_id():

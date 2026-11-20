@@ -57,20 +57,6 @@ def _same_person(p, person):
     return bool(first and last and str(p.get("first_name") or "").strip().lower() == first and last_p and last.startswith(last_p))
 
 
-HEALTH = re.compile(r"health|medical|surgery|practice|centre|center|clinic|pcn|partnership|\bgp\b|\bnhs\b|primary care|doctors", re.I)
-
-
-def _words(text):
-    return set(re.findall(r"[a-z]+", str(text or "").lower())) - {"and", "of", "the", "a"}
-
-
-def _candidate_score(p, person):
-    """How much a same-name Apollo result looks like our person: the job title (+2 when it holds all the words of ours, +1 for some, so a Practice Manager beats a Pharmacist Manager) and a healthcare-looking organisation (+1)."""
-    theirs, ours = _words(p.get("title")), _words(person.get("job_title"))
-    title = 2 if ours and ours <= theirs else (1 if theirs & ours else 0)
-    return title + (1 if HEALTH.search(str((p.get("organization") or {}).get("name") or "")) else 0)
-
-
 def _people_search(key, post, body):
     """One free People API Search; None when Apollo rejects a filter (the caller falls back to a plainer search)."""
     r = post(f"{API}/mixed_people/api_search", headers=HEADERS(key), json=body, timeout=60)
@@ -103,10 +89,8 @@ def check(person, practice, website, key, post=requests.post, alt_names=()):
             break
     if not same:
         return {"match": "no_person", "apollo_person_id": None, "apollo_org": None}
-    best = max(same, key=lambda p: _candidate_score(p, person))   # not whichever came first: the one whose job title and organisation look most like our person
-    org = best.get("organization") or {}
-    return {"match": "company_mismatch", "apollo_person_id": best.get("id"), "apollo_org": org.get("name"), "apollo_looks_like_practice": _candidate_score(best, person) >= 3,
-            "apollo_org_info": {k: org.get(k) for k in ("name", "primary_domain", "city", "postal_code") if org.get(k)}}
+    org = same[0].get("organization") or {}   # someone of that name (and title) elsewhere: a namesake, reported with where they are
+    return {"match": "company_mismatch", "apollo_person_id": same[0].get("id"), "apollo_org": org.get("name")}
 
 
 def saved_contact(person, practice, website, key, post=requests.post, alt_names=()):
@@ -128,28 +112,6 @@ def saved_contact(person, practice, website, key, post=requests.post, alt_names=
             return hit
         best = best or hit
     return best
-
-
-def location_matches(org_info, practice):
-    """Evidence that Apollo's organisation is in the same place as the practice: the same postcode area (the part before the space) or the same town. Without it a same-name person elsewhere is a namesake."""
-    org_info = org_info or {}
-    pc = lambda v: str(v or "").upper().replace(" ", "")   # noqa: E731
-    a, b = pc(org_info.get("postal_code")), pc(practice.get("postcode"))
-    if len(a) >= 4 and len(b) >= 4 and a[:-3] == b[:-3]:
-        return True
-    return bool(org_info.get("city") and practice.get("town") and str(org_info["city"]).strip().lower() == str(practice["town"]).strip().lower())
-
-
-def suggest_practices(org_info, practices, limit=5):
-    """Practices that look like the organisation Apollo has the person at: same website domain first, then the most shared distinctive words in the name (and the same postcode area breaks a tie)."""
-    a, dom, post = _tokens((org_info or {}).get("name")), _domain((org_info or {}).get("primary_domain")), str((org_info or {}).get("postal_code") or "").replace(" ", "").upper()
-    scored = []
-    for p in practices:
-        b = _tokens(p.get("practice_name"))
-        score = (10 if dom and dom == _domain(p.get("website")) else 0) + (len(a & b) / len(a | b) if a and b else 0) + (0.2 if post and post[:4] == str(p.get("postcode") or "").replace(" ", "").upper()[:4] else 0)
-        if score >= 0.5:
-            scored.append((score, p))
-    return [{"ods_code": p["ods_code"], "practice_name": p["practice_name"]} for _, p in sorted(scored, key=lambda x: -x[0])[:limit]]
 
 
 def lookup(person, practice, key, post=requests.post):
@@ -280,25 +242,10 @@ def reopen_unrevealed(rest):
     return n
 
 
-CHECK_LOGIC_SINCE = "2026-11-20T14:55:00+00:00"   # review rows decided by an older, name-only search are re-checked by the job itself
-
-
-def recheck_stale_review(rest):
-    """People sent to the review list (a different practice) by an earlier version of the check go back to approved, so the current search judges them again. Nobody has to do it by hand."""
-    n = 0
-    for c in rest.select_all("apollo_queue", "contact_urn,matched_at", order="contact_urn", params={"state": "eq.review", "review_reason": "eq.different_practice", "apollo_email": "is.null"}):
-        if str(c.get("matched_at") or "") < CHECK_LOGIC_SINCE:
-            rest.patch("apollo_queue", {"contact_urn": f"eq.{c['contact_urn']}"}, {"state": "approved", "match": None, "apollo_person_id": None, "apollo_org": None, "apollo_org_info": None, "suggested_ods": None,
-                                                                                   "review_reason": None, "matched_at": None, "checked_at": None, "note": "re-checked automatically with the improved search"})
-            n += 1
-    return n
-
-
 def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich", hub=None, only=None):
     """mode 'check': only verify approved contacts at Apollo (no credits). 'enrich': verify, then look up the email of each verified one. Both are capped at `cap` contacts a run."""
     now = (now or datetime.now(timezone.utc)).isoformat()
     applied = apply_accepted(rest, now)
-    rechecked = recheck_stale_review(rest)
     reopened = reopen_unrevealed(rest)
     approved = rest.select_all("apollo_queue", "*", order="contact_urn", params={"state": "eq.approved"})
     main = main_titles(rest, [c.get("job_title") or "" for c in approved])
@@ -309,13 +256,13 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
         approved = [c for c in approved if only.strip().lower() in str(c.get("full_name") or "").lower()]
     approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
     approved = approved[:max(0, min(cap, MAX_PER_RUN))]
-    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,postcode,town,hubspot_company_id", order="ods_code")}
+    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,hubspot_company_id", order="ods_code")}
     try:   # the practice's HubSpot company name is a second name to compare with Apollo's organisation
         hs_names = {r["ods_code"]: r.get("company_name") for r in rest.select_all("hubspot_links", "ods_code,company_name", order="ods_code")}
     except Exception:  # noqa: BLE001
         hs_names = {}
     pause = 0.3 if post is requests.post else 0   # Apollo rate-limits: a short pause between contacts
-    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied, "rechecked_review": rechecked, "reopened_for_reveal": reopened}
+    out = {"checked": 0, "matched": 0, "no_match": 0, "looked_up": 0, "found": 0, "not_found": 0, "errors": 0, "waiting": 0, "applied_from_review": applied, "reopened_for_reveal": reopened}
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
         alt = [hs_names.get(c["ods_code"])]
@@ -345,18 +292,11 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             elif c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
                 res = check(c, pr.get("practice_name"), pr.get("website"), key, post, alt)
                 out["checked"] += 1
-                rest.patch("apollo_queue", pq, {**{k: v for k, v in res.items() if k != "apollo_looks_like_practice"}, "matched_at": now})
+                rest.patch("apollo_queue", pq, {**res, "matched_at": now})
                 c.update(res)
-                if res["match"] == "company_mismatch":
-                    sug = suggest_practices(res.get("apollo_org_info"), practices.values())
-                    # a same-name person at another organisation is usually a namesake: only an organisation in the same place as the practice is worth a person's review
-                    if not (sug and location_matches(res.get("apollo_org_info"), pr)):
-                        out["no_match"] += 1
-                        rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": f"Apollo has a same-name person at {res.get('apollo_org') or 'another organisation'}, with nothing to show it is the same person"})
-                        continue
-                    out["review"] = out.get("review", 0) + 1   # a review list: move them to the matching practice, then they are re-queued for enrichment
-                    rest.patch("apollo_queue", pq, {"state": "review", "review_reason": "different_practice", "checked_at": now, "suggested_ods": sug,
-                                                    "note": f"Apollo has a same-name person at {res.get('apollo_org') or 'another organisation'}, in the same area as this practice"})
+                if res["match"] == "company_mismatch":   # a same-name person at another organisation is a namesake: nothing to review, nothing to look up
+                    out["no_match"] += 1
+                    rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": f"Apollo has a same-name person at {res.get('apollo_org') or 'another organisation'}, with nothing to show it is the same person"})
                     continue
                 if res["match"] != "matched":
                     out["no_match"] += 1
