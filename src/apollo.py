@@ -130,6 +130,16 @@ def saved_contact(person, practice, website, key, post=requests.post, alt_names=
     return best
 
 
+def location_matches(org_info, practice):
+    """Evidence that Apollo's organisation is in the same place as the practice: the same postcode area (the part before the space) or the same town. Without it a same-name person elsewhere is a namesake."""
+    org_info = org_info or {}
+    pc = lambda v: str(v or "").upper().replace(" ", "")   # noqa: E731
+    a, b = pc(org_info.get("postal_code")), pc(practice.get("postcode"))
+    if len(a) >= 4 and len(b) >= 4 and a[:-3] == b[:-3]:
+        return True
+    return bool(org_info.get("city") and practice.get("town") and str(org_info["city"]).strip().lower() == str(practice["town"]).strip().lower())
+
+
 def suggest_practices(org_info, practices, limit=5):
     """Practices that look like the organisation Apollo has the person at: same website domain first, then the most shared distinctive words in the name (and the same postcode area breaks a tie)."""
     a, dom, post = _tokens((org_info or {}).get("name")), _domain((org_info or {}).get("primary_domain")), str((org_info or {}).get("postal_code") or "").replace(" ", "").upper()
@@ -266,7 +276,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     approved = [c for c in approved if (c.get("job_title") or "") in main]
     approved.sort(key=lambda c: c.get("match") != "matched")   # already-verified ones first: they are the ones that can be enriched
     approved = approved[:max(0, min(cap, MAX_PER_RUN))]
-    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,postcode,hubspot_company_id", order="ods_code")}
+    practices = {r["ods_code"]: r for r in rest.select_all("gp_practices", "ods_code,practice_name,website,postcode,town,hubspot_company_id", order="ods_code")}
     try:   # the practice's HubSpot company name is a second name to compare with Apollo's organisation
         hs_names = {r["ods_code"]: r.get("company_name") for r in rest.select_all("hubspot_links", "ods_code,company_name", order="ods_code")}
     except Exception:  # noqa: BLE001
@@ -306,13 +316,14 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 c.update(res)
                 if res["match"] == "company_mismatch":
                     sug = suggest_practices(res.get("apollo_org_info"), practices.values())
-                    if not sug and not res.get("apollo_looks_like_practice"):   # no practice looks like Apollo's organisation and the person does not look like ours (a designer, a publisher): a namesake
+                    # a same-name person at another organisation is usually a namesake: only an organisation in the same place as the practice is worth a person's review
+                    if not (sug and location_matches(res.get("apollo_org_info"), pr)):
                         out["no_match"] += 1
-                        rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": f"Apollo has someone of that name at {res.get('apollo_org') or 'another organisation'}, which is not a practice we know"})
+                        rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": f"Apollo has a same-name person at {res.get('apollo_org') or 'another organisation'}, with nothing to show it is the same person"})
                         continue
                     out["review"] = out.get("review", 0) + 1   # a review list: move them to the matching practice, then they are re-queued for enrichment
                     rest.patch("apollo_queue", pq, {"state": "review", "review_reason": "different_practice", "checked_at": now, "suggested_ods": sug,
-                                                    "note": f"Apollo has them at {res.get('apollo_org') or 'another organisation'}, not this practice"})
+                                                    "note": f"Apollo has a same-name person at {res.get('apollo_org') or 'another organisation'}, in the same area as this practice"})
                     continue
                 if res["match"] != "matched":
                     out["no_match"] += 1

@@ -1536,7 +1536,7 @@ def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verifi
         def raise_for_status(self): pass
 
     people = {"Ann": [{"id": "p1", "first_name": "Ann", "last_name": "Lee", "organization": {"name": "Test Surgery"}}],
-              "Bob": [{"id": "p2", "first_name": "Bob", "last_name": "Ray", "organization": {"name": "Somewhere Else Ltd"}}],
+              "Bob": [{"id": "p2", "first_name": "Bob", "last_name": "Ray", "organization": {"name": "Somewhere Else Ltd", "postal_code": "AB1 2CD"}}],
               "Cy": []}
     calls = []
 
@@ -1555,7 +1555,7 @@ def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verifi
         def select_all(self, table, cols="*", order="", params=None):
             if table == "apollo_queue":
                 return [{"contact_urn": u, "ods_code": "A11111", "full_name": f"{f} {l}", "first_name": f, "last_name": l, "job_title": "Practice Manager", "role_tier": "A"} for u, f, l in ((1, "Ann", "Lee"), (2, "Bob", "Ray"), (3, "Cy", "Dee"))]
-            return [{"ods_code": "A11111", "practice_name": "Test Surgery", "website": None}, {"ods_code": "B22222", "practice_name": "Somewhere Else Medical Centre", "website": None}] if table == "gp_practices" else []
+            return [{"ods_code": "A11111", "practice_name": "Test Surgery", "website": None, "postcode": "AB1 9ZZ", "town": "Aberdeen"}, {"ods_code": "B22222", "practice_name": "Somewhere Else Medical Centre", "website": None}] if table == "gp_practices" else []
         def insert(self, table, rows, **kw):
             self.inserted.append((table, rows))
             return [{"contact_urn": 99}]
@@ -1571,7 +1571,7 @@ def test_apollo_verifies_the_person_and_practice_first_then_enriches_only_verifi
     assert rest.upserts == [("contact_nb", [{"contact_urn": 99, "nb_state": "pending"}])]   # NeverBounce state lives in its own table
     notes = {u: v for u, v in rest.patched if v.get("state") in ("not_found", "review")}
     assert "no one of that name" in notes["eq.3"]["note"] and notes["eq.3"]["state"] == "not_found"
-    assert notes["eq.2"]["state"] == "review" and "Somewhere Else Ltd" in notes["eq.2"]["note"]   # a different practice goes to the review list, not away
+    assert notes["eq.2"]["state"] == "review" and "Somewhere Else Ltd" in notes["eq.2"]["note"]   # an organisation in the same area goes to review, not away
     only_check = apollo.run(Rest(), "k", 10, post=lambda url, **kw: R({"people": people["Ann"]}) if url.endswith("api_search") else (_ for _ in ()).throw(AssertionError("check mode must not enrich")), mode="check")
     assert only_check["found"] == 0 and only_check["matched"] == 1
 
@@ -1973,3 +1973,12 @@ def test_a_saved_apollo_contact_at_the_practice_without_an_email_counts_as_a_mat
     r2 = Rest()
     out = apollo.run(r2, "k", 5, post=post, mode="check")
     assert seen == [("search", None)] and out["found"] == 0 and out["matched"] == 1   # check mode: matched, no credits
+
+
+def test_a_same_name_same_title_person_elsewhere_is_a_namesake_unless_the_organisation_is_in_the_same_place():
+    from src import apollo
+
+    assert apollo.location_matches({"postal_code": "E3 3FF"}, {"postcode": "E3 4AB"})
+    assert apollo.location_matches({"city": "London"}, {"town": "london"})
+    assert not apollo.location_matches({"name": "Bromley by Bow Health"}, {"postcode": "E3 3FF", "town": "London"})   # no location from Apollo: nothing to show it is the same person
+    assert not apollo.location_matches({"postal_code": "M1 1AA"}, {"postcode": "E3 3FF"})
