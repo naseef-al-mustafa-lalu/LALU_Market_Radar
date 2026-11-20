@@ -2074,3 +2074,34 @@ def test_apollo_contacts_without_a_status_row_trigger_a_refresh_so_the_neverboun
     assert apollo.ensure_status(r) == 1 and r.refreshed == 1
     r2 = Rest(have=[-1, -2])
     assert apollo.ensure_status(r2) == 0 and r2.refreshed == 0   # nothing missing: no refresh
+
+
+def test_waterfall_email_asks_with_name_domain_and_id_then_polls_for_the_result():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j, code=200): self.j, self.status_code = j, code
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    sent = []
+
+    def post(url, **kw):
+        sent.append(kw["json"])
+        return R({"person": {"first_name": "Kim"}, "waterfall": {"status": "accepted"}, "request_id_str": "999"})
+
+    polls = []
+
+    def get(url, **kw):
+        polls.append(url.rsplit("/", 1)[-1])
+        return R({"status": "pending"}, 404) if len(polls) == 1 else R({"status": "complete", "data": {"emails": [{"email": "Kim.M@Practice.nhs.net"}]}})
+
+    person = {"first_name": "Kim", "last_name": "M", "apollo_person_id": "pid"}
+    email, note = apollo.waterfall_email(person, "https://www.practice.nhs.uk/page", "k", post=post, get=get, sleep=lambda s: None)
+    assert email == "kim.m@practice.nhs.net" and polls == ["999", "999"]
+    assert sent[0]["run_waterfall_email"] is True and sent[0]["poll_only"] is True and sent[0]["domain"] == "practice.nhs.uk" and sent[0]["id"] == "pid" and "webhook_url" not in sent[0]
+    # nothing found: a note, no email, and no endless polling
+    email, note = apollo.waterfall_email(person, None, "k", post=post, get=lambda u, **k: R({"status": "complete"}), sleep=lambda s: None)
+    assert email is None and note.startswith("waterfall: no email")

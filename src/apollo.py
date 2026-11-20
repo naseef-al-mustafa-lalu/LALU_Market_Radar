@@ -136,6 +136,56 @@ def lookup(person, practice, key, post=requests.post):
     return None, None, (f"person found, email not available ({seen})" if confidence in ("high", "medium") else f"no api match: Apollo could not match them to a person record ({seen})")
 
 
+EMAIL_RX = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def _emails_in(obj):
+    """Every email-looking string anywhere in a JSON answer (the shape of the polled waterfall result is not documented, so it is searched rather than assumed)."""
+    if isinstance(obj, str):
+        return [m.lower() for m in EMAIL_RX.findall(obj) if not LOCKED.search(m)]
+    if isinstance(obj, dict):
+        return [e for v in obj.values() for e in _emails_in(v)]
+    if isinstance(obj, list):
+        return [e for v in obj for e in _emails_in(v)]
+    return []
+
+
+def waterfall_email(person, website, key, post=requests.post, get=requests.get, wait=90, step=5, sleep=time.sleep):
+    """The email Apollo's screen reveals through its waterfall (extra third-party email sources), for someone the plain lookup holds no email for. Sent with the identifiers Apollo matches on (name, the employer's
+    domain, and the person's id if there is one); Apollo answers at once with a request id, and the result is polled for (no webhook is needed). Some vendors charge per lookup even when they find nothing, so this only
+    runs when asked for. Returns (email, note), the note saying what Apollo answered."""
+    body = {"run_waterfall_email": True, "poll_only": True, "reveal_personal_emails": False, "first_name": person.get("first_name"), "last_name": person.get("last_name")}
+    if _domain(website):
+        body["domain"] = _domain(website)
+    if person.get("apollo_person_id"):
+        body["id"] = person["apollo_person_id"]
+    r = post(f"{API}/people/match", headers=HEADERS(key), json=body, timeout=60)
+    if r.status_code in (401, 403, 422, 429):
+        raise RuntimeError(f"Apollo {r.status_code}: {r.text[:160]}")
+    r.raise_for_status()
+    j = r.json() or {}
+    found = _emails_in(j.get("person") or {})
+    if found:
+        return found[0], "waterfall: email in the first answer"
+    rid = j.get("request_id_str") or j.get("request_id")
+    if not rid:
+        return None, f"waterfall: no request id (Apollo said: {str(j.get('waterfall'))[:120]})"
+    last = {}
+    for _ in range(max(1, wait // step)):
+        sleep(step)
+        pr = get(f"{API}/webhook_result/{rid}", headers=HEADERS(key), timeout=60)
+        if pr.status_code == 404:
+            continue
+        pr.raise_for_status()
+        last = pr.json() or {}
+        found = _emails_in(last)
+        if found:
+            return found[0], "waterfall: email found"
+        if str(last.get("status") or "").lower() in ("complete", "completed", "done", "failed", "error", "no_results"):
+            break
+    return None, f"waterfall: no email (poll answer keys {sorted(last)[:8]}, status {last.get('status')})"
+
+
 def _name_key(ods, name):
     return (ods, " ".join(str(name or "").lower().split()))
 
@@ -243,7 +293,7 @@ def reopen_unrevealed(rest):
     return n
 
 
-def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich", hub=None, only=None):
+def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich", hub=None, only=None, waterfall=False, get=requests.get):
     """mode 'check': only verify approved contacts at Apollo (no credits). 'enrich': verify, then look up the email of each verified one. Both are capped at `cap` contacts a run."""
     now = (now or datetime.now(timezone.utc)).isoformat()
     applied = apply_accepted(rest, now)
@@ -315,6 +365,14 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                     rest.patch("apollo_queue", pq, {"note": "matched at the practice, but Apollo gave no person id: not enriched, so credits cannot go to a namesake. Reveal the email in Apollo (it is then pulled free)."})
                     continue
                 email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an email comes back
+                if not email and waterfall and str(note or "").startswith(("person found", "no api match")):   # opt-in: what Apollo's screen does when the plain lookup has nothing
+                    wf_email, wf_note = waterfall_email(c, pr.get("website"), key, post, get, sleep=time.sleep if post is requests.post else (lambda s: None))
+                    out["waterfall_tried"] = out.get("waterfall_tried", 0) + 1
+                    if wf_email:
+                        email, status, note = wf_email, None, None
+                        out["waterfall_found"] = out.get("waterfall_found", 0) + 1
+                    else:
+                        note = f"{note} | {wf_note}"
         except Exception as e:  # noqa: BLE001  the contact stays approved and is tried again next run; stop on repeated failures (a bad key, no credits)
             out["errors"] += 1
             out["last_error"] = str(e)[:200]
@@ -382,7 +440,7 @@ def main():
     mode = env.get("APOLLO_MODE") if env.get("APOLLO_MODE") in ("enrich", "check", "none") else "check"   # credits are only spent when enrich is asked for by name
     if env.get("APOLLO_API_KEY") and mode != "none":
         from .hubspot_sync import Hub
-        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode=mode, hub=Hub(env["HUBSPOT_TOKEN"]) if env.get("HUBSPOT_TOKEN") else None, only=env.get("APOLLO_ONLY") or None)
+        out = run(rest, env["APOLLO_API_KEY"], int(env.get("APOLLO_CAP") or MAX_PER_RUN), mode=mode, hub=Hub(env["HUBSPOT_TOKEN"]) if env.get("HUBSPOT_TOKEN") else None, only=env.get("APOLLO_ONLY") or None, waterfall=env.get("APOLLO_WATERFALL") == "1")
         print("Apollo:", out)
         summary["run"] = out
     else:
