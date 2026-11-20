@@ -73,6 +73,19 @@ def check(person, practice, website, key, post=requests.post):
             "apollo_org_info": {k: org.get(k) for k in ("name", "primary_domain", "city", "postal_code") if org.get(k)}}
 
 
+def saved_contact(person, practice, website, key, post=requests.post):
+    """Free of credits: is this person already one of YOUR Apollo contacts (someone enriched them before) with an email? Returns (email, email_status) or None. Only the same person at this practice counts."""
+    r = post(f"{API}/contacts/search", headers=HEADERS(key), json={"q_keywords": person.get("full_name"), "per_page": 25, "page": 1}, timeout=60)
+    if r.status_code in (401, 403, 422, 429):
+        raise RuntimeError(f"Apollo {r.status_code}: {r.text[:160]}")
+    r.raise_for_status()
+    for p in (r.json() or {}).get("contacts") or []:
+        email = str(p.get("email") or "").strip().lower()
+        if email and not LOCKED.search(email) and _same_person(p, person) and company_matches({"name": p.get("organization_name") or (p.get("organization") or {}).get("name"), "primary_domain": (p.get("organization") or {}).get("primary_domain")}, practice, website):
+            return email, p.get("email_status")
+    return None
+
+
 def suggest_practices(org_info, practices, limit=5):
     """Practices that look like the organisation Apollo has the person at: same website domain first, then the most shared distinctive words in the name (and the same postcode area breaks a tie)."""
     a, dom, post = _tokens((org_info or {}).get("name")), _domain((org_info or {}).get("primary_domain")), str((org_info or {}).get("postal_code") or "").replace(" ", "").upper()
@@ -191,8 +204,18 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
     for c in approved:
         pr = practices.get(c["ods_code"]) or {}
         pq = {"contact_urn": f"eq.{c['contact_urn']}"}
+        free = False
         try:
-            if c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
+            try:   # step 0, free: already enriched in your Apollo account? Then the email is just pulled, no credits
+                saved = saved_contact(c, pr.get("practice_name"), pr.get("website"), key, post)
+            except Exception as e:  # noqa: BLE001  the saved-contacts search is a bonus: if it is refused, the normal check and enrich still work
+                saved = None
+                out["saved_search_error"] = str(e)[:160]
+            if saved:
+                email, status, note, free = saved[0], saved[1], None, True
+                out["from_apollo_contacts"] = out.get("from_apollo_contacts", 0) + 1
+                rest.patch("apollo_queue", pq, {"match": "matched", "matched_at": now})
+            elif c.get("match") != "matched":   # step 1, free: is the person at Apollo, at this practice?
                 res = check(c, pr.get("practice_name"), pr.get("website"), key, post)
                 out["checked"] += 1
                 rest.patch("apollo_queue", pq, {**res, "matched_at": now})
@@ -206,17 +229,18 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                     out["no_match"] += 1
                     rest.patch("apollo_queue", pq, {"state": "not_found", "checked_at": now, "note": "Apollo has no one of that name"})
                     continue
-            out["matched"] += 1
-            if mode == "check":
-                continue
-            email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an address comes back
+            if not free:
+                out["matched"] += 1
+                if mode == "check":
+                    continue
+                email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an email comes back
         except Exception as e:  # noqa: BLE001  the contact stays approved and is tried again next run; stop on repeated failures (a bad key, no credits)
             out["errors"] += 1
             out["last_error"] = str(e)[:200]
             if out["errors"] >= 3:
                 break
             continue
-        out["looked_up"] += 1
+        out["looked_up"] += 0 if free else 1
         if not email:
             out["not_found"] += 1
             rest.patch("apollo_queue", pq, {"state": "not_found", "note": note, "checked_at": now})
@@ -228,9 +252,9 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             out["last_error"] = str(e)[:200]
             continue
         if other:
-            out["found"] += 1
+            out["found_free" if free else "found"] = out.get("found_free" if free else "found", 0) + 1
             out["review_email"] = out.get("review_email", 0) + 1
-            patch = {"state": "review", "review_reason": "different_email", "apollo_email": email, "apollo_email_status": status, "existing_email": other["email"], "existing_where": other["where"], "existing_urn": other["urn"],
+            patch = {"state": "review", "review_reason": "different_email", "apollo_email": email, "apollo_email_status": status, "existing_email": other["email"], "existing_where": other["where"], "existing_urn": other["urn"], "free": free,
                      "checked_at": now, "note": f"Apollo found {email}; {other['where']} already has {other['email']}"}
             try:
                 rest.patch("apollo_queue", pq, {**patch, **({"hubspot_contact_id": other["hubspot_id"]} if other.get("hubspot_id") and not c.get("hubspot_contact_id") else {})})
@@ -242,9 +266,10 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
             quality, _ = contact_quality.email_quality(email, c.get("first_name"), c.get("last_name"))
             rest.insert("contacts", [{"ods_code": c["ods_code"], "full_name": c.get("full_name"), "first_name": c.get("first_name"), "last_name": c.get("last_name"), "job_title": c.get("job_title"), "email": email,
                                       "email_quality": quality if quality in ("direct", "likely_direct", "check", "shared") else None, "role_tier": c.get("role_tier"), "source": "apollo", "nb_state": "pending"}])
-        out["found"] += 1
-        rest.patch("apollo_queue", pq, {"state": "found", "apollo_email": email, "apollo_email_status": status, "checked_at": now, "note": "already a contact" if dup else None})
-    out["addresses_found"] = out["found"]   # credits are worked out on the Apollo page from the credits-per-address setting
+        out["found_free" if free else "found"] = out.get("found_free" if free else "found", 0) + 1
+        rest.patch("apollo_queue", pq, {"state": "found", "apollo_email": email, "apollo_email_status": status, "free": free, "checked_at": now,
+                                        "note": ("already a contact" if dup else None) or ("already in your Apollo contacts: no credits used" if free else None)})
+    out["addresses_found"] = out["found"]   # paid finds only; credits are worked out on the Apollo page from the credits-per-email setting
     out["waiting"] = len(rest.select_all("apollo_queue", "contact_urn", order="contact_urn", params={"state": "eq.approved"}))
     return out
 
