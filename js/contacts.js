@@ -82,7 +82,7 @@ async function ctLoadReview(more) {   // the Review tab: the four counts, and 10
   ctRev = { counts: data.counts || {}, rows: (more ? ctRev.rows : []).concat((data.rows || []).map(ctWrap)), titles: (more ? ctRev.titles : []).concat(data.titles || []) };
 }
 async function ctLoadNb() {   // the queue counts and the first 100 rows; "Show more" adds the next 100
-  const [q, rows, r] = await Promise.all([db.rpc("contacts_nb_queue"), db.rpc("contacts_nb_rows", { p_limit: 100, p_offset: 0 }), db.from("neverbounce_runs").select("run_at,checked,passed,failed,created_in_hubspot,enrolled,credits_remaining,error").order("id", { ascending: false }).limit(5)]);
+  const [q, rows, r] = await Promise.all([db.rpc("contacts_nb_queue"), db.rpc("contacts_nb_rows", { p_limit: 100, p_offset: 0 }), db.from("neverbounce_runs").select("run_at,checked,passed,failed,created_in_hubspot,enrolled,credits_remaining,error,summary").order("id", { ascending: false }).limit(5)]);
   if (q.error) throw q.error; if (rows.error) throw rows.error; ctNbQ = { ...q.data, rows: (rows.data || []).map(ctWrap) }; ctRuns = r.data || [];
 }
 async function ctLoadNbMore() {
