@@ -2246,3 +2246,30 @@ def test_a_pending_waterfall_is_kept_and_a_later_run_collects_the_email_for_free
     got = dict(r.patched)
     assert got["eq.1"] == {"apollo_email": "ann@x.nhs.net", "waterfall_request_id": None, "note": "waterfall email ready"}   # the normal run finishes the contact from the stored email
     assert got["eq.2"]["waterfall_request_id"] is None and "no email" in got["eq.2"]["note"] and got["eq.3"]["note"].startswith("waterfall: Apollo gave no answer") and "eq.4" not in got
+
+
+def test_an_apollo_address_on_an_existing_person_fills_a_blank_legal_basis_and_replaces_an_oscar_first_touch_only():
+    from datetime import datetime, timezone
+
+    from src import neverbounce
+
+    day = datetime(2026, 11, 26, tzinfo=timezone.utc)
+    assert neverbounce.apollo_existing_props({"hs_legal_basis": "", "um_source_detail_1": "Other"}, day) == {"hs_legal_basis": neverbounce.LEGAL_BASIS}   # a blank legal basis is filled; a non-Oscar source stays
+    assert neverbounce.apollo_existing_props({"hs_legal_basis": "Freely given consent from contact", "um_source_detail_1": "Other"}, day) == {}   # nothing set is overwritten
+    oscar = neverbounce.apollo_existing_props({"hs_legal_basis": "Freely given consent from contact", "um_source_detail_1": "Oscar Data"}, day)
+    assert "hs_legal_basis" not in oscar and oscar["um_source_detail_1"] == "Apollo" and oscar["um_source_detail_2"] == "Lalu Atlas Import: 2026-11-26" and oscar["um_lt_source_detail_1"] == "" and oscar["um_lt_source_detail_2"] == oscar["um_source_detail_2"]   # an Oscar origin becomes Apollo, first and latest touch agreeing
+
+    calls = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            calls.append((method, path, kw))
+            if path.endswith("/contacts/search"):
+                return {"results": [{"id": "9"}]}
+            if method == "GET" and path.endswith("/contacts/9"):
+                return {"properties": {"hs_legal_basis": None, "um_source_detail_1": "Oscar Data"}}
+            return {"id": "x"}
+
+    cid, created = neverbounce.hubspot_contact(Hub(), {"email": "a@b.nhs.net", "source": "apollo"}, "1", "Valid", targets={})
+    patches = [kw["json"]["properties"] for m, p, kw in calls if m == "PATCH"]
+    assert (cid, created) == ("9", False) and patches[0] == {"neverbounce_status": "Valid"} and patches[1]["hs_legal_basis"] == neverbounce.LEGAL_BASIS and patches[1]["um_source_detail_1"] == "Apollo"

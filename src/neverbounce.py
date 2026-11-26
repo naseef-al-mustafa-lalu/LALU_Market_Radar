@@ -91,6 +91,22 @@ def creation_props(detail1="Oscar API", today=None):
     return props
 
 
+OSCAR_FIRST_TOUCH = {"oscar data", "oscar api", "oscar ai"}   # first-touch sources that mean "Oscar was where we got this person"
+LEGAL_BASIS = "Legitimate interest \u2013 prospect/lead"
+
+
+def apollo_existing_props(cur, today=None):
+    """What an Apollo address adds to a person HubSpot already holds. A blank legal basis is filled in. When Oscar was the person's original source the first touch becomes Apollo (with the Atlas import label,
+    so its three first-touch fields agree) and the latest touch is made to agree with it: Latest Touch Detail 1 has no Apollo option, so it is cleared. Any other source, and any legal basis already set, is left alone."""
+    out = {}
+    if not (cur.get("hs_legal_basis") or "").strip():
+        out["hs_legal_basis"] = LEGAL_BASIS
+    if (cur.get("um_source_detail_1") or "").strip().lower() in OSCAR_FIRST_TOUCH:
+        d = f"Lalu Atlas Import: {(today or datetime.now(timezone.utc)).date().isoformat()}"
+        out.update({"source_category": "Import", "um_source_detail_1": "Apollo", "um_source_detail_2": d, "um_lt_source_category": "Import", "um_lt_source_detail_1": "", "um_lt_source_detail_2": d})
+    return out
+
+
 def adopt_unaddressed(hub, c, company_id):
     """HubSpot may already hold this person on the practice's company with no email address (that is how Apollo came to look them up): return that contact's id, else None."""
     if not company_id:
@@ -153,6 +169,11 @@ def hubspot_contact(hub, c, company_id, status, targets=None):
         props.update(email=email, firstname=c.get("first_name") or (c.get("full_name") or "").split(" ")[0] or None, lastname=c.get("last_name") or " ".join((c.get("full_name") or "").split(" ")[1:]) or None,
                      jobtitle=c.get("job_title"), phone=c.get("phone"), job_role_standardised=standard_role(c.get("job_title")), **creation_props("Apollo" if apollo else "Oscar API"))
         cid, created = str(hub.call("POST", "/crm/v3/objects/contacts", json={"properties": {k: v for k, v in props.items() if v}})["id"]), True
+    if apollo and not created:   # an existing record keeps its own details, except a blank legal basis and an Oscar first touch (see apollo_existing_props)
+        cur = (hub.call("GET", f"/crm/v3/objects/contacts/{cid}", params={"properties": "hs_legal_basis,um_source_detail_1"}) or {}).get("properties") or {}
+        extra = apollo_existing_props(cur)
+        if extra:
+            hub.call("PATCH", f"/crm/v3/objects/contacts/{cid}", json={"properties": extra})
     if company_id:
         hub.call("PUT", f"/crm/v4/objects/contacts/{cid}/associations/default/companies/{company_id}")
     if apollo:
