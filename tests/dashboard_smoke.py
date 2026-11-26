@@ -266,6 +266,10 @@ with sync_playwright() as p:
     pg.click("#dr-body .speed-toggle"); assert pg.get_attribute("#dr-body .speed-toggle", "aria-checked") == "true"
     assert "£8,640" in kpi() and "on renewal" in kpi().lower() and "£9,120" in kpi() and "£0.072" in pg.inner_text("#dr-body .price-card tbody") and "Speed discount" in pg.inner_text("#dr-body .price-card tbody")
     assert pg.evaluate("document.activeElement.classList.contains('speed-toggle')")
+    before_kpi = kpi(); assert pg.get_attribute("#dr-body .extra-toggle", "aria-checked") == "false" and pg.locator("#dr-body .disc-extra").count() == 0, "the discretionary discount is a switch like size and speed, off by default"
+    pg.click("#dr-body .extra-toggle"); assert pg.get_attribute("#dr-body .extra-toggle", "aria-checked") == "true" and pg.locator("#dr-body .disc-extra").count() == 1, "switching it on shows the percentage box"
+    pg.fill("#dr-body .disc-extra", "5"); pg.keyboard.press("Tab"); xt = pg.inner_text("#dr-body .price-card tbody"); assert "Discretionary discount" in xt and "−5%" in xt and kpi() != before_kpi, xt      # the percentage is a further discount in the price build-up
+    pg.click("#dr-body .extra-toggle"); assert pg.get_attribute("#dr-body .extra-toggle", "aria-checked") == "false" and "Discretionary discount" not in pg.inner_text("#dr-body .price-card tbody") and kpi() == before_kpi, "switching it off takes it out again"
     rc = pg.inner_text("#dr-body .route-cmp"); assert "speed discount on" in rc and "£8,640" in rc and "£0.072" in rc and "£720 MRR" in rc and "£8,640 ARR" in rc, rc   # the route comparison follows the speed switch
     pg.click('#dr-body .bill-opt[data-b="monthly"]'); mo = pg.inner_text("#dr-body")   # monthly plan: list rate only, no discounts, no speed switch
     assert "monthly plan" in mo.lower() and "£0.100" in mo and "£12,000" in mo and "no discounts" in mo and "Size discount" not in mo and pg.locator("#dr-body .term-opt").count() == 0 and pg.locator("#dr-body .speed-toggle").count() == 0, mo

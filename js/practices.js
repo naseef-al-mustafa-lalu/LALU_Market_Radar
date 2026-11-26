@@ -224,7 +224,8 @@ $("more").addEventListener("click", renderMore);
 // Price = list price less the SUM of the selected discounts (size + term + speed), never below the price floor.
 // Term and speed are choices, not guarantees, so they are switches shared by every price card on the page.
 let discountsDefault = false, discountsOn = false, speedOn = false, termYrs = 1, billing = "annual", product = "all", pricingTouched = false;      // pricingTouched: the user has picked a plan in this profile, so HubSpot's existing line item no longer sets it   // billing: "annual" or "monthly" (rolling, no discounts); product: "all" reports or "sar" only
-let discretionary = 0;      // an extra discretionary discount the salesperson gives, as a fraction (0.05 = 5%): annual plans only, added to the other discounts
+let discretionary = 0, discExtraOn = false, discExtraPct = 0;      // the discretionary discount: a switch like size and speed, with the percentage typed beside it; discretionary is the effective fraction (0.05 = 5%) the price uses (annual plans only, added to the other discounts)
+const syncDiscExtra = () => { discretionary = discExtraOn ? discExtraPct : 0; };
 const priceCards = new Map();
 const setting = k => Number(cfgSettings[k]?.value || 0);
 const termDiscount = yrs => yrs >= 3 ? setting("term_discount_3yr") : yrs === 2 ? setting("term_discount_2yr") : 0;
@@ -240,13 +241,14 @@ function priceCard(args) {
 }
 function repaintPriceCards() { if (typeof netDealRender === "function") netDealRender(); const live = new Set([...document.querySelectorAll(".price-card")].map(el => el.dataset.pc)); for (const k of priceCards.keys()) if (!live.has(k)) priceCards.delete(k); document.querySelectorAll(".price-card").forEach(el => { el.innerHTML = priceCardBody(priceCards.get(el.dataset.pc), el.dataset.pc); }); document.querySelectorAll(".route-cmp").forEach(el => { el.innerHTML = routeCmpPractice ? routeComparisonBody(routeCmpPractice) : ""; }); if (typeof hsRefreshBars === "function") hsRefreshBars(); }
 document.addEventListener("click", e => {
-  const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt"), pr = e.target.closest(".prod-opt"), dc = e.target.closest(".disc-toggle");
+  const sw = e.target.closest(".speed-toggle"), bl = e.target.closest(".bill-opt"), pr = e.target.closest(".prod-opt"), dc = e.target.closest(".disc-toggle"), xt = e.target.closest(".extra-toggle");
   if (dc) { pricingTouched = true; discountsOn = !discountsOn; document.querySelectorAll(".net-disc").forEach(el => el.classList.toggle("hidden", !discountsOn)); repaintPriceCards(); document.querySelector(".disc-toggle")?.focus({ preventScroll: true }); }
+  else if (xt) { pricingTouched = true; discExtraOn = !discExtraOn; syncDiscExtra(); repaintPriceCards(); (discExtraOn ? document.querySelector(".disc-extra") : document.querySelector(".extra-toggle"))?.focus({ preventScroll: true }); }
   else if (sw) { pricingTouched = true; speedOn = !speedOn; repaintPriceCards(); document.querySelector(".speed-toggle")?.focus({ preventScroll: true }); }
   else if (bl) { pricingTouched = true; billing = bl.dataset.b; repaintPriceCards(); document.querySelector(`.bill-opt[data-b="${billing}"]`)?.focus({ preventScroll: true }); }
   else if (pr) { pricingTouched = true; product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
 });
-document.addEventListener("change", e => { const i = e.target.closest && e.target.closest(".disc-extra"); if (!i) return; pricingTouched = true; const v = Number(i.value); discretionary = Number.isFinite(v) ? Math.min(Math.max(v, 0), 100) / 100 : 0; repaintPriceCards(); });   // on change, not on every key, so typing is not interrupted by the card redrawing
+document.addEventListener("change", e => { const i = e.target.closest && e.target.closest(".disc-extra"); if (!i) return; pricingTouched = true; const v = Number(i.value); discExtraPct = Number.isFinite(v) ? Math.min(Math.max(v, 0), 100) / 100 : 0; syncDiscExtra(); repaintPriceCards(); });   // on change, not on every key, so typing is not interrupted by the card redrawing
 document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { pricingTouched = true; termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
 function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const monthly = billing === "monthly", sar = product === "sar", list = baseRate(), prodName = sar ? "SAR only" : "All reports";
@@ -292,7 +294,7 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
       ${useSpeed ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">On renewal</div><div class="text-lg font-semibold leading-tight">${gbpFull(rT)}</div><div class="text-xs text-slate-500">speed discount ends</div></div>` : ""}</div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div class="flex flex-wrap items-center gap-2">${seg("Product", "prod-opt", "p", product, [["all", "All reports"], ["sar", "SAR only"]])}${seg("Billing", "bill-opt", "b", billing, [["annual", "Annual"], ["monthly", "Monthly"]])}</div></div>
-    ${monthly ? "" : `<div class="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">${toggle("disc-toggle", "Size discount", discountsOn, "dsc-l-" + id, pct(size0) + " off")}${speed > 0 ? toggle("speed-toggle", "Speed discount", speedOn, "spd-l-" + id, pct(speed) + " off, not guaranteed") : ""}<label class="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">Discretionary discount <span class="relative"><input type="number" class="disc-extra w-20 rounded-md border border-slate-300 bg-white py-1 pl-2 pr-6 text-right font-mono text-sm" min="0" max="100" step="0.5" value="${disc2 ? Math.round(disc2 * 1000) / 10 : ""}" placeholder="0" aria-label="Discretionary discount, percent"><span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500">%</span></span></label></div>`}
+    ${monthly ? "" : `<div class="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">${toggle("disc-toggle", "Size discount", discountsOn, "dsc-l-" + id, pct(size0) + " off")}${speed > 0 ? toggle("speed-toggle", "Speed discount", speedOn, "spd-l-" + id, pct(speed) + " off, not guaranteed") : ""}${toggle("extra-toggle", "Discretionary discount", discExtraOn, "xtr-l-" + id, discExtraOn && disc2 > 0 ? pct(disc2) + " off" : "extra, set by you")}${discExtraOn ? `<span class="relative inline-flex"><input type="number" class="disc-extra w-20 rounded-md border border-slate-300 bg-white py-1 pl-2 pr-6 text-right font-mono text-sm" min="0" max="100" step="0.5" value="${discExtraPct ? Math.round(discExtraPct * 1000) / 10 : ""}" placeholder="0" aria-label="Discretionary discount, percent"><span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500">%</span></span>` : ""}</div>`}
     ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
       `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
     ${route === "practice" && lead && !monthly && lead.total_patients > 0 ? referralPanel(lead, id) : ""}
@@ -371,7 +373,7 @@ function closeDrawer() { const was = !$("drawer").classList.contains("translate-
 $("dr-close").onclick = closeDrawer;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 async function openDrawer(p) {
-  if (drawerCode !== p.ods_code) { pricingTouched = false; discountsOn = discountsDefault; discretionary = 0; }   // every profile opens at list price (discountsDefault is only changed by the dashboard tests)
+  if (drawerCode !== p.ods_code) { pricingTouched = false; discountsOn = discountsDefault; discExtraOn = false; discExtraPct = 0; discretionary = 0; }   // every profile opens at list price (discountsDefault is only changed by the dashboard tests)
   drawerCode = p.ods_code;
   document.querySelectorAll("#rows tr").forEach(r => r.classList.toggle("bg-lalu-teal-50", r.dataset.ods === p.ods_code));
   drawerOpened(); $("drawer").classList.remove("translate-x-full");
