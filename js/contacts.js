@@ -3,7 +3,7 @@
 let ctNbSet = { enabled: true, days: [0], auto_push: true }, ctNbWaiting = 0, ctNbMsg = "";   // NeverBounce schedule (saved on its own, the moment a choice changes)
 let ctOwnerNames = {};   // HubSpot owner id -> name (app_flags.hubspot_owners, saved by the eligibility push)
 let ctSub = "contacts", ctShown = 100, ctDirty = false, ctSegments = [], ctHeld = null, ctSaving = false;
-let ctMoreOpen = false, ctF = { dq: "", q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", country: "", city: "" };
+let ctMoreOpen = false, ctF = { dq: "", q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", country: "" };
 // Hand-picking: null while the filters decide who is in; once a box is ticked or unticked it is the explicit set of contact urns (a saved segment keeps it as its members).
 let ctPick = new Set(), ctOff = new Set(), ctEditing = null,   // ctPick: the urns ticked (none to begin with); null only after Select all = everything the filters show except the urns in ctOff
    ctNoEmail = 0;   // ctNoEmail: contacts with no email address, kept as a count only (never stored)
@@ -29,14 +29,12 @@ const CT_SECTION = { main: ["Main", "bg-teal-100 text-teal-800"], other: ["Other
 
 // ---- Loading ----
 // Every view asks the database for just what it shows: the list one page of 100 at a time, and each other tab its own small summary. No tab downloads the whole contact list.
-let ctCityOpts = null;
-const ctCities = () => ctCityOpts || (ctCityOpts = [...new Set(practices.map(p => (p.town || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)));   // every practice town, for the City box
 const CT_COUNTRIES = ["England", "Scotland", "Wales", "Northern Ireland", "Isle of Man"];
 let ctSrvRows = [], ctSrvTotal = 0, ctSrvEligible = 0, ctSrvCounts = null, ctSrvBusy = false, ctSrvReady = false, ctSrvSeq = 0, ctSrvRe = { total: 0, eligible: 0, suppressed: 0, due: 0 }, ctSrvDq = [];
 let ctSegOthers = [], ctSegOthersTotal = 0, ctSegOthersOpen = false, ctOscar = null, ctFlagsReady = false, ctStats = null, ctNbQ = null, ctRev = { counts: {}, rows: [], titles: [] }, ctSegStatsMap = {}, ctSegCounts = new Map();
 const ctWrap = c => ({ c, p: byOds.get(c.ods_code), ev: { role: CT_ROLE[c.st_role] || CT_ROLE.other, quality: c.email_quality, name: [c.first_name, c.last_name].filter(Boolean).join(" ") || c.full_name || "", section: c.st_section, excluded: c.st_excluded || "", reasons: c.st_reasons || [], status: c.st_status } });
 
-const ctPageBox = f => ({ q: f.q, country: f.country || "", city: f.city || "", section: f.section, status: f.status, role: f.role, source: f.source, reason: f.reason, lifecycle: f.lifecycle, dq: ctMode === "reengage" ? f.dq : "" });
+const ctPageBox = f => ({ q: f.q, country: f.country || "", section: f.section, status: f.status, role: f.role, source: f.source, reason: f.reason, lifecycle: f.lifecycle, dq: ctMode === "reengage" ? f.dq : "" });
 async function ctLoadPage() {
   const seq = ++ctSrvSeq; ctSrvBusy = true; if (!ctSrvReady) $("ct-body").innerHTML = '<p class="p-6 text-sm text-slate-500">Loading contacts…</p>'; else renderContacts();
   try {
@@ -59,7 +57,7 @@ async function ctLoadMore() {   // exactly 100 more, added to the list: nothing 
   ctSrvBusy = false; renderContacts();
 }
 
-const ctQueryFilters = () => ({ q: ctF.q, country: ctF.country || "", city: ctF.city || "", section: ctF.section, status: ctF.status, role: ctF.role, source: ctF.source, reason: ctF.reason, lifecycle: ctF.lifecycle, dq: ctMode === "reengage" ? ctF.dq : "" });
+const ctQueryFilters = () => ({ q: ctF.q, country: ctF.country || "", section: ctF.section, status: ctF.status, role: ctF.role, source: ctF.source, reason: ctF.reason, lifecycle: ctF.lifecycle, dq: ctMode === "reengage" ? ctF.dq : "" });
 async function ctMatchIds(f = ctQueryFilters()) {   // the ids (never the records) of every contact matching: what ticking, select all and Create audience work from
   const { data, error } = await db.rpc("contacts_query", { p_f: f, p_mode: ctMode, p_what: "ids", p_limit: 0, p_offset: 0 }); if (error) throw error; return data;
 }
@@ -97,7 +95,7 @@ async function ctLoadSegments() {   // the tracked segments in full; the other H
   const [s, st, oc] = await Promise.all([db.from("hubspot_segments").select(CT_SEG_COLS).eq("tracked", true).order("name"), db.rpc("contacts_segment_stats"), db.from("hubspot_segments").select("list_id", { count: "exact", head: true }).eq("tracked", false)]);
   ctSegs = s.data || []; ctSegStatsMap = st.data || {}; ctSegOthersTotal = oc.count || 0; ctSegOthers = []; ctSegOthersOpen = false; ctSegCounts = new Map();
   await Promise.all(ctSegments.map(async sg => {   // each saved filter set is counted by the database
-    const f = sg.members ? { urns: sg.members } : { ...ctPageBox({ q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", country: "", city: "", dq: "", ...sg.filters }), ...(sg.exclude && sg.exclude.length ? { exclude: sg.exclude } : {}) };
+    const f = sg.members ? { urns: sg.members } : { ...ctPageBox({ q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", country: "", dq: "", ...sg.filters }), ...(sg.exclude && sg.exclude.length ? { exclude: sg.exclude } : {}) };
     const { data } = await db.rpc("contacts_query", { p_f: f, p_mode: "standard", p_what: "rows", p_limit: 0, p_offset: 0 }); ctSegCounts.set(sg.id, { total: (data || {}).total || 0, eligible: (data || {}).eligible || 0 });
   }));
 }
@@ -169,7 +167,7 @@ function ctRow(r) {
     <td class="px-2 text-xs text-slate-600">${c.hs_lifecycle ? esc(CT_LIFECYCLE[c.hs_lifecycle] || c.hs_lifecycle) : '<span class="text-slate-300">not in HubSpot</span>'}</td>${ctMode === "reengage" ? `<td class="px-2 text-xs">${[c.hs_dq_reason ? chip("Disqualified: " + ctDqLabel(c.hs_dq_reason), "bg-rose-100 text-rose-800") : "", c.hs_lost_reason ? chip("Deal lost (" + (CT_LOST_KIND[c.hs_lost_kind] || "was a lead") + "): " + c.hs_lost_reason, "bg-amber-100 text-amber-800") : ""].join(" ") || '<span class="text-slate-300">–</span>'}</td><td class="max-w-[16rem] px-2 text-xs text-slate-600">${c.hs_dq_note ? esc(c.hs_dq_note) : c.hs_lost_deal ? `<span class="text-slate-500">${esc(c.hs_lost_deal)}${c.hs_lost_at ? " · lost " + esc(fmtDate(c.hs_lost_at)) : ""}</span>` : '<span class="text-slate-300">–</span>'}</td><td class="whitespace-nowrap px-2 text-xs">${c.hs_reengage_date ? `${esc(fmtDate(c.hs_reengage_date))}${ctDue(c) ? " " + chip("due", "bg-sky-100 text-sky-800") : ""}` : '<span class="text-slate-300">–</span>'}</td>` : ""}</tr>`;
 }
 function ctList() {
-  const rows = ctSrvRows, shown = rows, total = ctSrvTotal, elig = ctSrvEligible, nF = ["section", "status", "reason", "role", "source", "lifecycle", "country", "city", "dq"].filter(k => ctF[k]).length, dqOpts = ctSrvDq.slice().sort().map(v => [v, ctDqLabel(v)]);
+  const rows = ctSrvRows, shown = rows, total = ctSrvTotal, elig = ctSrvEligible, nF = ["section", "status", "reason", "role", "source", "lifecycle", "country", "dq"].filter(k => ctF[k]).length, dqOpts = ctSrvDq.slice().sort().map(v => [v, ctDqLabel(v)]);
   const roleOpts = CT_ROLES.map(r => [r[0], r[1]]), reasonOpts = CT_RULES.map(r => [r[0], r[1]]);
   return `${ctTiles()}<div class="mt-3 flex flex-wrap items-center justify-between gap-2">${ctModeBar()}${ctMode === "reengage" ? `<button type="button" id="ct-make-aud" class="rounded-lg bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">Create audience from ${elig.toLocaleString()} eligible contacts</button>` : ""}</div>
     <div class="relative mt-3 flex flex-wrap items-center gap-2">
@@ -179,7 +177,7 @@ function ctList() {
       <span class="ml-auto flex items-center gap-3"><span id="ct-count" class="text-sm text-slate-500">${total.toLocaleString()} contact${total === 1 ? "" : "s"} · ${elig.toLocaleString()} eligible${ctNoEmail ? ` · <span title="Contacts with no email address cannot be contacted, so they are counted here and not stored">${ctNoEmail.toLocaleString()} with no email (count only)</span>` : ""}${(ctPick ? ctPick.size > 0 : true) ? ` · <b class="text-slate-700">${ctPick ? ctPick.size.toLocaleString() + " picked" : ctOff.size ? ctOff.size.toLocaleString() + " left out" : "all selected"}</b> <button type="button" id="ct-pick-clear" class="font-semibold text-lalu-teal-700 hover:underline">back to the filters</button>` : ""}</span>
         ${ctEditing && ctSegments.find(x => x.id === ctEditing) ? `<button id="ct-seg-update" class="rounded-lg bg-lalu-navy px-3 py-2 text-sm font-semibold text-white hover:bg-lalu-navy-700">Update “${esc(ctSegments.find(x => x.id === ctEditing).name)}”</button>` : ""}<button id="ct-seg-save" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50">Save as segment</button><button id="ct-csv" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Export eligible</button></span>
       <div id="ct-more" class="${ctMoreOpen ? "" : "hidden"} absolute left-0 top-full z-20 mt-2 w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-4 shadow-xl" role="region" aria-label="Filters"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        ${[["ct-section", "Section", ctOptions([["main", "Main"], ["other", "Other"]], ctF.section, "Any section")], ["ct-status", "Status", ctOptions([["eligible", "Eligible"], ["suppressed", "Held back"], ["excluded", "Not used"]], ctF.status, "Any status")], ["ct-reason", "Held back by", ctOptions(reasonOpts, ctF.reason, "Any rule")], ["ct-role", "Job role", ctOptions(roleOpts, ctF.role, "Any job role")], ["ct-source", "Source", ctOptions([["oscar", "Oscar"], ["hubspot", "HubSpot"]], ctF.source, "Any source")], ["ct-lifecycle", "Lifecycle stage", ctOptions(Object.entries(CT_LIFECYCLE), ctF.lifecycle, "Any stage")], ["ct-country", "Country", ctOptions(CT_COUNTRIES.map(c => [c, c]), ctF.country, "Any country")], ["ct-city", "City", "city"], ...(ctMode === "reengage" ? [["ct-dq", "Disqualification reason", ctOptions([["any", "Any disqualified lead"], ...dqOpts], ctF.dq, "Any contact")]] : [])].map(([id, l, o]) => `<label class="block text-xs font-semibold text-slate-600">${l}<span class="mt-1 block">${o === "city" ? `<input id="${id}" list="ct-city-list" value="${esc(ctF.city || "")}" placeholder="Type a town or city" autocomplete="off" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm"><datalist id="ct-city-list">${ctCities().map(c => `<option value="${esc(c)}"></option>`).join("")}</datalist>` : `<select id="${id}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm">${o}</select>`}</span></label>`).join("")}</div>
+        ${[["ct-section", "Section", ctOptions([["main", "Main"], ["other", "Other"]], ctF.section, "Any section")], ["ct-status", "Status", ctOptions([["eligible", "Eligible"], ["suppressed", "Held back"], ["excluded", "Not used"]], ctF.status, "Any status")], ["ct-reason", "Held back by", ctOptions(reasonOpts, ctF.reason, "Any rule")], ["ct-role", "Job role", ctOptions(roleOpts, ctF.role, "Any job role")], ["ct-source", "Source", ctOptions([["oscar", "Oscar"], ["hubspot", "HubSpot"]], ctF.source, "Any source")], ["ct-lifecycle", "Lifecycle stage", ctOptions(Object.entries(CT_LIFECYCLE), ctF.lifecycle, "Any stage")], ["ct-country", "Country", ctOptions(CT_COUNTRIES.map(c => [c, c]), ctF.country, "Any country")], ...(ctMode === "reengage" ? [["ct-dq", "Disqualification reason", ctOptions([["any", "Any disqualified lead"], ...dqOpts], ctF.dq, "Any contact")]] : [])].map(([id, l, o]) => `<label class="block text-xs font-semibold text-slate-600">${l}<span class="mt-1 block"><select id="${id}" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm">${o}</select></span></label>`).join("")}</div>
         <div class="mt-3 text-right"><button id="ct-clear" type="button" class="text-xs font-semibold text-lalu-teal-700 hover:underline">Clear filters</button></div></div></div>
     <div class="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="w-8 py-2 pl-2 pr-1"><input type="checkbox" id="ct-pick-all" class="h-4 w-4 accent-lalu-teal-700" ${!ctPick && ctOff.size === 0 ? "checked" : ""} aria-label="Select or clear every contact in this list"></th><th class="px-2 py-2">Contact</th><th class="px-2">Job title</th><th class="px-2">Practice</th><th class="px-2">Section</th><th class="px-2">Status</th><th class="px-2">Lifecycle</th>${ctMode === "reengage" ? '<th class="px-2">Why (disqualified or deal lost)</th><th class="px-2">Lead disqualification note</th><th class="px-2">Hear again</th>' : ""}</tr></thead>
       <tbody>${shown.map(ctRow).join("") || '<tr><td colspan="7" class="p-6 text-center text-sm italic text-slate-500">No contact matches.</td></tr>'}</tbody></table></div>
@@ -269,7 +267,7 @@ function ctCsv(rows, name) {
 }
 document.addEventListener("input", e => { if (e.target.id === "ct-q") { ctF.q = e.target.value; ctRefilter(); } if (e.target.id === "ct-title-q") { ctTitleQ = e.target.value; ctTitleShown = 100; renderContacts(); const el = $("ct-title-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } } });
 document.addEventListener("change", e => {
-  const id = e.target.id, m = { "ct-section": "section", "ct-status": "status", "ct-reason": "reason", "ct-role": "role", "ct-source": "source", "ct-lifecycle": "lifecycle", "ct-country": "country", "ct-city": "city", "ct-dq": "dq" }[id];
+  const id = e.target.id, m = { "ct-section": "section", "ct-status": "status", "ct-reason": "reason", "ct-role": "role", "ct-source": "source", "ct-lifecycle": "lifecycle", "ct-country": "country", "ct-dq": "dq" }[id];
   if (m) { ctF[m] = e.target.value; ctRefilter(); return; }
   if (e.target.id === "ct-title-f") { ctTitleF = e.target.value; ctTitleShown = 100; renderContacts(); return; }
   if (e.target.classList && e.target.classList.contains("ct-bounce-set")) { ctRules.bounceHold = [...document.querySelectorAll(".ct-bounce-set:checked")].map(x => x.value); ctRulesChanged(); return; }
@@ -287,7 +285,7 @@ document.addEventListener("click", e => {
   const md = t.closest(".ct-mode"); if (md) { ctMode = md.dataset.m; ctShown = 100; ctLoadPage(); return; }
   const rs = t.closest(".ct-role-set"); if (rs) { ctRules.roles[rs.dataset.id] = rs.dataset.m; ctRulesChanged(); return; }
   if (t.closest("#ct-more-btn")) { ctMoreOpen = !ctMoreOpen; renderContacts(); return; }
-  if (t.closest("#ct-clear")) { ctF = { ...ctF, section: "", status: "", reason: "", role: "", source: "", lifecycle: "", country: "", city: "", dq: "" }; ctShown = 100; ctLoadPage(); return; }
+  if (t.closest("#ct-clear")) { ctF = { ...ctF, section: "", status: "", reason: "", role: "", source: "", lifecycle: "", country: "", dq: "" }; ctShown = 100; ctLoadPage(); return; }
   if (ctMoreOpen && !t.closest("#ct-more")) { ctMoreOpen = false; renderContacts(); }
   if (t.closest("#ct-save")) { ctSave(); return; }
   if (t.closest("#ct-nb-push")) { ctNbPush(t.closest("#ct-nb-push")); return; }
@@ -299,7 +297,7 @@ document.addEventListener("click", e => {
   if (t.closest("#ct-seg-update")) { const s = ctSegments.find(x => x.id === ctEditing); if (s) { s.filters = { ...ctF }; if (ctPick && ctPick.size) s.members = [...ctPick]; else delete s.members; if (!ctPick && ctOff.size) s.exclude = [...ctOff]; else delete s.exclude; ctSaveSegments(); ctEditing = null; ctPick = new Set(); ctOff = new Set(); setCtSub("segments"); } return; }
   const sg = t.closest(".ct-seg-open, .ct-seg-csv, .ct-seg-del"); if (sg) {
     const s = ctSegments.find(x => x.id === sg.dataset.id); if (!s) return;
-    if (sg.classList.contains("ct-seg-open")) { ctF = { q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", country: "", city: "", ...s.filters }; ctPick = s.members ? new Set(s.members) : null; ctOff = new Set(s.exclude || []); ctEditing = s.id; ctTabReady.contacts = false; setCtSub("contacts"); }   // opening a segment lets you tick or untick who is in it, then Update
+    if (sg.classList.contains("ct-seg-open")) { ctF = { q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", country: "", ...s.filters }; ctPick = s.members ? new Set(s.members) : null; ctOff = new Set(s.exclude || []); ctEditing = s.id; ctTabReady.contacts = false; setCtSub("contacts"); }   // opening a segment lets you tick or untick who is in it, then Update
     else if (sg.classList.contains("ct-seg-csv")) { ctExport({ q: "", section: "", status: "", role: "", source: "", reason: "", lifecycle: "", ...s.filters }, s.members ? new Set(s.members) : null, "atlas-segment-" + s.name.replace(/\W+/g, "-").toLowerCase() + ".csv", new Set(s.exclude || [])); }
     else if (confirm(`Delete the segment “${s.name}”?`)) { ctSegments = ctSegments.filter(x => x.id !== s.id); ctSaveSegments(); renderContacts(); }
   }
