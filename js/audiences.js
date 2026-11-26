@@ -183,7 +183,7 @@ async function audDecideIds(a, ids, state) {
 }
 
 /* ---------- sequence, HubSpot list and performance ---------- */
-/* Export of a custom audience: one row per eligible Atlas contact at every practice in the audience (no expanding needed), with the audience's own state for each.
+/* Export of a custom audience: one row per Atlas contact at every practice in the audience (no expanding needed), following the page's rules: the role selector, and the contacts an audience is limited to. Each row says whether the contact can be contacted now and why not, so nobody the page lists is silently dropped.
    A practice with no eligible contact still gets a row, so the list stays complete. The toggle adds the practice's own address (contacts hold none). */
 const audAddrOn = () => { try { return localStorage.getItem("aud_addr") !== "0"; } catch (e) { return true; } };
 async function audExportRows(a, rows) {
@@ -196,17 +196,19 @@ async function audExportRows(a, rows) {
       if (!data || data.length < 1000) break;
     }
   }
-  const all = [...urnsByOds.values()].flat(), ok = new Set();
+  const all = [...urnsByOds.values()].flat(), stat = new Map();
   for (let i = 0; i < all.length; i += 200) {
-    const { data, error } = await db.from("contact_status").select("contact_urn").in("contact_urn", all.slice(i, i + 200).map(k => k.contact_urn)).eq("status", "eligible"); if (error) throw error;
-    for (const x of data || []) ok.add(x.contact_urn);
+    const { data, error } = await db.from("contact_status").select("contact_urn,status,reasons,excluded").in("contact_urn", all.slice(i, i + 200).map(k => k.contact_urn)); if (error) throw error;
+    for (const x of data || []) stat.set(x.contact_urn, x);
   }
+  const only = a.filters && a.filters.contacts ? new Set(a.filters.contacts.map(String)) : null;      // an audience made from Re-engagement lists just those contacts
   const state = new Map(audMembers.filter(m => m.audience_id === a.id).map(m => [String(m.contact_id), m.state]));
   const label = { approved: "Approved", enrolled: "Enrolled", skipped: "Skipped", removed: "Removed" };
   for (const p of rows) {
-    const ks = (urnsByOds.get(p.ods_code) || []).filter(k => ok.has(k.contact_urn) && !k.held_reason && (audRole === "all" || audRoleOf(k.job_title) === audRole)).sort((x, y) => String(x.full_name).localeCompare(String(y.full_name)));
+    const ks = (urnsByOds.get(p.ods_code) || []).filter(k => !k.held_reason && (!only || only.has(String(k.hubspot_contact_id))) && (audRole === "all" || audRoleOf(k.job_title) === audRole)).sort((x, y) => String(x.full_name).localeCompare(String(y.full_name)));
     if (!ks.length) out.push({ p });
-    for (const k of ks) out.push({ p, k, st: label[state.get(String(k.hubspot_contact_id))] || "Not reviewed" });
+    for (const k of ks) { const s2 = stat.get(k.contact_urn) || {}, why = !k.email ? "No email address" : s2.status === "eligible" ? "" : s2.status === "excluded" ? (s2.excluded || "Not used") : (s2.reasons || []).map(ctRuleLabel).join("; ");
+      out.push({ p, k, st: label[state.get(String(k.hubspot_contact_id))] || "Not reviewed", can: !why, why }); }
   }
   return out;
 }
@@ -215,11 +217,11 @@ async function audMailingExport(a) {
   if (!rows.length) { audNotice = "No practices in this audience to export."; renderAudiences(); return; }
   audNotice = "Preparing the export…"; renderAudiences();
   try {
-    const list = await audExportRows(a, rows), head = ["Practice", "ODS code", "Contact name", "Job title", "Email", "Audience status", "In a sequence", ...(withAddr ? ["Address", "Town", "County", "Postcode"] : [])];
-    const lines = list.map(({ p, k, st }) => [p.practice_name, p.ods_code, k ? k.full_name : "", k ? k.job_title : "", k ? k.email : "", st || "", k ? (k.hs_in_sequence ? "Yes" : "No") : "", ...(withAddr ? [p.address, p.town, p.county, p.postcode] : [])]);
+    const list = await audExportRows(a, rows), head = ["Practice", "ODS code", "Contact name", "Job title", "Email", "Audience status", "In a sequence", "Can be contacted now", "Why not", ...(withAddr ? ["Address", "Town", "County", "Postcode"] : [])];
+    const lines = list.map(({ p, k, st, can, why }) => [p.practice_name, p.ods_code, k ? k.full_name : "", k ? k.job_title : "", k ? k.email : "", st || "", k ? (k.hs_in_sequence ? "Yes" : "No") : "", k ? (can ? "Yes" : "No") : "", why || "", ...(withAddr ? [p.address, p.town, p.county, p.postcode] : [])]);
     const noAddr = withAddr ? rows.filter(p => !p.address && !p.town).length : 0, noContact = list.filter(x => !x.k).length;
     await downloadCsv("Lalu_Audience_" + a.name.replace(/[^A-Za-z0-9]+/g, "_"), head, lines);
-    audNotice = `Exported ${lines.length.toLocaleString()} row${lines.length === 1 ? "" : "s"} for ${rows.length.toLocaleString()} practice${rows.length === 1 ? "" : "s"}, one per contact${audRole === "all" ? "" : " (" + (AUD_ROLES.find(r => r[0] === audRole) || [0, audRole])[1].toLowerCase() + " only)"}.${noContact ? ` ${noContact} practice${noContact === 1 ? " has" : "s have"} no ${audRole === "all" ? "eligible contact" : "eligible " + (AUD_ROLES.find(r => r[0] === audRole) || [0, "contact"])[1].toLowerCase().replace(/s$/, "")} (listed with blank contact fields).` : ""}${noAddr ? ` ${noAddr} ${noAddr === 1 ? "has" : "have"} no address on file.` : ""}`;
+    audNotice = `Exported ${lines.length.toLocaleString()} row${lines.length === 1 ? "" : "s"} for ${rows.length.toLocaleString()} practice${rows.length === 1 ? "" : "s"}, one per contact${audRole === "all" ? "" : " (" + (AUD_ROLES.find(r => r[0] === audRole) || [0, audRole])[1].toLowerCase() + " only)"}.${noContact ? ` ${noContact} practice${noContact === 1 ? " has" : "s have"} no ${audRole === "all" ? "contact" : (AUD_ROLES.find(r => r[0] === audRole) || [0, "contact"])[1].toLowerCase().replace(/s$/, "")} (listed with blank contact fields).` : ""}${noAddr ? ` ${noAddr} ${noAddr === 1 ? "has" : "have"} no address on file.` : ""}`;
   } catch (e) { audNotice = "Could not export: " + e.message; }
   renderAudiences();
 }
