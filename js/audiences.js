@@ -185,6 +185,7 @@ async function audDecideIds(a, ids, state) {
 /* ---------- sequence, HubSpot list and performance ---------- */
 /* Export of a custom audience: one row per eligible Atlas contact at every practice in the audience (no expanding needed), with the audience's own state for each.
    A practice with no eligible contact still gets a row, so the list stays complete. The toggle adds the practice's own address (contacts hold none). */
+const audAddrOn = () => { try { return localStorage.getItem("aud_addr") !== "0"; } catch (e) { return true; } };
 async function audExportRows(a, rows) {
   const out = [], urnsByOds = new Map(), cols = "contact_urn,ods_code,full_name,job_title,email,hubspot_contact_id,role_tier,held_reason,email_opt_out,hs_optout_all,hs_in_sequence";
   const ods = rows.map(p => p.ods_code);
@@ -320,6 +321,7 @@ async function audCreate(name, filters) {
 const audDone = (msg, a) => audModal("Done", `<p class="text-sm">${esc(msg)}</p>${a ? `<div class="mt-3"><button type="button" id="aud-open-it" class="text-sm font-semibold text-lalu-teal-700 hover:underline">Open it in Audiences →</button></div>` : ""}`, null);
 function audOpenIt(a) { audModalClose(); setAudSub("custom"); audOpen = a.id; audExpanded.clear(); audTicked.clear(); showTab("audiences"); }
 function audSaveOpen() {      // from the Practices filters
+  if (typeof mapOn !== "undefined" && mapOn && mapCentre) { mapSaveAudience(); return; }   // a distance search is showing: save the practices in range, not the whole filter
   const flt = readFilters(), chips = [...$("f-chips").querySelectorAll(".chip")].map(c => c.childNodes[0].textContent.trim()), n = filtered.length;
   if (!chips.length) { audModal("Save as audience", '<p class="text-sm text-slate-600">No filters are set, so this would be every practice. Filter the table first (for example Country, Tier or HubSpot status), then save it.</p>', null); return; }
   const summary = chips.join(", ");
