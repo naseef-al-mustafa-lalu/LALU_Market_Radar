@@ -384,7 +384,9 @@ with sync_playwright() as p:
     pg.wait_for_selector("#dr-hs #hs-netdeal"); strip = pg.inner_text("#dr-hs"); assert "HubSpot" in strip and "no deal linked yet" in strip.lower() or "not in hubspot yet" in strip.lower(), strip      # the same strip as a practice, at the top
     fold = pg.locator("#dr-body details:has(h4:text-matches('Linked PCNs', 'i'))").first; assert fold.get_attribute("open") is not None      # folds like Linked practices
     fold.locator("summary").click(); assert fold.get_attribute("open") is None and pg.locator("#dr-body .np-link").first.is_hidden(); fold.locator("summary").click()      # a group's PCNs and ICB, and the way to make its deal
-    pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#nd-create"); pg.select_option("#nd-pipe", "default")
+    pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-newdeal")
+    hub = pg.inner_text("#hs-body"); assert all(w in hub.lower() for w in ["company", "contacts", "leads", "deals", "patients across", "network before there is a deal", "network's pricing"]), hub.replace("\n", " | ")[:700]      # a network opens the same four-step page as a practice (company, contacts, lead, deal)
+    pg.click("#hs-newdeal"); pg.wait_for_selector("#nd-create"); pg.select_option("#nd-pipe", "default")
     nd = pg.inner_text("#hs-body"); assert "new deal on" in nd.lower() and "pricing to be sent with this deal" in nd.lower() and "Practices on this deal" in nd and "Link the deal to its HubSpot" in nd, nd      # a network deal uses the practice deal form, with the practices it covers
     pg.click("#nd-create"); pg.wait_for_function("document.querySelector('#hs-msg') && document.querySelector('#hs-msg').innerText.includes('matches the tool')")
     cd = pg.evaluate("window.__hsCalls.filter(c => c.action === 'create_deal').pop()"); assert cd["network"]["kind"] == "group" and cd["network"]["name"] == "Modality Test" and cd["network"]["orgId"] == "2" and "ods" not in cd and cd["deal"]["dealname"] == "Modality Test", cd

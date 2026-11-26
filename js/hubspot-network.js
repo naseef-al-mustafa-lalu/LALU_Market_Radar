@@ -9,7 +9,7 @@ function hsNetEntity(n, members, covers) {
 async function hsNetDealOpen(n, parts, covers) {
   const key = keyOf(n), members = practices.filter(p => p.status === "Active" && netMatch(p, { kind: n.kind, key }));
   hs = { p: hsNetEntity(n, members, covers), net: n, parts, members }; hs.want = hsDesired(hs.p);
-  $("hs-modal").classList.remove("hidden"); hsTitle("Create deal");
+  $("hs-modal").classList.remove("hidden"); hsTitle();
   const known = hsOrgCo.get(n.id); if (known) return hsNetDealForm({ id: known.company_id, name: n.name });   // the daily sync already matched this network to its HubSpot company
   hsRender(`<p class="text-slate-600">Find the HubSpot company for <b>${esc(n.name)}</b>, or create it, then make its deal.</p>
     <div class="mt-3 flex gap-2"><input id="hs-q" class="flex-1 rounded-lg border border-slate-300 px-3 py-2" value="${esc(n.name)}" aria-label="Search HubSpot companies"><button id="hs-search" class="rounded-lg bg-lalu-navy px-3 py-2 font-semibold text-white">Search</button></div><div id="hs-results" class="mt-3"></div>`);
@@ -46,7 +46,8 @@ async function hsNetObjects(n, parts) {
   return (data || []).map(l => ({ type: l.object_type, id: l.object_id, name: name.get(l.org_id) || "" }));
 }
 // The deal form and the push are the practice ones (hsDealForm, hsPreview, hsWrite): a network is priced as an entity of its own route, on the practices a deal covers.
-const hsNetDealForm = company => { hsRender('<div id="hs-results"></div>'); return hsDealForm(company); };
+// A network now opens the same four-step page as a practice (company, contacts, lead, deal), then the same deal form and push.
+const hsNetDealForm = company => { hsRender('<div id="hs-results"></div>'); return hsCompanyPage(company.id); };
 
 // The strip at the top of a network profile: same shape and place as a practice's (#dr-hs), with the one action on the right.
 let hsNetCur = null;

@@ -31,8 +31,11 @@ const hsHubCache = {};   // companyId -> { at, hub }: reopening a company shows 
 const hsTitle = (...parts) => { $("hs-title").textContent = ["Atlas", hs.p.practice_name, ...parts].join(" › "); };
 /* contacts Atlas holds for a practice: those that can be sent to HubSpot, and those that cannot (with the reason) */
 async function hsAtlasContacts(p, have = new Set()) {
-  const { data: cs } = await db.from("contacts").select("full_name,job_title,email,phone,email_opt_out,hubspot_status,held_reason").eq("ods_code", p.ods_code).limit(50);
-  const rows = (cs || []).filter(c => c.hubspot_status !== "Imported" && !c.held_reason).map(c => ({ name: c.full_name, jobtitle: c.job_title, email: c.email, phone: c.phone, optout: c.email_opt_out }));
+  // a network has no ODS code: its candidates are the decision-makers (role A) at the practices it covers, whether or not they are already in HubSpot on their own practice
+  const odsList = p.net ? (p.covers && p.covers.length ? p.covers : (hs.members || []).map(x => x.ods_code)).slice(0, 400) : [];
+  const { data: cs } = p.net ? (odsList.length ? await db.from("contacts_full").select("full_name,job_title,email,phone,email_opt_out,hubspot_status,held_reason").in("ods_code", odsList).eq("role_tier", "A").limit(60) : { data: [] })
+    : await db.from("contacts").select("full_name,job_title,email,phone,email_opt_out,hubspot_status,held_reason").eq("ods_code", p.ods_code).limit(50);
+  const rows = (cs || []).filter(c => (p.net || c.hubspot_status !== "Imported") && !c.held_reason).map(c => ({ name: c.full_name, jobtitle: c.job_title, email: c.email, phone: c.phone, optout: c.email_opt_out }));
   if (!rows.length && p.manager_email) rows.push({ name: p.manager_name, jobtitle: p.manager_title, email: p.manager_email, phone: p.manager_phone, optout: p.manager_email_opt_out });
   const ok = [], skipped = [];
   for (const c of rows) {
@@ -110,15 +113,15 @@ function hsHubRender() {
   box.innerHTML = (flash ? `<div class="mb-3 rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-sm text-emerald-900" role="status">${flash}</div>` : "")
     + `<div class="mb-3 flex gap-3" aria-label="Progress">${hsStep(1, "Company", true, "in HubSpot")}${hsStep(2, "Contacts", h.contacts.length > 0, h.contacts.length + " linked")}${hsStep(3, "Lead", nLeads > 0, leads ? nLeads + " found" : "unknown")}${hsStep(4, "Deal", h.deals.length > 0, h.deals.length + " found")}</div>
     <div class="space-y-3">
-    ${card(1, "Company", "✓", hsLink("0-2", co.id, "Open"), `<div class="font-medium">${esc(co.name)}</div><div class="text-xs text-slate-500">ODS ${esc(co.partner_organisation_code || "not set")} · list size ${co.patient_list_size ? Number(co.patient_list_size).toLocaleString() : "not set"}</div>`)}
+    ${card(1, "Company", "✓", hsLink("0-2", co.id, "Open"), `<div class="font-medium">${esc(co.name)}</div><div class="text-xs text-slate-500">${p.net ? `${esc(({ pcn: "PCN", icb: "ICB", group: "Provider group", federation: "Federation" })[p.net.kind] || "Network")} · ${(p.total_patients || 0).toLocaleString()} patients across ${(p.covers && p.covers.length || (hs.members || []).length).toLocaleString()} practices` : `ODS ${esc(co.partner_organisation_code || "not set")} · list size ${co.patient_list_size ? Number(co.patient_list_size).toLocaleString() : "not set"}`}</div>`)}
     ${card(2, "Contacts", h.contacts.length, h.extra.length ? btn("hs-addcontacts", `Add from Atlas (${h.extra.length})`, next === 2) : "",
       (h.contacts.map(c => row(`<b>${esc(hsNameOf(c))}</b> <span class="text-xs text-slate-500">${esc(c.jobtitle || "")}</span>`, hsLink("0-1", c.id, c.email || "open"), fresh.has(c.id))).join("") || empty("No contacts on this company yet."))
       + `<div id="hs-addpanel" class="mt-2 hidden rounded-lg bg-slate-50 p-2"><div class="mb-1 text-xs font-semibold text-slate-600">Choose who to add to ${esc(co.name)}</div>${hsPicker(h.extra, "ac-pick", h.skipped)}<div class="mt-2 flex justify-end gap-2"><button id="hs-addcancel" class="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold">Cancel</button><button id="hs-addgo" class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">Add selected</button></div><div id="hs-addmsg" class="mt-1 text-xs" role="status"></div></div>`
       + (!h.extra.length && h.skipped.length ? `<div class="mt-2 text-xs text-slate-500">Not added: ${h.skipped.map(c => esc((c.name || c.email || "Unnamed") + " (" + c.why + ")")).join(", ")}</div>` : ""))}
     ${card(3, "Leads", leads ? nLeads : "?", btn("hs-newlead", "+ Create lead", next === 3),
-      leads ? (leads.map(l => row(`<b>${esc(l.name)}</b>`, `${l.open ? "" : "closed · "}${esc(l.stage)} ${hsLink("0-136", l.id, "open")}`, fresh.has(l.id))).join("") || empty("No leads yet. A lead tracks the practice before there is a deal.")) : '<p class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">Leads could not be read: add the crm.objects.leads.read scope to the HubSpot token.</p>')}
+      leads ? (leads.map(l => row(`<b>${esc(l.name)}</b>`, `${l.open ? "" : "closed · "}${esc(l.stage)} ${hsLink("0-136", l.id, "open")}`, fresh.has(l.id))).join("") || empty(`No leads yet. A lead tracks the ${p.net ? "network" : "practice"} before there is a deal.`)) : '<p class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">Leads could not be read: add the crm.objects.leads.read scope to the HubSpot token.</p>')}
     ${card(4, "Deals", h.deals.length, btn("hs-newdeal", "+ Create deal", next === 4),
-      h.deals.length ? '<div class="mb-1 text-xs text-slate-500">Choose a deal to push this practice\'s pricing to it.</div>' + h.deals.map(d => `<button type="button" data-deal="${esc(d.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-lalu-teal hover:bg-lalu-teal-50">
+      h.deals.length ? `<div class="mb-1 text-xs text-slate-500">Choose a deal to push this ${p.net ? "network" : "practice"}'s pricing to it.</div>` + h.deals.map(d => `<button type="button" data-deal="${esc(d.id)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-lalu-teal hover:bg-lalu-teal-50">
         <div class="flex justify-between gap-3"><b>${esc(d.dealname)}</b><span class="text-xs text-slate-500">${esc(d.dealstage || "")}</span></div>
         <div class="text-xs text-slate-500">${d.amount ? "£" + Number(d.amount).toLocaleString() : "no amount"} · ${esc(d.size_tier || "no size tier")} · ${esc(d.value_per_patient || "no value per patient")}</div></button>`).join("") : empty("No deals yet."))}</div>`;
   const company = { id: co.id, name: co.name };
@@ -132,7 +135,7 @@ function hsHubRender() {
       const chosen = hsPicked(h.extra, "ac-pick"), go = $("hs-addgo"), msg = $("hs-addmsg"); if (!chosen.length) { msg.innerHTML = '<span class="text-rose-700">Tick at least one person.</span>'; return; }
       go.disabled = true; go.textContent = "Adding…"; msg.innerHTML = "";
       try {
-        const r = await hsCall({ action: "add_contacts", ods: p.ods_code, companyId: co.id, contacts: chosen }), added = [];
+        const r = await hsCall({ action: p.net ? "add_network_contacts" : "add_contacts", ...(p.net ? {} : { ods: p.ods_code }), companyId: co.id, contacts: chosen }), added = [];
         for (const d of r.contacts) { const src = chosen.find(c => c.email.toLowerCase() === d.email); const [f, ...l] = String(src?.name || "").split(/\s+/);
           h.contacts.push({ id: d.id, firstname: f || "", lastname: l.join(" "), jobtitle: src?.jobtitle || "", email: d.email }); added.push(d.id); }
         h.extra = h.extra.filter(c => !r.contacts.some(d => d.email === c.email.toLowerCase()));
@@ -185,7 +188,7 @@ async function hsDealForm(company) {
       <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal and push pricing</button></div></div>`;
     const ndReady = () => { $("nd-create").disabled = !contacts.length || !$("nd-pipe").value; };   // a deal needs a contact and a pipeline chosen on purpose
     $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value), st = $("nd-stage"); if (pp) { st.disabled = false; st.innerHTML = opts(pp.stages.map(s => [s.id, s.label]), (pp.stages.find(x => !x.closed) || pp.stages[0]).id); } else { st.disabled = true; st.innerHTML = '<option value="">Choose a pipeline first</option>'; } ndReady(); };
-    $("nd-cancel").onclick = () => hs.net ? hsClose() : hsCompanyPage(company.id);
+    $("nd-cancel").onclick = () => hsCompanyPage(company.id);
     document.querySelectorAll(".nd-cov").forEach(c => c.onchange = () => { hs.sel = new Set([...document.querySelectorAll(".nd-cov:checked")].map(x => x.value)); hs.p = hsNetEntity(hs.net, hs.members, [...hs.sel]); hs.want = hsDesired(hs.p); hsDealForm(company); });   // changing the practices a network deal covers re-prices it
     hsContactWire(() => hsHubRender()); ndReady();
     $("nd-create").onclick = async () => {
@@ -229,7 +232,7 @@ async function hsLeadForm(company) {
     const go = async force => {
       const b = $("nl-create"), msg = $("nl-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
-        const contactId = $("nl-contact").value, r = await hsCall({ action: "create_lead", ods: p.ods_code, companyId: company.id, contactId, name: $("nl-name").value.trim(), ownerId: $("nl-owner")?.value || "", leadType: $("nl-type").value, campaign: $("nl-camp").value, pipeline: $("nl-pipe").value, stage: $("nl-stage").value, force });
+        const contactId = $("nl-contact").value, r = await hsCall({ action: "create_lead", ...(p.net ? { network: true } : { ods: p.ods_code }), companyId: company.id, contactId, name: $("nl-name").value.trim(), ownerId: $("nl-owner")?.value || "", leadType: $("nl-type").value, campaign: $("nl-camp").value, pipeline: $("nl-pipe").value, stage: $("nl-stage").value, force });
         if (r.ok === false) {
           msg.innerHTML = `<div class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">This contact already has an open lead: ${r.existing.map(l => esc(l.name)).join(", ")}. Creating another can duplicate work. <button id="nl-force" class="ml-1 font-semibold underline">Create anyway</button></div>`;
           $("nl-force").onclick = () => go(true); b.disabled = false; b.textContent = "Create lead"; return;

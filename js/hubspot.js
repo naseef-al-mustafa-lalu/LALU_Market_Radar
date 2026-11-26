@@ -10,7 +10,7 @@ const hsTimed = (action, ms, ok) => {
   hsTimings.push({ a: action, ms: Math.round(ms), ok, t: Date.now() }); if (hsTimings.length > 300) hsTimings.splice(0, hsTimings.length - 300);
   try { localStorage.setItem(HS_TIMING_KEY, JSON.stringify(hsTimings)); } catch (e) {}
 };
-const HS_EXTRA = new Set(["lead_pipelines", "create_lead", "discretionary_read", "discretionary_write"]);   // served by the hubspot-extras function; everything else by hubspot-push
+const HS_EXTRA = new Set(["lead_pipelines", "create_lead", "add_network_contacts", "discretionary_read", "discretionary_write"]);   // served by the hubspot-extras function; everything else by hubspot-push
 const hsCall = async body => {
   const t0 = performance.now(); let ok = false;
   try {

@@ -1,6 +1,7 @@
 // Dashboard -> HubSpot, the actions added after hubspot-push grew large (kept apart so that function is not touched):
 //   lead_pipelines        the account's lead pipelines and their stages, for the lead form's required Pipeline choice
 //   create_lead           a lead in the pipeline and stage the person chose (never assumed), with the same duplicate warning, company link, note and log as before
+//   add_network_contacts  find-or-create contacts by email and link them to a network's company (the practice flow's add_contacts needs a practice ODS code, which a network has not got)
 //   discretionary_read    a deal's Discretionary Discount % (the push preview needs it to show what changes)
 //   discretionary_write   set a deal's Discretionary Discount % (a fraction 0..1) after the pricing push, with a note on the deal
 // The HubSpot token lives only in this function's secrets. Callers must be signed in AND on the allowed_users list.
@@ -17,6 +18,7 @@ const reply = (body: unknown, status = 200) =>
 
 const LEAD_TO_PRIMARY_CONTACT = 578;   // HubSpot-defined association type: lead -> primary contact
 const LEAD_TYPES = new Set(["NEW_BUSINESS", "RE_ATTEMPTING"]);
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const LEAD_CAMPAIGNS = new Set(["PCN Prospecting", "ICB April 26", "Field Based Lead", "ICB Prospecting", "Atlas"]);
 const NOTE_TO: Record<string, number> = { companies: 190, deals: 214 };   // HubSpot-defined association types: note -> company / deal
 
@@ -73,8 +75,8 @@ Deno.serve(async (req) => {
     }
 
     if (b.action === "create_lead") {       // a lead in the chosen pipeline and stage, before any deal; warns when the contact already has an open lead
-      const ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), contactId = idOf(b.contactId);
-      if (!/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
+      const net = b.network === true, ods = String(b.ods ?? "").trim().toUpperCase(), companyId = idOf(b.companyId), contactId = idOf(b.contactId);   // a network's lead has no practice ODS code
+      if (!net && !/^[A-Z0-9]{3,12}$/.test(ods)) throw new Fail("Invalid ODS code");
       const name = String(b.name ?? "").trim().slice(0, 200);
       if (!name) throw new Fail("A lead name is required");
       const type = String(b.leadType ?? "NEW_BUSINESS"); if (!LEAD_TYPES.has(type)) throw new Fail("Unsupported lead type");
@@ -90,7 +92,8 @@ Deno.serve(async (req) => {
       const open = lids.length ? ((await hs(`/crm/v3/objects/leads/batch/read`, { method: "POST", body: JSON.stringify({ properties: ["hs_lead_name", "hs_pipeline", "hs_pipeline_stage", "hs_lead_is_open_v2"], inputs: lids.map((id: string) => ({ id })) }) }))?.results ?? [])
         .filter((l: any) => String(l.properties?.hs_lead_is_open_v2) !== "false").map((l: any) => ({ id: l.id, name: l.properties?.hs_lead_name ?? "Lead", pipeline: l.properties?.hs_pipeline })) : [];
       if (open.length && b.force !== true) return reply({ ok: false, existing: open });
-      const props: Record<string, unknown> = { hs_lead_name: name, hs_pipeline: String(lpipe.id), hs_pipeline_stage: String(lstage.id), hs_lead_type: type, gp_ods_code: ods };
+      const props: Record<string, unknown> = { hs_lead_name: name, hs_pipeline: String(lpipe.id), hs_pipeline_stage: String(lstage.id), hs_lead_type: type };
+      if (!net) props.gp_ods_code = ods;
       if (campaign) props.prospecting_campaign = campaign;
       if (b.ownerId) props.hubspot_owner_id = idOf(b.ownerId);
       const l = await hs(`/crm/v3/objects/leads`, { method: "POST", body: JSON.stringify({ properties: props, associations: [
@@ -99,9 +102,32 @@ Deno.serve(async (req) => {
       try { await hs(`/crm/v4/objects/leads/${l.id}/associations/default/companies/${companyId}`, { method: "PUT" }); } catch (_) { companyLinked = false; }
       const leadWarn: string[] = [];
       await noteOn("companies", companyId, noteBody(who, `lead created from the practice profile`, [`Lead: none → ${name} (${type}${campaign ? `, ${campaign}` : ""}), pipeline ${lpipe.label}, stage ${lstage.label}`]), leadWarn);
-      await log({ actor: who, kind: "create_lead", ods_code: ods, target: name, hubspot_type: "lead", hubspot_id: String(l.id),
+      await log({ actor: who, kind: "create_lead", ods_code: net ? null : ods, target: name, hubspot_type: "lead", hubspot_id: String(l.id),
         summary: `Created lead ${name} on ${co.properties?.name ?? companyId} in ${lpipe.label} (${lstage.label})${open.length ? " (contact already had an open lead)" : ""}`, detail: { companyId, contactId, properties: props, companyLinked, existing: open } });
       return reply({ ok: true, leadId: String(l.id), companyLinked, warnings: leadWarn });
+    }
+
+    if (b.action === "add_network_contacts") {       // find-or-create each contact by email and link it to the network's company; Atlas's own rows for that address are marked as in HubSpot
+      const companyId = idOf(b.companyId), warnings: string[] = [], out: any[] = [];
+      for (const c of (Array.isArray(b.contacts) ? b.contacts : []).slice(0, 10)) {
+        const email = String(c.email ?? "").trim().toLowerCase();
+        if (!EMAIL_RE.test(email)) { warnings.push(`Skipped a contact without a valid email (${c.name ?? "unnamed"})`); continue; }
+        try {
+          const found = (await hs(`/crm/v3/objects/contacts/search`, { method: "POST", body: JSON.stringify({ properties: ["email"], limit: 1, filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }] }) }))?.results ?? [];
+          const [first, ...rest] = String(c.name ?? "").trim().split(/\s+/);
+          const cid = found[0]?.id ?? String((await hs(`/crm/v3/objects/contacts`, { method: "POST", body: JSON.stringify({ properties: { email, firstname: first || undefined, lastname: rest.join(" ") || undefined, phone: c.phone || undefined, jobtitle: c.jobtitle || undefined } }) })).id);
+          await hs(`/crm/v4/objects/contacts/${cid}/associations/default/companies/${companyId}`, { method: "PUT" });
+          out.push({ email, id: cid, existed: !!found[0], name: String(c.name ?? "").trim() });
+        } catch (e) { warnings.push(`Contact ${email}: ${(e as Error).message}`); }
+      }
+      if (out.length) {
+        const co = await hs(`/crm/v3/objects/companies/${companyId}?properties=name`).catch(() => null);
+        await noteOn("companies", companyId, noteBody(who, `${out.length} contact${out.length > 1 ? "s" : ""} added from the network profile`, out.map((c) => `${c.name || c.email} (${c.email}): ${c.existed ? "already in HubSpot, linked" : "created"}`)), warnings);
+        const now = new Date().toISOString();
+        for (const c of out) { try { await admin.from("contacts").update({ hubspot_status: "Imported", hubspot_contact_id: c.id, hubspot_imported_at: now }).ilike("email", c.email).is("hubspot_contact_id", null); } catch (_) { /* Atlas catches up at the next sync */ } }
+        await log({ actor: who, kind: "add_contacts", target: co?.properties?.name ?? companyId, hubspot_type: "company", hubspot_id: companyId, summary: `Added ${out.length} contact(s) to ${co?.properties?.name ?? companyId} from the network profile`, detail: { contacts: out } });
+      }
+      return reply({ contacts: out, warnings });
     }
 
     if (b.action === "discretionary_read") {
