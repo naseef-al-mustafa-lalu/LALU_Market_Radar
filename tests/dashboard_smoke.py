@@ -543,7 +543,7 @@ with sync_playwright() as p:
     assert "open=" not in pg.evaluate("location.search") and pg.evaluate("document.activeElement.tagName") == "TR"       # focus goes back to the row
     pg.click("#f-more-btn") if pg.is_hidden("#f-more") else None
     pg.select_option("#f-size", "no", force=True); assert "3 practices" in pg.inner_text("#count") and "size=no" in pg.evaluate("location.search")
-    pg.select_option("#f-size", "", force=True); pg.select_option("#f-tier", "Tier 3", force=True); assert "tier=Tier+3" in pg.evaluate("location.search")
+    pg.select_option("#f-size", "", force=True); pg.evaluate("$('f-tier').value = 'Tier 3'; $('f-tier').dispatchEvent(new Event('change'))"); assert "tier=Tier+3" in pg.evaluate("location.search")
     pg.goto("about:blank"); pg.goto(INDEX + "?tier=Tier+3&open=A10001&sort=name:1")      # a shared link restores the view
     pg.wait_for_selector("#drawer:not(.translate-x-full)", timeout=8000)
     assert "Test Surgery 1" in pg.inner_text("#dr-title") and pg.input_value("#f-tier") == "Tier 3" and "11 practices" in pg.inner_text("#count")
@@ -705,6 +705,9 @@ with sync_playwright() as p:
       for (const k of ['engaged', 'customers', 'open']) { netSort = { key: k, dir: -1 }; renderNetworks(); out[k] = netList.map(n => n.name).join(); }
       networks = saved; renderNetworks(); return out; })()""")
     assert ns == {"engaged": "Bravo,Charlie,Alpha", "customers": "Charlie,Bravo,Alpha", "open": "Alpha,Charlie,Bravo"}, ns      # Networks sort by most engaged, most customers and most still to approach
+    mt = pg.evaluate("""(() => { showTab('practices'); clearFilters(); const all = filtered.length; const count = v => { $('f-tier').value = v; applyFilters(); return filtered.length; };
+      const t1 = count('Tier 1'), t3 = count('Tier 3'), both = count('Tier 1,Tier 3'), ticked = document.querySelectorAll('.tier-ms').length === 2 && document.querySelectorAll('.tier-chk:checked').length === 4; clearFilters(); return { all, t1, t3, both, ticked, back: filtered.length }; })()""")
+    assert mt["both"] == mt["t1"] + mt["t3"] and mt["ticked"] and mt["back"] == mt["all"], mt      # the Tier picker takes several tiers at once, in the Filters panel and on the map, and clearing restores everyone
     mp = pg.evaluate("""(async () => { showTab('practices'); clearFilters(); applyFilters(); L.tileLayer = () => ({ addTo() {} }); mapCoords = { LS11AA: [53.797, -1.545] }; mapCoordsLoading = Promise.resolve(mapCoords);
       mapSetView(true); await mapRefresh(true); const legend = $('m-legend').innerText.replace(/\\s+/g, ' ');
       await mapSearch('LS1 1AA', 5); const legSum = () => [...document.querySelectorAll('#m-legend .m-leg')].reduce((t, b) => t + Number(b.innerText.replace(/\\D+/g, '') || 0), 0), sumIn = legSum(), inRange = mapInside.length; const kk = [...new Set(mapInside.map(x => mapKey(x.p)))][0]; mapHidden.add(kk); await mapRefresh(); const sumHid = legSum(), listedHid = mapInside.length; mapHidden.delete(kk); await mapRefresh(); const msg = $('m-msg').textContent, listed = document.querySelectorAll('#m-list tr.m-row').length, tblHidden = $('tbl-wrap').classList.contains('hidden');

@@ -43,9 +43,9 @@ async function loadConfig() {
   const [t, st] = await Promise.all([db.from("pricing_tiers").select("*").order("tier"), db.from("pricing_settings").select("*").order("key")]);
   cfgTiers = t.data || []; cfgSettings = Object.fromEntries((st.data || []).map(r => [r.key, r]));
   const pt = cfgTiers.filter(x => x.route === "practice").sort((a, b) => a.tier - b.tier);
-  $("f-tier").innerHTML = '<option value="">All tiers</option>' + pt.map((x, i) => {
-    const hi = i ? pt[i - 1].threshold : null, lo = x.threshold;
-    return `<option value="Tier ${x.tier}">Tier ${x.tier} · ${hi ? (lo ? (lo / 1000) + "–" + (hi / 1000) + "k" : "<" + (hi / 1000) + "k") : (lo / 1000) + "k+"}</option>`; }).join("");
+  tierOpts = pt.map((x, i) => { const hi = i ? pt[i - 1].threshold : null, lo = x.threshold;
+    return [`Tier ${x.tier}`, `Tier ${x.tier} · ${hi ? (lo ? (lo / 1000) + "–" + (hi / 1000) + "k" : "<" + (hi / 1000) + "k") : (lo / 1000) + "k+"}`]; });   // [value, label] for the Tier picker (several can be chosen)
+  renderTierMs();
 }
 async function loadSignals() {
   const { data } = await db.from("sales_triggers").select("*").order("detected_at", { ascending: false }).limit(500);

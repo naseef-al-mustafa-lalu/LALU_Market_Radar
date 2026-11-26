@@ -23,17 +23,28 @@ function expansionFlag(p) {
   const t = p.hubspot_contract_terms || {}, signed = t.closed ? new Date(t.closed + "T00:00:00") : null, from = signed ? new Date(signed.getFullYear(), signed.getMonth() + EXPAND_WAIT_MONTHS, signed.getDate()) : null;
   return { ...d, signed: t.closed || null, from, due: !from || from <= new Date() };
 }
+/* Tier picker: several tiers can be ticked. The choice lives in the hidden #f-tier as "Tier 1,Tier 3", and the same picker is drawn in the Filters panel and on the map. */
+let tierOpts = [];
+function renderTierMs() {
+  const on = new Set(($("f-tier").value || "").split(",").filter(Boolean));
+  document.querySelectorAll(".tier-ms").forEach(box => { box.innerHTML = `<details class="relative"><summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-semibold ${on.size ? "text-lalu-teal-800" : "text-slate-600"}">Tier${on.size ? ` <span class="rounded-full bg-lalu-teal-700 px-1.5 text-[11px] font-bold leading-5 text-white">${on.size}</span>` : ": all"}<svg class="h-3 w-3 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path d="M5 7l5 6 5-6z"/></svg></summary>
+      <div class="absolute left-0 z-30 mt-1 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">${tierOpts.map(([v, l]) => `<label class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm font-normal text-slate-700 hover:bg-slate-50"><input type="checkbox" class="tier-chk h-4 w-4 accent-lalu-teal-700" value="${esc(v)}" ${on.has(v) ? "checked" : ""}>${esc(l)}</label>`).join("")}
+        ${on.size ? '<button type="button" class="tier-clear mt-1 w-full rounded-md px-2 py-1 text-left text-xs font-semibold text-lalu-teal-700 hover:bg-slate-50">Clear tiers</button>' : ""}</div></details>`; });
+}
+document.addEventListener("change", e => { const c = e.target.closest && e.target.closest(".tier-chk"); if (!c) return; const box = c.closest(".tier-ms"); $("f-tier").value = [...box.querySelectorAll(".tier-chk:checked")].map(x => x.value).join(","); applyFilters(); renderTierMs(); document.querySelectorAll(".tier-ms").forEach(b => { if (b === box) b.querySelector("details").open = true; }); });
+document.addEventListener("click", e => { const c = e.target.closest && e.target.closest(".tier-clear"); if (c) { $("f-tier").value = ""; applyFilters(); } else if (!(e.target.closest && e.target.closest(".tier-ms"))) document.querySelectorAll(".tier-ms details[open]").forEach(d => d.open = false); });
 const readFilters = () => ({ drift: $("f-drift").value, q: $("f-search").value.trim().toLowerCase(), tier: $("f-tier").value, sw: $("f-sw").value, hs: $("f-hs").value, cqc: $("f-cqc").value, icb: $("f-icb").value, country: $("f-country").value,
   size: $("f-size").value, st: $("f-status").value, sig: $("f-sig").checked, grp: $("f-grp").checked, closed: $("f-closed").checked, net: netFilter });
 function matchPractice(p, f, hits) {
   if (p.org_kind === "non_gp" ? f.st !== "all" && f.st !== "nongp" : f.st === "nongp") return false;   // non-GP services (Y codes with no list) only show under "Non-GP services" or "All"
-  return (f.st === "all" || f.st === "nongp" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : !p.merged_into && (isClosed(p) ? f.closed : p.status === "Active"))) && netMatch(p, f.net) && (!f.tier || tier(p) === f.tier) &&
+  return (f.st === "all" || f.st === "nongp" || (f.st === "merged" ? !!p.merged_into : f.st === "closed" ? isClosed(p) && !p.merged_into : !p.merged_into && (isClosed(p) ? f.closed : p.status === "Active"))) && netMatch(p, f.net) && (!f.tier || f.tier.split(",").includes(tier(p))) &&
     (!f.sw || p.clinical_software === f.sw) && (!f.hs || (f.hs === "missing" ? !p.hubspot_company_id && p.status === "Active" && p.total_patients > 0 : hsState(p) === f.hs)) &&
     (!f.cqc || (f.cqc === "None" ? !p.cqc_rating : p.cqc_rating === f.cqc)) && (!f.icb || p.icb_name === f.icb) && (!f.country || (p.country || "England") === f.country) && (!f.size || (f.size === "yes") === (p.total_patients > 0)) &&
     (!f.drift || (f.drift === "expand" ? !!(expansionFlag(p) || {}).due : (d => d && d.tierChanged)(sizeDrift(p)))) && (!f.sig || signalCodes.has(p.ods_code)) && (!f.grp || p.group_size > 1) &&
     (!f.q || [p.practice_name, p.ods_code, p.pcn_name, p.manager_name, p.postcode, p.group_name, p.gp_federation, p.town].some(v => (v || "").toLowerCase().includes(f.q)) || !!(hits && hits.has(p.ods_code)));
 }
 function applyFilters() {
+  renderTierMs();
   const flt = readFilters(), q = flt.q;
   const bHits = q.length >= 3 ? branches.filter(b => [b.branch_name, b.branch_code, b.postcode, b.town].some(v => (v || "").toLowerCase().includes(q))) : [];
   branchHit = new Map();
@@ -85,7 +96,7 @@ function renderChips() {
     add((NET_KINDS[netFilter.kind] || "").replace(/s$/, "") + ": " + netFilter.label, () => { netFilter = null; fromNetworks = false; applyFilters(); });
   }
   if ($("f-search").value.trim()) add("Search: " + $("f-search").value.trim(), () => { $("f-search").value = ""; applyFilters(); });
-  sel("f-tier", "Tier"); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country"); sel("f-size", "List size"); sel("f-drift", "Contract size"); sel("f-status", "Status");
+  if ($("f-tier").value) add("Tier: " + $("f-tier").value.split(",").map(t => t.replace("Tier ", "T")).join(", "), () => { $("f-tier").value = ""; applyFilters(); }); sel("f-hs", "HubSpot"); sel("f-sw", "System"); sel("f-cqc", "CQC"); sel("f-icb", "ICB"); sel("f-country", "Country"); sel("f-size", "List size"); sel("f-drift", "Contract size"); sel("f-status", "Status");
   if ($("f-sig").checked) add("Has recent signals", () => { $("f-sig").checked = false; applyFilters(); });
   if ($("f-closed").checked) add("Showing closed", () => { $("f-closed").checked = false; applyFilters(); });
   if ($("f-grp").checked) add("Group-run only", () => { $("f-grp").checked = false; applyFilters(); });
