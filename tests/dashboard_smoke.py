@@ -382,6 +382,7 @@ with sync_playwright() as p:
     assert "pricing" in prof.lower() and "size discount" in prof.lower() and "estimated annual revenue" in prof.lower() and "signed separately" in prof and "Network discount" in prof and "Test Surgery 0" in prof, prof
     assert "linked pcns" in prof.lower() and "West PCN" in prof and "NHS Test ICB" in prof and "Create deal" not in prof, prof
     pg.wait_for_selector("#dr-hs #hs-netdeal"); strip = pg.inner_text("#dr-hs"); assert "HubSpot" in strip and "no deal linked yet" in strip.lower() or "not in hubspot yet" in strip.lower(), strip      # the same strip as a practice, at the top
+    assert pg.inner_text("#dr-hs #hs-netdeal").strip() in ("Add to HubSpot", "Set up in HubSpot", "Manage in HubSpot"), strip      # a network's button reads like a practice's, not Create deal
     fold = pg.locator("#dr-body details:has(h4:text-matches('Linked PCNs', 'i'))").first; assert fold.get_attribute("open") is not None      # folds like Linked practices
     fold.locator("summary").click(); assert fold.get_attribute("open") is None and pg.locator("#dr-body .np-link").first.is_hidden(); fold.locator("summary").click()      # a group's PCNs and ICB, and the way to make its deal
     pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-newdeal")
