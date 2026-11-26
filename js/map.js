@@ -45,7 +45,7 @@ async function mapRefresh(fit) {
   await mapLoadCoords(); mapEnsure(); pmap.invalidateSize(); if (!pmap.getSize().x) return;      // the Practices tab is not showing
   const placed = [], unplaced = [];
   for (const p of filtered) (mapAt(p) ? placed : unplaced).push(p);
-  const counts = { customer: 0, freemium: 0, engaged: 0, other: 0 }; for (const p of placed) counts[mapKey(p)]++;
+  const counts = { customer: 0, freemium: 0, engaged: 0, other: 0 }; for (const p of placed) if (!mapCentre || (mapMiles(mapCentre.at, mapAt(p)) <= mapCentre.miles && (!mapCentre.ods || p.ods_code !== mapCentre.ods))) counts[mapKey(p)]++;   // with a distance search the counts are for the practices in range
   $("m-legend").innerHTML = Object.keys(MAP_COL).map(k => `<button type="button" data-k="${k}" class="m-leg inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2 py-1 font-semibold ${mapHidden.has(k) ? "opacity-40" : ""}" title="${esc(MAP_TIP[k])}. Click to show or hide."><span class="h-2.5 w-2.5 rounded-full" style="background:${MAP_COL[k]}"></span>${MAP_LABEL[k]} <span class="font-normal text-slate-500">${counts[k].toLocaleString()}</span></button>`).join("");
   pmapLayer.clearLayers();
   const shown = placed.filter(p => !mapHidden.has(mapKey(p))), pts = [];
@@ -56,7 +56,7 @@ async function mapRefresh(fit) {
   const sites = mapBranches ? mapBranchSites(filtered.filter(p => !mapHidden.has(mapKey(p)))) : [];
   for (const x of sites) { const k = mapKey(x.p), m = L.circleMarker(x.at, { radius: mapRadius(k) * 0.85, color: MAP_COL[k], weight: 2, fillColor: "#fff", fillOpacity: 1 }); m._k = k; m._ring = true; m.on("click", () => mapBranchPopup(x, m)); m.addTo(pmapLayer); pts.push(x.at); }
   if (mapBranches) $("m-legend").insertAdjacentHTML("beforeend", `<span class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2 py-1 font-semibold" title="Branch sites are drawn as rings in their practice's colour"><span class="h-2.5 w-2.5 rounded-full border-2 border-slate-500 bg-white"></span>Branches <span class="font-normal text-slate-500">${sites.length.toLocaleString()}</span></span>`);
-  if (!mapCentre) $("m-msg").textContent = unplaced.length ? `${placed.length.toLocaleString()} on the map; ${unplaced.length.toLocaleString()} have no location yet` : `${placed.length.toLocaleString()} practices`;
+  if (!mapCentre) { const n = shown.length.toLocaleString(), hid = mapHidden.size ? ` (${(placed.length - shown.length).toLocaleString()} hidden)` : ""; $("m-msg").textContent = unplaced.length ? `${n} on the map${hid}; ${unplaced.length.toLocaleString()} have no location yet` : `${n} practices${hid}`; }
   if (mapCentre) mapRadiusList(shown, sites);
   else if (fit && pts.length) pmap.fitBounds(L.latLngBounds(pts).pad(0.05), { maxZoom: 12 });
   if (!Object.keys(mapCoords).length) $("m-msg").textContent = "No locations yet: run the Geocode postcodes workflow once.";
