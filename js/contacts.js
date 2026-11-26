@@ -162,7 +162,7 @@ function ctTiles() {
 }
 const ctModeBar = () => `<div class="flex flex-wrap items-center gap-2 text-xs"><span class="font-semibold text-slate-600">Campaign type</span><div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 font-semibold" role="group" aria-label="Campaign type">
   ${[["standard", "Standard"], ["reengage", "Re-engagement"]].map(([k, l]) => `<button type="button" class="ct-mode rounded-md px-3 py-1 ${ctMode === k ? "bg-lalu-navy text-white" : "text-slate-600 hover:bg-slate-50"}" data-m="${k}" aria-pressed="${ctMode === k}">${l}</button>`).join("")}</div>
-  <span class="text-slate-500">${ctMode === "standard" ? "Only New and Engaged contacts are eligible." : "Re-engagement and disqualified-lead campaigns: the lifecycle rule is lifted; every other rule still applies."}</span></div>`;
+  <span class="text-slate-500">${ctMode === "standard" ? "Only New, Engaged and Prospecting contacts are eligible." : "Re-engagement and disqualified-lead campaigns: the lifecycle rule is lifted; every other rule still applies."}</span></div>`;
 
 function ctRow(r) {
   const { c, p, ev } = r, st = CT_STATUS[ev.status], sec = ev.section && CT_SECTION[ev.section];

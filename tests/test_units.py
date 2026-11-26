@@ -2324,3 +2324,32 @@ def test_a_hubspot_contact_shared_by_two_atlas_rows_is_only_as_eligible_as_its_l
             return [{"contact_urn": 1, "status": "eligible", "section": "main"}, {"contact_urn": 2, "status": "suppressed", "section": "main"}, {"contact_urn": 3, "status": "eligible", "section": "other"}, {"contact_urn": 4, "status": "eligible", "section": "main"}]
 
     assert ce.desired(Rest()) == {"9": "none", "8": "other"}   # the same answer whichever row comes first
+
+
+def test_a_big_apollo_run_waits_only_briefly_on_each_waterfall_so_it_finishes_inside_the_time_limit():
+    from src import apollo
+
+    assert apollo.BULK_RUN < apollo.MAX_PER_RUN and apollo.WATERFALL_WAIT_BULK <= 10
+    slept = []
+    posts = []
+
+    def post(url, **kw):
+        posts.append(url)
+        class R:
+            status_code = 200
+            text = ""
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"request_id_str": "r1", "person": {}}
+        return R()
+
+    class G:
+        status_code = 200
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {}   # Apollo has no answer yet
+
+    email, rid, note = apollo.waterfall_email({"first_name": "A", "last_name": "B", "id_kind": ""}, "P", "https://p.nhs.uk", "k", post=post, get=lambda *a, **k: G(), wait=apollo.WATERFALL_WAIT_BULK, sleep=slept.append)
+    assert email is None and len(slept) == 1   # one short poll, then the request id is kept for the free collection

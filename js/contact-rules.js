@@ -30,7 +30,7 @@ const CT_RULES = [
   ["bounced", "Email bounced", "A hard bounce (unknown user, other, policy), or any bounce after a marketing email was sent.", true],
   ["sequence", "Already in a HubSpot sequence", "Not enrolled in a second campaign while one is running.", true],
   ["in_audience", "Already approved in another Atlas audience", "Held for the audience that has them first.", true],
-  ["lifecycle", "Lifecycle stage is not New or Engaged", "Only New and Engaged contacts get campaigns (customers, past customers, MQL, SQL and the rest are held back). Switch the view to Re-engagement to lift this.", true],
+  ["lifecycle", "Lifecycle stage is not New, Engaged or Prospecting", "Only New, Engaged and Prospecting contacts get campaigns (customers, past customers, MQL, SQL and the rest are held back). Switch the view to Re-engagement to lift this.", true],
   ["disqualified", "Disqualified lead", "HubSpot has a lead for this contact that was disqualified. Switch the view to Re-engagement to work these.", true],
   ["closed_lost", "Deal closed lost", "The contact's latest deal was closed lost and none is still open. Switch the view to Re-engagement to work these.", true],
   ["customer", "At a customer practice", "The practice is a customer, so its contacts are not prospected.", true],

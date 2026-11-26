@@ -14,6 +14,8 @@ from .common import Rest
 
 API = "https://api.apollo.io/api/v1"
 MAX_PER_RUN = 1000
+BULK_RUN = 20   # a run bigger than this waits only briefly on each waterfall (a request still working is saved and collected free later), so hundreds of people finish inside the job time limit
+WATERFALL_WAIT_BULK = 10
 LOCKED = re.compile(r"not_unlocked|@domain\.com$", re.I)   # Apollo's placeholder when the address is not revealed
 
 
@@ -480,7 +482,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
                 if not no_person_route:
                     email, status, note = lookup(c, pr.get("practice_name"), key, post)   # step 2, uses credits when an email comes back
                 if not email and waterfall and str(note or "").startswith(("person found", "no api match")):   # opt-in: what Apollo's screen does when the plain lookup has nothing
-                    wf_email, wf_pending, wf_note = waterfall_email(c, pr.get("practice_name"), pr.get("website"), key, post, get, sleep=time.sleep if post is requests.post else (lambda s: None))
+                    wf_email, wf_pending, wf_note = waterfall_email(c, pr.get("practice_name"), pr.get("website"), key, post, get, wait=WATERFALL_WAIT_BULK if len(approved) > BULK_RUN else 40, sleep=time.sleep if post is requests.post else (lambda s: None))
                     out["waterfall_tried"] = out.get("waterfall_tried", 0) + 1
                     if wf_email:
                         email, status, note = wf_email, None, None
