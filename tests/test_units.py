@@ -2273,3 +2273,21 @@ def test_an_apollo_address_on_an_existing_person_fills_a_blank_legal_basis_and_r
     cid, created = neverbounce.hubspot_contact(Hub(), {"email": "a@b.nhs.net", "source": "apollo"}, "1", "Valid", targets={})
     patches = [kw["json"]["properties"] for m, p, kw in calls if m == "PATCH"]
     assert (cid, created) == ("9", False) and patches[0] == {"neverbounce_status": "Valid"} and patches[1]["hs_legal_basis"] == neverbounce.LEGAL_BASIS and patches[1]["um_source_detail_1"] == "Apollo"
+
+
+def test_fixing_apollo_attribution_rewrites_only_conflicting_records_and_only_when_applying():
+    from src import fix_apollo_attribution as fx
+
+    calls = []
+    people = {"1": {"hs_legal_basis": "Freely given consent from contact", "um_source_detail_1": "Apollo", "um_source_detail_2": "MEDI2DATA - old import", "um_lt_source_detail_1": "Oscar Data", "um_lt_source_detail_2": "126320196"},
+              "2": {"hs_legal_basis": "x", "um_source_detail_1": "Apollo", "um_source_detail_2": "Lalu Atlas Import: 2026-11-26"}}
+
+    class Hub:
+        def call(self, method, path, **kw):
+            calls.append((method, path))
+            return {"properties": people[path.rsplit("/", 1)[1]]} if method == "GET" else {}
+
+    dry = fx.run(Hub(), ["1", "2"])
+    assert dry[0]["after"]["um_source_detail_1"] == "Apollo" and dry[0]["after"]["um_lt_source_detail_1"] == "" and not dry[1]["after"] and not any(m == "PATCH" for m, _ in calls)
+    done = fx.run(Hub(), ["1", "2"], apply=True)
+    assert done[0]["applied"] and not done[1]["applied"] and [c for c in calls if c[0] == "PATCH"] == [("PATCH", "/crm/v3/objects/contacts/1")]

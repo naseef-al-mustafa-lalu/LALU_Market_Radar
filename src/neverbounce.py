@@ -93,6 +93,7 @@ def creation_props(detail1="Oscar API", today=None):
 
 OSCAR_FIRST_TOUCH = {"oscar data", "oscar api", "oscar ai"}   # first-touch sources that mean "Oscar was where we got this person"
 LEGAL_BASIS = "Legitimate interest \u2013 prospect/lead"
+APOLLO_READ = "hs_legal_basis,um_source_detail_1,um_source_detail_2,um_lt_source_detail_1,um_lt_source_detail_2"
 
 
 def apollo_existing_props(cur, today=None):
@@ -101,7 +102,8 @@ def apollo_existing_props(cur, today=None):
     out = {}
     if not (cur.get("hs_legal_basis") or "").strip():
         out["hs_legal_basis"] = LEGAL_BASIS
-    if (cur.get("um_source_detail_1") or "").strip().lower() in OSCAR_FIRST_TOUCH:
+    first = (cur.get("um_source_detail_1") or "").strip().lower()
+    if first in OSCAR_FIRST_TOUCH or (first == "apollo" and not str(cur.get("um_source_detail_2") or "").startswith("Lalu Atlas Import")):   # Apollo with an old import's detail 2 is the same conflict
         d = f"Lalu Atlas Import: {(today or datetime.now(timezone.utc)).date().isoformat()}"
         out.update({"source_category": "Import", "um_source_detail_1": "Apollo", "um_source_detail_2": d, "um_lt_source_category": "Import", "um_lt_source_detail_1": "", "um_lt_source_detail_2": d})
     return out
@@ -170,7 +172,7 @@ def hubspot_contact(hub, c, company_id, status, targets=None):
                      jobtitle=c.get("job_title"), phone=c.get("phone"), job_role_standardised=standard_role(c.get("job_title")), **creation_props("Apollo" if apollo else "Oscar API"))
         cid, created = str(hub.call("POST", "/crm/v3/objects/contacts", json={"properties": {k: v for k, v in props.items() if v}})["id"]), True
     if apollo and not created:   # an existing record keeps its own details, except a blank legal basis and an Oscar first touch (see apollo_existing_props)
-        cur = (hub.call("GET", f"/crm/v3/objects/contacts/{cid}", params={"properties": "hs_legal_basis,um_source_detail_1"}) or {}).get("properties") or {}
+        cur = (hub.call("GET", f"/crm/v3/objects/contacts/{cid}", params={"properties": APOLLO_READ}) or {}).get("properties") or {}
         extra = apollo_existing_props(cur)
         if extra:
             hub.call("PATCH", f"/crm/v3/objects/contacts/{cid}", json={"properties": extra})
