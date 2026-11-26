@@ -161,14 +161,14 @@ async function hsDealForm(company) {
     const pt = (k, v, sub = "") => `<div class="rounded-lg bg-white px-2.5 py-1.5"><div class="text-[11px] uppercase tracking-wider text-slate-500">${k}</div><div class="font-mono font-semibold">${v}</div>${sub ? `<div class="text-[11px] text-slate-500">${sub}</div>` : ""}</div>`;
     const pricing = `<div class="mb-3 rounded-xl bg-slate-50 p-3"><div class="mb-2 flex items-center justify-between"><h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Pricing to be sent with this deal</h4><span class="text-xs text-slate-500">from the price card: ${esc(want.label)}</span></div>
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Patients", p.total_patients.toLocaleString(), esc(want.tier))}${pt("List price", "£" + rate3(want.list) + " /mo", "per patient")}
-        ${pt("Total discount", pct(want.total), `size ${pct(want.size)} · term ${pct(want.term)} · speed ${pct(want.speed)}${want.referral > 0 ? " · referral " + pct(want.referral) : ""}`)}${pt("Net price", "£" + rate3(want.rate) + " /mo", "per patient")}</div>
+        ${pt("Total discount", pct(want.total), `size ${pct(want.size)} · term ${pct(want.term)} · speed ${pct(want.speed)}${want.referral > 0 ? " · referral " + pct(want.referral) : ""}${want.discretionary > 0 ? " · discretionary " + pct(want.discretionary) : ""}`)}${pt("Net price", "£" + rate3(want.rate) + " /mo", "per patient")}</div>
       <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">${pt("Annual revenue", gbpFull(annual), "becomes the deal Amount")}${pt("Line item", esc(w.productName), "billed monthly")}
         ${pt("Line discount", hsPctText(hsWantDiscPct(w)), "off £" + rate3(w.listUnit) + " /mo")}${pt("Contract term", w.term + " month" + (w.term > 1 ? "s" : ""), "the product")}</div></div>`;
     box.innerHTML = `${pricing}<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New deal on ${esc(company.name)}</h4>
       <div class="grid gap-2 sm:grid-cols-2">
         <div class="sm:col-span-2">${field("Deal name", `<input id="nd-name" class="${inp}" value="${esc(hs.net ? hs.net.name : lead ? lead + " - " + company.name : company.name)}">`)}</div>
-        ${field("Pipeline", `<select id="nd-pipe" class="${inp}">${opts(pipes.map(x => [x.id, x.label]), def.id)}</select>`)}
-        ${field("Stage", `<select id="nd-stage" class="${inp}">${opts(def.stages.map(s => [s.id, s.label]), stageNew.id)}</select>`)}
+        ${field("Pipeline <span class='text-rose-600'>*</span>", `<select id="nd-pipe" class="${inp}" required><option value="">Choose a pipeline…</option>${opts(pipes.map(x => [x.id, x.label]), "")}</select>`)}
+        ${field("Stage", `<select id="nd-stage" class="${inp}" disabled><option value="">Choose a pipeline first</option></select>`)}
         ${field("Deal type", `<select id="nd-type" class="${inp}">${opts([["newbusiness", "New Business"], ["New Business GP eMR", "New Business GP eMR"], ["Existing Business - Freemium", "Existing Business - Freemium"], ["Existing Business - PAYG", "Existing Business - PAYG"], ["Existing Business - SAR Only", "Existing Business - SAR Only"], ["Existing Business - GP eMR", "Existing Business - GP eMR"], ["Renewal", "Renewal"]], "newbusiness")}</select>`)}
         ${field("Product / service", `<select id="nd-prod" class="${inp}">${opts([["eMR+", "ReportSure - Managed Service"], ["eMR", "ReportSure - Self Service"]], "eMR+")}</select>`)}
         ${field("Deal owner", pre.owners ? `<select id="nd-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
@@ -183,10 +183,11 @@ async function hsDealForm(company) {
       <p class="mt-2 text-xs text-slate-500">The Amount starts at the annual revenue above. The pricing above (discounts, size tier, value per patient, commercial model and line item) is written to the deal straight after it is created, and checked against HubSpot on the same page.</p>
       <div id="nd-msg" class="mt-2" role="status"></div>
       <div class="mt-3 flex justify-end gap-2"><button id="nd-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nd-create" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Create deal and push pricing</button></div></div>`;
-    $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value); $("nd-stage").innerHTML = opts(pp.stages.map(s => [s.id, s.label]), pp.stages[0].id); };
+    const ndReady = () => { $("nd-create").disabled = !contacts.length || !$("nd-pipe").value; };   // a deal needs a contact and a pipeline chosen on purpose
+    $("nd-pipe").onchange = e => { const pp = pipes.find(x => x.id === e.target.value), st = $("nd-stage"); if (pp) { st.disabled = false; st.innerHTML = opts(pp.stages.map(s => [s.id, s.label]), (pp.stages.find(x => !x.closed) || pp.stages[0]).id); } else { st.disabled = true; st.innerHTML = '<option value="">Choose a pipeline first</option>'; } ndReady(); };
     $("nd-cancel").onclick = () => hs.net ? hsClose() : hsCompanyPage(company.id);
     document.querySelectorAll(".nd-cov").forEach(c => c.onchange = () => { hs.sel = new Set([...document.querySelectorAll(".nd-cov:checked")].map(x => x.value)); hs.p = hsNetEntity(hs.net, hs.members, [...hs.sel]); hs.want = hsDesired(hs.p); hsDealForm(company); });   // changing the practices a network deal covers re-prices it
-    hsContactWire(() => hsHubRender()); if (!contacts.length) $("nd-create").disabled = true;
+    hsContactWire(() => hsHubRender()); ndReady();
     $("nd-create").onclick = async () => {
       const b = $("nd-create"), msg = $("nd-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
@@ -205,31 +206,35 @@ async function hsLeadForm(company) {
   const box = $("hs-results"); hsTitle("Create lead");
   try {
     if (!hs.pre) box.innerHTML = hsSkeleton(2); const pre = await hsPrefill(company.id), p = hs.p, contacts = (hs.hub && hs.hub.contacts) || pre.contacts, openLeads = ((hs.hub && hs.hub.leads) || []).filter(l => l.open);
-    const field = hsField, inp = hsInp;
+    const field = hsField, inp = hsInp, lp = (await hsCall({ action: "lead_pipelines" })).pipelines || [];
     const opts = hsOpts;
     box.innerHTML = `<div class="rounded-xl border border-slate-200 p-3"><h4 class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">New lead on ${esc(company.name)}</h4>
       <div class="grid gap-2 sm:grid-cols-2">
         <div class="sm:col-span-2">${field("Lead name", `<input id="nl-name" class="${inp}" value="${esc(company.name + " | Atlas")}">`)}</div>
         ${field("Primary contact", contacts.length ? `<select id="nl-contact" class="${inp}">${opts(contacts.map(c => [c.id, hsNameOf(c) + (c.jobtitle ? " · " + c.jobtitle : "")]), (hs.picked && hs.picked[0]) || contacts[0].id)}</select>` : '<div class="rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-800">A lead needs a contact. <button id="nl-addfirst" type="button" class="font-semibold underline">Add contacts first</button></div>')}
         ${field("Lead owner", pre.owners ? `<select id="nl-owner" class="${inp}"><option value="">Unassigned</option>${opts(pre.owners.map(o => [o.id, o.name]), pre.ownerId || "")}</select>` : '<div class="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">Owners unavailable</div>')}
+        ${field("Pipeline <span class='text-rose-600'>*</span>", `<select id="nl-pipe" class="${inp}" required><option value="">Choose a pipeline…</option>${opts(lp.map(x => [x.id, x.label]), "")}</select>`)}
+        ${field("Stage", `<select id="nl-stage" class="${inp}" disabled><option value="">Choose a pipeline first</option></select>`)}
         ${field("Lead type", `<select id="nl-type" class="${inp}">${opts([["NEW_BUSINESS", "New business"], ["RE_ATTEMPTING", "Re-attempting"]], "NEW_BUSINESS")}</select>`)}
         ${field("Source campaign", `<select id="nl-camp" class="${inp}">${opts([["Atlas", "Atlas"], ["", "None"], ["Field Based Lead", "Field Based Lead"], ["PCN Prospecting", "PCN Prospecting"], ["ICB Prospecting", "ICB Prospecting"], ["ICB April 26", "ICB April 26"]], "Atlas")}</select>`)}</div>
       ${openLeads.length ? `<p id="nl-dup" class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">This company already has an open lead: ${openLeads.map(l => esc(l.name) + " (" + esc(l.stage) + ")").join(", ")}. Check it is not the same opportunity.</p>` : ""}
-      <details class="mt-3 text-xs text-slate-600"><summary class="cursor-pointer font-semibold">What happens in HubSpot next</summary><p class="mt-1">The lead goes into the Prospecting Pipeline at New. HubSpot's lifecycle workflow then sets the contact to the Prospecting lifecycle stage (only when it is New or Engaged). Leads made here get no owner rotation and no sequence.</p></details>
+      <details class="mt-3 text-xs text-slate-600"><summary class="cursor-pointer font-semibold">What happens in HubSpot next</summary><p class="mt-1">The lead goes into the pipeline you choose, at the stage you choose. HubSpot's lifecycle workflow then sets the contact to the Prospecting lifecycle stage (only when it is New or Engaged). Leads made here get no owner rotation and no sequence.</p></details>
       ${pre.warnings.map(w => `<p class="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">${esc(w)}</p>`).join("")}
       <div id="nl-msg" class="mt-2" role="status"></div>
-      <div class="mt-3 flex justify-end gap-2"><button id="nl-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nl-create" ${contacts.length ? "" : "disabled"} class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Create lead</button></div></div>`;
+      <div class="mt-3 flex justify-end gap-2"><button id="nl-cancel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold">Back</button><button id="nl-create" disabled class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Create lead</button></div></div>`;
+    const nlReady = () => { $("nl-create").disabled = !contacts.length || !$("nl-pipe").value; };   // a lead needs a contact and a pipeline chosen on purpose
+    $("nl-pipe").onchange = e => { const pp = lp.find(x => x.id === e.target.value), st = $("nl-stage"); if (pp) { const open = pp.stages.filter(x => x.open); st.disabled = false; st.innerHTML = opts(open.map(x => [x.id, x.label]), open[0] && open[0].id); } else { st.disabled = true; st.innerHTML = '<option value="">Choose a pipeline first</option>'; } nlReady(); };
     $("nl-cancel").onclick = () => hsHubRender();
     const af = $("nl-addfirst"); if (af) af.onclick = () => hsHubRender();
     const go = async force => {
       const b = $("nl-create"), msg = $("nl-msg"); b.disabled = true; b.textContent = "Creating…"; msg.innerHTML = "";
       try {
-        const contactId = $("nl-contact").value, r = await hsCall({ action: "create_lead", ods: p.ods_code, companyId: company.id, contactId, name: $("nl-name").value.trim(), ownerId: $("nl-owner")?.value || "", leadType: $("nl-type").value, campaign: $("nl-camp").value, force });
+        const contactId = $("nl-contact").value, r = await hsCall({ action: "create_lead", ods: p.ods_code, companyId: company.id, contactId, name: $("nl-name").value.trim(), ownerId: $("nl-owner")?.value || "", leadType: $("nl-type").value, campaign: $("nl-camp").value, pipeline: $("nl-pipe").value, stage: $("nl-stage").value, force });
         if (r.ok === false) {
           msg.innerHTML = `<div class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">This contact already has an open lead: ${r.existing.map(l => esc(l.name)).join(", ")}. Creating another can duplicate work. <button id="nl-force" class="ml-1 font-semibold underline">Create anyway</button></div>`;
           $("nl-force").onclick = () => go(true); b.disabled = false; b.textContent = "Create lead"; return;
         }
-        (hs.hub.leads = hs.hub.leads || []).unshift({ id: r.leadId, name: $("nl-name").value.trim(), stage: "New (Prospecting Pipeline)", open: true });
+        (hs.hub.leads = hs.hub.leads || []).unshift({ id: r.leadId, name: $("nl-name").value.trim(), stage: ($("nl-stage").selectedOptions[0]?.text || "New") + " (" + ($("nl-pipe").selectedOptions[0]?.text || "") + ")", open: true });
         hs.picked = [contactId]; hs.fresh = [r.leadId];
         hs.flash = `Lead created. ${hsLink("0-136", r.leadId, "Open it in HubSpot")}${r.companyLinked ? "" : " It could not be linked to the company; link it in HubSpot."}`;
         hsHubRender();
@@ -264,9 +269,10 @@ function hsPreview() {
     ? `<span class="font-mono text-slate-400">${now} <span class="text-[11px]">unchanged</span></span>` : `<span class="font-mono"><span class="text-slate-500">${now}</span> <span class="text-slate-400">→</span> <b class="text-emerald-700">${next}</b></span>`}</div>`;
   const refShown = want.referral > 0 || hsNum(deal.referral_discount) > 0;
   const discRows = [["Size discount", deal.size_discount, hsPct(want.size), want.size], ["Speed discount", deal.speed_discount, hsPct(want.speed), want.speed], ["Term length discount", deal.term_length_discount, hsPct(want.term), want.term],
-    ...(refShown ? [["Referral group discount", deal.referral_discount || 0, hsPct(want.referral), want.referral]] : [])]
+    ...(refShown ? [["Referral group discount", deal.referral_discount || 0, hsPct(want.referral), want.referral]] : []),
+    ...(want.discretionary > 0 || hsNum(deal.discretionary_discount) > 0 ? [["Discretionary discount", deal.discretionary_discount || 0, hsPct(want.discretionary || 0), want.discretionary || 0]] : [])]
     .map(([l, nowV, hv, tv]) => chg(l, pctShow(hsNum(nowV)), pct(tv), sameNum(nowV, hv))).join("") + chg("Term length (years)", esc(deal.term_length_years || "not set"), String(want.termYears), String(deal.term_length_years) === String(want.termYears));
-  const nDeal = [sameNum(deal.size_discount, hsPct(want.size)), sameNum(deal.speed_discount, hsPct(want.speed)), sameNum(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), !refShown || sameNum(deal.referral_discount || 0, hsPct(want.referral))].filter(x => !x).length;
+  const nDeal = [sameNum(deal.size_discount, hsPct(want.size)), sameNum(deal.speed_discount, hsPct(want.speed)), sameNum(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), !refShown || sameNum(deal.referral_discount || 0, hsPct(want.referral)), !(want.discretionary > 0 || hsNum(deal.discretionary_discount) > 0) || sameNum(deal.discretionary_discount || 0, hsPct(want.discretionary || 0))].filter(x => !x).length;
   const tile = (k, v, changed, sub = "") => `<div class="rounded-lg ${changed ? "bg-emerald-50 ring-1 ring-emerald-200" : "bg-slate-50"} px-3 py-2"><div class="text-[11px] uppercase tracking-wider text-slate-500">${k}</div><div class="font-mono font-semibold">${v}</div>${sub ? `<div class="text-[11px] text-slate-500">${sub}</div>` : ""}</div>`;
   const cur = line.cur;
   const lineCard = line.unreadable ? '<div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Line items cannot be read with the current HubSpot token. Add the <b>crm.objects.line_items.read / write</b> scopes (and e-commerce) to include the line item in this push.</div>'
@@ -309,6 +315,8 @@ async function hsWrite(checks) {
   const dealProps = { size_discount: hsPct(want.size), speed_discount: hsPct(want.speed), term_length_discount: hsPct(want.term), term_length_years: String(want.termYears) };
   const companyProps = {};
   if (want.referral > 0 || hsNum(deal.referral_discount) > 0) dealProps.referral_discount = hsPct(want.referral);
+  if (want.discretionary > 0 || hsNum(deal.discretionary_discount) > 0) dealProps.discretionary_discount = hsPct(want.discretionary || 0);
+  const discretionaryNext = dealProps.discretionary_discount; delete dealProps.discretionary_discount;   // written by its own call after the pricing push (the hubspot-extras function)
   const referral = want.group ? want.group : hsNum(deal.referral_discount) > 0 && !want.member ? { revert: true } : undefined;
   if (ticked("tier")) dealProps.size_tier = want.tier;
   if (ticked("cm")) dealProps.commercial_model = want.model;
@@ -320,6 +328,7 @@ async function hsWrite(checks) {
     const w = want.line, wr = await hsCall({ action: "write", ...(p.net ? { network: { orgId: p.net.id, covers: p.covers || [] } } : { ods: p.ods_code }), companyId: company.id, dealId: deal.id, deal: dealProps, company: companyProps, referral,
       lineItem: hs.lineItems == null ? undefined : { productId: w.productId, quantity: w.quantity, listUnit: w.listUnit, netUnit: w.netUnit, termMonths: w.termMonths, frequency: w.frequency, terms: w.terms, payments: w.payments } });
     hs.lineItems = wr.lineItems ?? hs.lineItems; hs.warnings = wr.warnings || [];
+    if (discretionaryNext !== undefined) { try { await hsCall({ action: "discretionary_write", ods: p.net ? undefined : p.ods_code, companyId: company.id, dealId: deal.id, value: discretionaryNext }); deal.discretionary_discount = discretionaryNext; } catch (e) { hs.warnings.push("The discretionary discount could not be written: " + e.message); } }
     if (!p.net) { refSaved.delete(p.ods_code); refGroups = null; } repaintPriceCards();   // the saved group strip reloads
     $("hs-write").classList.add("hidden"); $("hs-cancel").textContent = "Close";
     await hsValidate(6);

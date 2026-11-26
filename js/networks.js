@@ -226,7 +226,7 @@ async function netDealCheck(n, members, tierRow) {
 function netDealRender() {
   const box = $("np-dealcheck"), st = netDealState; if (!box || !st) return;
   const near = (a, b, tol = 0.01) => a != null && b != null && Math.abs(a - b) <= Math.max(1, Math.abs(b) * tol), row = (label, hsV, atV, ok) => `<tr class="border-t border-slate-100"><td class="py-1 pr-2">${label}</td><td class="px-2 text-right font-mono">${hsV}</td><td class="px-2 text-right font-mono">${atV}</td><td class="pl-2">${ok == null ? "" : ok ? '<span class="text-emerald-700">matches</span>' : '<span class="font-semibold text-amber-700">differs</span>'}</td></tr>`;
-  const monthly = billing === "monthly", sz = discountsOn && !monthly ? Number(st.tierRow.size_discount) : 0, sp = speedOn && !monthly ? Number(st.tierRow.speed_discount) : 0, atRate = dealRate(sz, monthly ? 0 : termDiscount(termYrs), sp);
+  const monthly = billing === "monthly", sz = discountsOn && !monthly ? Number(st.tierRow.size_discount) : 0, sp = speedOn && !monthly ? Number(st.tierRow.speed_discount) : 0, atRate = dealRate(sz + (monthly ? 0 : discretionary), monthly ? 0 : termDiscount(termYrs), sp);   // the discretionary discount is part of what a network deal is priced at too
   const covered = new Set(st.deals.flatMap(x => x.dl.covers || [])), none = st.members.filter(p => p.total_patients > 0 && !covered.has(p.ods_code));
   box.innerHTML = st.deals.map(({ dl, d }) => {
     const cov = (dl.covers || []).length ? st.members.filter(p => dl.covers.includes(p.ods_code)) : st.members, totPts = cov.reduce((t, p) => t + (p.total_patients > 0 ? p.total_patients : 0), 0), atMrr = totPts * atRate;

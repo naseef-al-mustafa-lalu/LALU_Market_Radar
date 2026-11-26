@@ -224,6 +224,7 @@ $("more").addEventListener("click", renderMore);
 // Price = list price less the SUM of the selected discounts (size + term + speed), never below the price floor.
 // Term and speed are choices, not guarantees, so they are switches shared by every price card on the page.
 let discountsDefault = false, discountsOn = false, speedOn = false, termYrs = 1, billing = "annual", product = "all", pricingTouched = false;      // pricingTouched: the user has picked a plan in this profile, so HubSpot's existing line item no longer sets it   // billing: "annual" or "monthly" (rolling, no discounts); product: "all" reports or "sar" only
+let discretionary = 0;      // an extra discretionary discount the salesperson gives, as a fraction (0.05 = 5%): annual plans only, added to the other discounts
 const priceCards = new Map();
 const setting = k => Number(cfgSettings[k]?.value || 0);
 const termDiscount = yrs => yrs >= 3 ? setting("term_discount_3yr") : yrs === 2 ? setting("term_discount_2yr") : 0;
@@ -245,15 +246,16 @@ document.addEventListener("click", e => {
   else if (bl) { pricingTouched = true; billing = bl.dataset.b; repaintPriceCards(); document.querySelector(`.bill-opt[data-b="${billing}"]`)?.focus({ preventScroll: true }); }
   else if (pr) { pricingTouched = true; product = pr.dataset.p; repaintPriceCards(); document.querySelector(`.prod-opt[data-p="${product}"]`)?.focus({ preventScroll: true }); }
 });
+document.addEventListener("change", e => { const i = e.target.closest && e.target.closest(".disc-extra"); if (!i) return; pricingTouched = true; const v = Number(i.value); discretionary = Number.isFinite(v) ? Math.min(Math.max(v, 0), 100) / 100 : 0; repaintPriceCards(); });   // on change, not on every key, so typing is not interrupted by the card redrawing
 document.addEventListener("click", e => { const b = e.target.closest(".term-opt"); if (b) { pricingTouched = true; termYrs = Number(b.dataset.yrs); repaintPriceCards(); document.querySelector(`.term-opt[data-yrs="${termYrs}"]`)?.focus({ preventScroll: true }); } });
 function priceCardBody({ patients, tierRow, route, who, lead }, id) {
   const monthly = billing === "monthly", sar = product === "sar", list = baseRate(), prodName = sar ? "SAR only" : "All reports";
   if (!tierRow || !patients) return '<p class="text-sm italic text-slate-500">No price yet: this needs a list size and a price tier for this route.</p>';
-  const disc = discountsOn && !monthly;   // size and term discounts: off (list price) until the salesperson switches them on
+  const disc = discountsOn && !monthly, disc2 = monthly ? 0 : discretionary;   // size and term discounts: off (list price) until the salesperson switches them on; disc2 is the discretionary discount
   const size0 = Number(tierRow.size_discount), size = disc ? size0 : 0, speed = Number(tierRow.speed_discount), term = monthly ? 0 : termDiscount(termYrs), floor = setting("price_floor_per_patient");
   const useSpeed = speedOn && !monthly && speed > 0;   // the speed discount is its own switch and does not need the size discount
-  const anyDisc = disc || useSpeed || term > 0;
-  const refGrp = route === "practice" && lead && !monthly ? referralFor(lead) : null, ref = refGrp ? refGrp.extra : 0, sizeAll = size + ref;   // a referral group adds its extra size discount (conditional on the others signing)
+  const anyDisc = disc || useSpeed || term > 0 || disc2 > 0;
+  const refGrp = route === "practice" && lead && !monthly ? referralFor(lead) : null, ref = refGrp ? refGrp.extra : 0, sizeAll = size + ref + disc2;   // sizeAll carries the size, referral and discretionary discounts into the rate   // a referral group adds its extra size discount (conditional on the others signing)
   // The speed discount applies to every year of the term and ends at renewal.
   const termRate = dealRate(sizeAll, term, useSpeed ? speed : 0), renewal = dealRate(sizeAll, term, 0);
   const sum = sizeAll + term + (useSpeed ? speed : 0), floored = !sar && !monthly && list * (1 - sum) < floor - 1e-9;
@@ -264,6 +266,7 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
     line("List price", `${prodName} · ` + (monthly ? "monthly plan, rolling, no discounts" : (anyDisc || ref > 0) ? `annual plan, ${termYrs}-year commitment` : `annual plan, ${termYrs}-year commitment, list price, no discount`), "", `£${rate3(list)} <span class="text-xs font-normal text-slate-500">/ month</span>`, "border-t-0"),
     !disc ? "" : line("Size discount", `${chip("Tier " + tierRow.tier, TIER_CLS["Tier " + tierRow.tier] || "")} ${esc(tierRow.label)}${who ? ", " + esc(who) : ""}`, "−" + pct(size), amt(list * size)),
     ref > 0 ? line("Referral group discount", `${refGrp.n} other practice${refGrp.n > 1 ? "s" : ""}, ${refGrp.combined.toLocaleString()} patients combined (${pct(refGrp.groupSize)} size discount, own ${pct(refGrp.ownSize)}) ${chip("Conditional", "bg-amber-100 text-amber-800")}`, "−" + pct(ref), amt(list * ref)) : "",
+    disc2 > 0 ? line("Discretionary discount", "Extra discount agreed by the salesperson", "−" + pct(disc2), amt(list * disc2)) : "",
     term ? line("Term discount", `${termYrs}-year commitment`, "−" + pct(term), amt(list * term)) : "",
     useSpeed ? line("Speed discount", termYrs > 1 ? "Every year of the term, not guaranteed" : "Term year, not guaranteed", "−" + pct(speed), amt(list * speed)) : "",
     adj > 1e-9 ? line("Price floor", `Never below £${rate3(floor)} per month`, "", "+£" + rate3(adj)) : "",
@@ -289,7 +292,7 @@ function priceCardBody({ patients, tierRow, route, who, lead }, id) {
       ${useSpeed ? `<div class="text-right"><div class="text-xs uppercase tracking-wider text-slate-500">On renewal</div><div class="text-lg font-semibold leading-tight">${gbpFull(rT)}</div><div class="text-xs text-slate-500">speed discount ends</div></div>` : ""}</div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div class="flex flex-wrap items-center gap-2">${seg("Product", "prod-opt", "p", product, [["all", "All reports"], ["sar", "SAR only"]])}${seg("Billing", "bill-opt", "b", billing, [["annual", "Annual"], ["monthly", "Monthly"]])}</div></div>
-    ${monthly ? "" : `<div class="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">${toggle("disc-toggle", "Size discount", discountsOn, "dsc-l-" + id, pct(size0) + " off")}${speed > 0 ? toggle("speed-toggle", "Speed discount", speedOn, "spd-l-" + id, pct(speed) + " off, not guaranteed") : ""}</div>`}
+    ${monthly ? "" : `<div class="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">${toggle("disc-toggle", "Size discount", discountsOn, "dsc-l-" + id, pct(size0) + " off")}${speed > 0 ? toggle("speed-toggle", "Speed discount", speedOn, "spd-l-" + id, pct(speed) + " off, not guaranteed") : ""}<label class="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">Discretionary discount <span class="relative"><input type="number" class="disc-extra w-20 rounded-md border border-slate-300 bg-white py-1 pl-2 pr-6 text-right font-mono text-sm" min="0" max="100" step="0.5" value="${disc2 ? Math.round(disc2 * 1000) / 10 : ""}" placeholder="0" aria-label="Discretionary discount, percent"><span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500">%</span></span></label></div>`}
     ${monthly ? `<p class="mt-2 text-xs text-slate-500">Monthly plans are rolling with no commitment, so no discounts apply. Switch to Annual for size, term and speed discounts.</p>` :
       `<div class="mt-3"><div class="text-xs font-semibold text-slate-600 mb-1">Contract term <span class="font-normal text-slate-500">(longer commitments earn a discount)</span></div><div class="flex gap-2" role="group" aria-label="Contract term">${opts}</div></div>`}
     ${route === "practice" && lead && !monthly && lead.total_patients > 0 ? referralPanel(lead, id) : ""}
@@ -368,7 +371,7 @@ function closeDrawer() { const was = !$("drawer").classList.contains("translate-
 $("dr-close").onclick = closeDrawer;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 async function openDrawer(p) {
-  if (drawerCode !== p.ods_code) { pricingTouched = false; discountsOn = discountsDefault; }   // every profile opens at list price (discountsDefault is only changed by the dashboard tests)
+  if (drawerCode !== p.ods_code) { pricingTouched = false; discountsOn = discountsDefault; discretionary = 0; }   // every profile opens at list price (discountsDefault is only changed by the dashboard tests)
   drawerCode = p.ods_code;
   document.querySelectorAll("#rows tr").forEach(r => r.classList.toggle("bg-lalu-teal-50", r.dataset.ods === p.ods_code));
   drawerOpened(); $("drawer").classList.remove("translate-x-full");

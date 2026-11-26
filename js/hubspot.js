@@ -10,11 +10,15 @@ const hsTimed = (action, ms, ok) => {
   hsTimings.push({ a: action, ms: Math.round(ms), ok, t: Date.now() }); if (hsTimings.length > 300) hsTimings.splice(0, hsTimings.length - 300);
   try { localStorage.setItem(HS_TIMING_KEY, JSON.stringify(hsTimings)); } catch (e) {}
 };
+const HS_EXTRA = new Set(["lead_pipelines", "create_lead", "discretionary_read", "discretionary_write"]);   // served by the hubspot-extras function; everything else by hubspot-push
 const hsCall = async body => {
   const t0 = performance.now(); let ok = false;
   try {
-    const { data, error } = await db.functions.invoke("hubspot-push", { body });
+    const { data, error } = await db.functions.invoke(HS_EXTRA.has(body.action) ? "hubspot-extras" : "hubspot-push", { body });
     if (error || data?.error) { let m = data?.error || error?.message || "Request failed"; try { const j = await error?.context?.json?.(); if (j?.error) m = j.error; } catch (e) {} throw new Error(m); }
+    if (body.action === "read" && data && data.deal && body.dealId) {   // the deal's Discretionary Discount is read beside the rest, so the push preview can show what changes; a failure just leaves it blank
+      try { const d = await db.functions.invoke("hubspot-extras", { body: { action: "discretionary_read", dealId: body.dealId } }); if (d.data && !d.data.error) data.deal.discretionary_discount = d.data.discretionary_discount; } catch (e) {}
+    }
     ok = true; return data;
   } finally { hsTimed(body.action, performance.now() - t0, ok); }
 };
@@ -52,9 +56,9 @@ function hsDesired(p, ov) {   // ov: { referral, member } prices another practic
   const route = p.route || "practice", row = cfgTiers.find(t => t.route === route && t.tier === p.price_tier), monthly = billing === "monthly";   // a group, federation, PCN or ICB deal prices the same way on its own route
   const disc = discountsOn && !monthly;   // list price (no discount) until the salesperson switches size and term discounts on; the speed discount is its own switch
   const size = disc ? Number(row.size_discount) : 0, term = monthly ? 0 : termDiscount(termYrs), speed = speedOn && !monthly ? Number(row.speed_discount) : 0;
-  const referral = ov ? ov.referral : route === "practice" && HS_REFERRAL_WRITES && !monthly ? referralExtraFor(p) : 0;   // the conditional referral-group discount
-  return { size, term, speed, referral, group: !ov && referral > 0 ? referralPayload(p) : null, member: ov ? ov.member : route === "practice" ? refMembership(p) : null, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral, term, speed), list: baseRate(),
-    total: size + referral + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size + referral, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
+  const discretionaryOn = monthly ? 0 : discretionary, referral = ov ? ov.referral : route === "practice" && HS_REFERRAL_WRITES && !monthly ? referralExtraFor(p) : 0;   // discretionary: the salesperson's extra discount from the price card   // the conditional referral-group discount
+  return { size, term, speed, referral, discretionary: discretionaryOn, group: !ov && referral > 0 ? referralPayload(p) : null, member: ov ? ov.member : route === "practice" ? refMembership(p) : null, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral + discretionaryOn, term, speed), list: baseRate(),
+    total: size + referral + discretionaryOn + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size + referral + discretionaryOn, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }
 // The HubSpot section of the profile now holds facts only (status, links, lifecycle); the one action lives beside the price controls (hsBarHtml).
 const HS_PRODUCT_SERVICE = { "eMR": "Self service", "eMR+": "Managed service" };      // HubSpot deal property Product / Service
@@ -104,7 +108,7 @@ function hsChanges(p, want, company, deal, pair) {
   const have = hsNum(deal.contracted_patient_list_size);
   fixes.push({ id: "cls", label: "Deal contracted list size", now: have != null ? have.toLocaleString() : "not set", next: want.line.quantity.toLocaleString(), same: have === want.line.quantity,
     warn: have != null && have !== want.line.quantity ? "Replaces the contracted list size already on this deal. Only do this if the quote, not the contract, has changed." : "" });
-  const writes = [hsSame(deal.size_discount, hsPct(want.size)), hsSame(deal.speed_discount, hsPct(want.speed)), hsSame(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), hsSame(deal.referral_discount || 0, hsPct(want.referral))];
+  const writes = [hsSame(deal.size_discount, hsPct(want.size)), hsSame(deal.speed_discount, hsPct(want.speed)), hsSame(deal.term_length_discount, hsPct(want.term)), String(deal.term_length_years) === String(want.termYears), hsSame(deal.referral_discount || 0, hsPct(want.referral)), hsSame(deal.discretionary_discount || 0, hsPct(want.discretionary || 0))];
   const line = hsLineStatus(want, pair);
   return { fixes, writes, line, count: fixes.filter(f => !f.same).length + writes.filter(s => !s).length + (line.unreadable || line.same ? 0 : 1) };
 }
