@@ -58,7 +58,7 @@ window.supabase = { createClient: () => {
       (window.__hsCalls = window.__hsCalls || []).push(b);
       const H = window.__hsdb = window.__hsdb || { company: { id: '77', name: 'Test Surgery 1 (HubSpot)', partner_organisation_code: 'A10001', patient_list_size: '9000' },
         deal: { id: '88', dealname: 'Test Surgery 1 - SAR', dealstage: 'contractsent', size_tier: 'Tier 4', commercial_model: 'eMR+ SAR Only', value_per_patient: '£0.10', size_discount: '0', speed_discount: '0', term_length_discount: '0', term_length_years: '1', total_discount: '0', actual_value_per_patient_calculated: '0.10' }, lineItems: [] };
-      if (b.action === 'find') return { data: { companies: [Object.assign({ match: 'ODS code' }, H.company)] } };
+      if (b.action === 'find') return { data: { companies: /Fcp Service/i.test(b.query || '') ? [] : [Object.assign({ match: 'ODS code' }, H.company)] } };   // HubSpot calls it 'Barnsley PCN', not Atlas's longer name
       if (b.action === 'deals') return { data: { deals: [H.deal] } };
       if (b.action === 'hub') return { data: { company: H.company, contacts: [{ id: 'c1', firstname: 'Lena', lastname: 'Contact', jobtitle: 'Manager', email: 'l@x.nhs' }], deals: [H.deal], leads: window.__noLeadScope ? null : (window.__hasLead ? [{ id: '99', name: 'Lead 99', stage: 'New (Prospecting Pipeline)', open: true }] : []) } };
       if (b.action === 'add_contacts') return { data: { ok: true, contacts: (b.contacts || []).map((c, i) => ({ email: c.email.toLowerCase(), id: 'n' + i, existed: false })), warnings: [] } };
@@ -393,9 +393,11 @@ with sync_playwright() as p:
     assert pg.inner_text("#dr-hs #hs-netdeal").strip() in ("Add to HubSpot", "Set up in HubSpot", "Manage in HubSpot"), strip      # a network's button reads like a practice's, not Create deal
     fold = pg.locator("#dr-body details:has(h4:text-matches('Linked PCNs', 'i'))").first; assert fold.get_attribute("open") is not None      # folds like Linked practices
     fold.locator("summary").click(); assert fold.get_attribute("open") is None and pg.locator("#dr-body .np-link").first.is_hidden(); fold.locator("summary").click()      # a group's PCNs and ICB, and the way to make its deal
-    pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-newdeal")
+    pg.click("#hs-netdeal"); pg.wait_for_selector("#hs-newdeal"); assert "Using the HubSpot company" in pg.inner_text("#hs-body"), "one clear match is used without asking"; pg.click("#hs-changeco"); pg.wait_for_selector("#hs-results [data-co]"); pg.click("#hs-results [data-co]"); pg.wait_for_selector("#hs-newdeal")      # and the search is one click away
     hub = pg.inner_text("#hs-body"); assert all(w in hub.lower() for w in ["company", "contacts", "leads", "deals", "patients across", "network before there is a deal", "network's pricing"]), hub.replace("\n", " | ")[:700]      # a network opens the same four-step page as a practice (company, contacts, lead, deal)
     assert "find contacts" in hub.lower() and "add from atlas" not in hub.lower(), "a network offers a contact search, not everyone at its practices"
+    nf = pg.evaluate("""(async () => { const r = await hsNetFind({ name: 'Fcp Service - Barnsley PCN', source_key: 'ods:U12345' }, ''); return { n: r.companies.length, queries: window.__hsCalls.filter(c => c.action === 'find').slice(-3).map(c => c.query) }; })()""")
+    assert nf["n"] == 1 and nf["queries"][-1] == "Barnsley PCN" and nf["queries"][-2] == "Fcp Service - Barnsley PCN", nf      # a network whose Atlas name is longer than HubSpot's is still found: the name as typed, then the part after the dash
     pg.click("#hs-addcontacts"); pg.fill("#hs-csq", "pat"); pg.wait_for_selector("#hs-csr .nc-pick"); fc = pg.inner_text("#hs-csr"); assert "Pat Network" in fc and "In HubSpot: will be linked" in fc, fc      # the search finds people already in HubSpot and says they will be linked, not created
     pg.check("#hs-csr .nc-pick"); pg.click("#hs-addgo"); pg.wait_for_function("document.querySelector('#hs-body').innerText.includes('1 contact added')")
     pg.click("#hs-newdeal"); pg.wait_for_selector("#nd-create"); pg.select_option("#nd-pipe", "default")
