@@ -3,6 +3,7 @@ Property `atlas_contact_eligibility` (Atlas eligibility): Main / Other / Not eli
 Atlas decides it from public.contact_status (the same rules as the Contacts tab, standard view); HubSpot only reads it."""
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 from .common import Rest
@@ -47,6 +48,26 @@ def ensure_property(hub):
     return "created"
 
 
+def fill_unlinked(hub, skip, apply=True, budget_seconds=1500, now=time.monotonic):
+    """HubSpot contacts Atlas does not hold have no eligibility at all, so HubSpot shows them as Unassigned. Atlas cannot vouch for them, so they get "Not eligible"; if Atlas later holds one, the next
+    run above sets its real value. Works through the blank ones in id order, 100 a call, and stops after budget_seconds (the rest go on the next run). Returns (blank found, written)."""
+    seen = written = 0
+    last, started = "0", now()
+    while now() - started < budget_seconds:
+        d = hub.call("POST", "/crm/v3/objects/contacts/search", json={"limit": 100, "properties": [PROP], "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
+                     "filterGroups": [{"filters": [{"propertyName": PROP, "operator": "NOT_HAS_PROPERTY"}, {"propertyName": "hs_object_id", "operator": "GT", "value": last}]}]})
+        page = d.get("results", [])
+        if not page:
+            break
+        last = str(page[-1]["id"])
+        ids = [str(r["id"]) for r in page if str(r["id"]) not in skip]
+        seen += len(ids)
+        if apply and ids:
+            hub.call("POST", "/crm/v3/objects/contacts/batch/update", json={"inputs": [{"id": i, "properties": {PROP: "none"}} for i in ids]})
+            written += len(ids)
+    return seen, written
+
+
 def run(rest, hub, apply=True):
     prop = ensure_property(hub)
     want = desired(rest)
@@ -58,7 +79,8 @@ def run(rest, hub, apply=True):
             hub.call("POST", "/crm/v3/objects/contacts/batch/update", json={"inputs": [{"id": i, "properties": {PROP: v}} for i, v in ch]})
             written += len(ch)
     counts = {v: sum(1 for x in want.values() if x == v) for v, _ in OPTIONS}
-    return {"property": prop, "linked_contacts": len(want), "now_in_hubspot": counts, "to_update": len(todo), "written": written}
+    blank, filled = fill_unlinked(hub, set(want), apply)
+    return {"property": prop, "linked_contacts": len(want), "now_in_hubspot": counts, "to_update": len(todo), "written": written, "not_in_atlas_blank": blank, "not_in_atlas_set_to_not_eligible": filled}
 
 
 def save_owners(rest, hub):

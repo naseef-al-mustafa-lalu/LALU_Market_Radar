@@ -2291,3 +2291,24 @@ def test_fixing_apollo_attribution_rewrites_only_conflicting_records_and_only_wh
     assert dry[0]["after"]["um_source_detail_1"] == "Apollo" and dry[0]["after"]["um_lt_source_detail_1"] == "" and not dry[1]["after"] and not any(m == "PATCH" for m, _ in calls)
     done = fx.run(Hub(), ["1", "2"], apply=True)
     assert done[0]["applied"] and not done[1]["applied"] and [c for c in calls if c[0] == "PATCH"] == [("PATCH", "/crm/v3/objects/contacts/1")]
+
+
+def test_hubspot_contacts_atlas_does_not_hold_are_set_to_not_eligible_in_id_order_and_only_when_applying():
+    from src import contact_eligibility as ce
+
+    pages = [[{"id": "5"}, {"id": "6"}], [{"id": "9"}], []]
+    calls = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            calls.append((path, kw.get("json")))
+            return {"results": pages.pop(0)} if path.endswith("/search") else {}
+
+    seen, written = ce.fill_unlinked(Hub(), {"6"}, apply=True)
+    updates = [kw["inputs"] for p, kw in calls if p.endswith("/batch/update")]
+    assert (seen, written) == (2, 2) and updates == [[{"id": "5", "properties": {ce.PROP: "none"}}], [{"id": "9", "properties": {ce.PROP: "none"}}]]   # an id Atlas holds is never touched here
+    searches = [kw for p, kw in calls if p.endswith("/search")]
+    assert searches[1]["filterGroups"][0]["filters"][1]["value"] == "6"   # the next page starts after the last id seen
+    pages[:] = [[{"id": "5"}], []]
+    calls.clear()
+    assert ce.fill_unlinked(Hub(), set(), apply=False) == (1, 0) and not any(p.endswith("/batch/update") for p, _ in calls)   # a count-only run writes nothing
