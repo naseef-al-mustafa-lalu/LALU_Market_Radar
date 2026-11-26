@@ -2,7 +2,7 @@
 // Oscar contacts with a name and a decision-maker role but no email wait here. A person approves the credit spend; the Apollo job (GitHub Action "Apollo lookup") looks approved ones up, and an email
 // found becomes a contact that enters the NeverBounce queue. Nothing goes to HubSpot from this page.
 let ctApollo = { rows: [], review: [], counts: {}, status: null, names: {}, countries: {}, tiers: {} }, ctApSel = new Set(), ctApF = { role: "", q: "", country: "", tier: "" }, ctApLimit = 300, ctApView = "queue", ctApCredits = { balance: null, at: null, foundSince: 0, per: 15 };   // balance is typed in by hand (Apollo's own figure) and spend since then is counted from the emails found
-const CT_AP_CAP = 200;   // matches MAX_PER_RUN in src/apollo.py
+const CT_AP_CAP = 1000;   // matches MAX_PER_RUN in src/apollo.py
 async function ctLoadApollo() {
   const cnt = s => db.from("apollo_queue").select("contact_urn", { count: "exact", head: true }).eq("state", s);
   const pages = async (table, cols, filter) => { const out = []; for (let from = 0; ; from += 1000) { let q = db.from(table).select(cols).order(table === "gp_practices" ? "ods_code" : "contact_urn").range(from, from + 999); if (filter) q = filter(q); const { data, error } = await q; if (error) throw error; out.push(...(data || [])); if (!data || data.length < 1000) break; } return out; };   // the queue can hold thousands: read it all so search and the role filter see everyone
@@ -32,7 +32,7 @@ function ctApolloQueueView() {
     cov = (status || {}).coverage, run = (status || {}).run;
   const tile = (k, v, sub = "") => `<div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-xs uppercase tracking-wider text-slate-500">${k}</div><div class="text-2xl font-bold">${v}</div><div class="text-xs text-slate-500">${sub}</div></div>`;
   const credits = ctApSel.size, per = ctApCredits.per, spent = ctApCredits.foundSince * per, now = Math.max(0, (ctApCredits.balance || 0) - spent);
-  return `<div class="space-y-3"><div class="grid grid-cols-2 gap-3 md:grid-cols-4">${tile("Waiting for approval", c.pending.toLocaleString(), "named, decision-maker role, no email")}${tile("Approved", c.approved.toLocaleString(), "looked up on the next Apollo run")}${tile("Emails found", c.found.toLocaleString(), "now in the NeverBounce queue")}${tile("Not found", c.not_found.toLocaleString(), "Apollo had no email")}</div>
+  return `<div class="space-y-3"><div class="grid grid-cols-2 gap-3 md:grid-cols-4">${tile("Waiting for approval", c.pending.toLocaleString(), "named, decision-maker role, no email")}${tile("Approved", c.approved.toLocaleString(), "looked up as soon as you approve")}${tile("Emails found", c.found.toLocaleString(), "now in the NeverBounce queue")}${tile("Not found", c.not_found.toLocaleString(), "Apollo had no email")}</div>
     ${cov ? `<div class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><b>Coverage</b> (contacts with an email, decision-maker roles): <b>${cov.covered.toLocaleString()}</b> of ${cov.practices.toLocaleString()} practices have a Practice Manager and one other contact. <b>${cov.no_practice_manager.toLocaleString()}</b> have no Practice Manager; <b>${cov.fewer_than_two.toLocaleString()}</b> have fewer than two contacts. <span class="text-xs text-slate-500">Updated ${esc(String(status.at).slice(0, 16).replace("T", " "))} UTC</span></div>` : ""}
     <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><b>Credits</b> <span class="text-xs text-slate-500">(a lookup that finds nothing should cost none, and emails already in your Apollo contacts are pulled free; check Apollo's own figure now and then)</span>
       <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1"><label class="text-xs font-semibold text-slate-600">Balance in Apollo <input id="ap-bal" type="number" min="0" value="${ctApCredits.balance ?? ""}" placeholder="e.g. 11500" class="ml-1 w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm font-normal"></label>
@@ -71,7 +71,12 @@ async function ctApolloApprove(approve) {
   const urns = [...ctApSel]; if (!urns.length) return;
   const { error } = await db.rpc("set_apollo_approval", { p_urns: urns, p_approve: approve });
   if (error) { ctMsg = "Could not save: " + (error.message || error); renderContacts(); return; }
-  ctApSel.clear(); ctTabReady.apollo = false; await ctLoadApollo(); ctTabReady.apollo = true; ctMsg = approve ? `${urns.length} approved. They are looked up the next time the Apollo lookup action runs.` : `${urns.length} taken back to waiting.`; renderContacts();
+  ctApSel.clear(); ctTabReady.apollo = false; await ctLoadApollo(); ctTabReady.apollo = true; ctMsg = approve ? `${urns.length} approved.` : `${urns.length} taken back to waiting.`; renderContacts();
+  if (approve) {      // approving means run it: start the Apollo lookup now for everyone approved (the waterfall is on), not on a later hand-started run
+    const { data, error: e2 } = await db.functions.invoke("apollo-trigger", { body: { cap: Math.max(urns.length, ctApollo.counts.approved || 0) } });
+    let why = data && data.error; if (e2 && !why) { try { const j = await e2.context?.json?.(); why = j?.error; } catch (e) {} why = why || e2.message; }
+    ctMsg = why ? `${urns.length} approved, but the lookup could not be started: ${why}. Start the Apollo lookup action by hand.` : `${urns.length} approved. The Apollo lookup has started and emails are found within a few minutes: they then appear in the NeverBounce tab.`; renderContacts();
+  }
 }
 document.addEventListener("click", e => { const t = e.target.closest ? (e.target.closest(".ap-tab, .ap-use, .ap-keep") || e.target) : e.target;
   if (t.classList && t.classList.contains("ap-tab")) { ctApView = t.dataset.apv; ctMsg = ""; renderContacts(); return; }

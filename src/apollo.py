@@ -13,7 +13,7 @@ from . import contact_quality
 from .common import Rest
 
 API = "https://api.apollo.io/api/v1"
-MAX_PER_RUN = 200
+MAX_PER_RUN = 1000
 LOCKED = re.compile(r"not_unlocked|@domain\.com$", re.I)   # Apollo's placeholder when the address is not revealed
 
 
