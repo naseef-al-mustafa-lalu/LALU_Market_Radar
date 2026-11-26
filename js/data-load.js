@@ -70,7 +70,8 @@ async function loadHsOrgs() {
     const [m, c] = await Promise.all([fetchAll("hubspot_network_members", "kind,org_key,ods_code", "ods_code"), fetchAll("hubspot_org_companies", "org_id,company_id,hs_org_type,patient_list_size,patient_list_rollup", "org_id")]);
     hsMembers = new Map(); for (const r of m) { const k = r.kind + "|" + keyOf({ kind: r.kind, source_key: r.org_key }); (hsMembers.get(k) || hsMembers.set(k, new Set()).get(k)).add(r.ods_code); }
     hsOrgCo = new Map(c.map(r => [r.org_id, r]));
-  } catch (e) { hsMembers = new Map(); hsOrgCo = new Map(); }   // the networks still work from the practice columns
+  } catch (e) { hsMembers = new Map(); hsOrgCo = new Map(); }
+  try { hsNetCo = new Map(((await db.from("hubspot_network_company").select("org_id,company_id,company_name")).data || []).map(r => [r.org_id, r])); } catch (e) { hsNetCo = new Map(); }   // the company Atlas remembers for a network: matched once, then never asked again   // the networks still work from the practice columns
 }
 async function loadNetworks(prefetched) {
   await loadHsOrgs();

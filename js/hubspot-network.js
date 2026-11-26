@@ -6,12 +6,18 @@ function hsNetEntity(n, members, covers) {
   const tier = cfgTiers.filter(t => t.route === n.kind).sort((a, b) => b.threshold - a.threshold).find(t => pts >= t.threshold);
   return { practice_name: n.name, ods_code: "", total_patients: pts, price_tier: tier ? tier.tier : n.network_tier, route: n.kind, net: n, covers: (covers || []).slice() };
 }
-async function hsNetDealOpen(n, parts, covers) {
+let hsNetCo = new Map();   // org id -> { company_id, company_name }: the HubSpot company remembered for a network
+async function hsNetSaveCo(n, c, how) {   // remember the company (matched by name, chosen from the list, or created) so the wizard never asks again
+  hsNetCo.set(n.id, { org_id: n.id, company_id: String(c.id), company_name: c.name });
+  try { await db.from("hubspot_network_company").upsert([{ org_id: n.id, company_id: String(c.id), company_name: c.name || null, matched_by: how, linked_by: await audMe(), linked_at: new Date().toISOString() }], { onConflict: "org_id" }); } catch (e) { /* the link still works for this session */ }
+}
+async function hsNetForgetCo(n) { hsNetCo.delete(n.id); hsOrgCo.delete(n.id); try { await db.from("hubspot_network_company").delete().eq("org_id", n.id); } catch (e) {} }
+async function hsNetDealOpen(n, parts, covers, pick) {   // pick: the person asked to change the company, so go to the search
   const key = keyOf(n), members = practices.filter(p => p.status === "Active" && netMatch(p, { kind: n.kind, key }));
   hs = { p: hsNetEntity(n, members, covers), net: n, parts, members }; hs.want = hsDesired(hs.p);
   $("hs-modal").classList.remove("hidden"); hsTitle();
-  let known = hsOrgCo.get(n.id);   // the daily sync already matched this network to its HubSpot company
-  if (!known) { try { const { data } = await db.from("hubspot_network_deals").select("company_id").eq("org_id", n.id).not("company_id", "is", null).order("created_at", { ascending: false }).limit(1); if (data && data[0]) known = { company_id: data[0].company_id }; } catch (e) {} }   // or a deal made here before names the company
+  let known = pick ? null : (hsNetCo.get(n.id) ? { company_id: hsNetCo.get(n.id).company_id } : hsOrgCo.get(n.id));   // remembered by Atlas, else matched by the daily sync
+  if (!known && !pick) { try { const { data } = await db.from("hubspot_network_deals").select("company_id").eq("org_id", n.id).not("company_id", "is", null).order("created_at", { ascending: false }).limit(1); if (data && data[0]) known = { company_id: data[0].company_id }; } catch (e) {} }   // or a deal made here before names the company
   if (known) return hsNetDealForm({ id: known.company_id, name: n.name });
   // The profile already knows this network, so ask nothing when HubSpot has one clear match: use it, and say so (with a way to pick another).
   const norm = x => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), tail = n.name.split(/\s+-\s+/).pop(), searchUi = () => {
@@ -24,7 +30,7 @@ async function hsNetDealOpen(n, parts, covers) {
         box.innerHTML = (companies.length ? companies.map(c => `<button type="button" data-co="${esc(c.id)}" data-name="${esc(c.name)}" class="mb-2 w-full rounded-lg border border-slate-200 p-3 text-left hover:border-lalu-teal hover:bg-lalu-teal-50"><div class="flex justify-between gap-3"><b>${esc(c.name)}</b><span class="text-xs text-slate-500">${c.patient_list_size ? Number(c.patient_list_size).toLocaleString() + " patients" : ""}</span></div></button>`).join("")
           : '<p class="text-slate-500 italic">No companies found. Try a shorter name.</p>')
           + `<div class="mt-1 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500"><span>${companies.length ? "Not the right one?" : "Nothing matches."}</span><button id="hs-newco" class="font-semibold text-lalu-teal-700 hover:underline">Create ${esc(n.name)} in HubSpot</button></div><div id="hs-newmsg" class="mt-2 text-xs" role="status"></div>`;
-        box.querySelectorAll("[data-co]").forEach(b => b.onclick = () => hsNetDealForm({ id: b.dataset.co, name: b.dataset.name }));
+        box.querySelectorAll("[data-co]").forEach(b => b.onclick = async () => { await hsNetSaveCo(n, { id: b.dataset.co, name: b.dataset.name }, "chosen"); hsNetDealForm({ id: b.dataset.co, name: b.dataset.name }); });
         $("hs-newco").onclick = async e => {
           e.target.disabled = true; e.target.textContent = "Creating…";
           try {
@@ -33,7 +39,7 @@ async function hsNetDealOpen(n, parts, covers) {
             if (memberCompanyIds.length && (n.kind === "federation" || n.kind === "group")) {   // its practices join it with the account's association labels (Federation / Member Practice, Operating Provider / Operated Practice)
               try { await hsCall({ action: "link_network_members", companyId: r.companyId, kind: n.kind, memberCompanyIds }); } catch (le) { $("hs-newmsg").innerHTML = `<span class="text-amber-700">Company created, but its practices were not linked: ${esc(le.message)}</span>`; }
             }
-            hsNetDealForm({ id: r.companyId, name: n.name });
+            await hsNetSaveCo(n, { id: r.companyId, name: n.name }, "created"); hsNetDealForm({ id: r.companyId, name: n.name });
           }
           catch (err) { $("hs-newmsg").innerHTML = `<span class="text-rose-700">${esc(err.message)}</span>`; e.target.disabled = false; e.target.textContent = "Create " + n.name + " in HubSpot"; }
         };
@@ -42,17 +48,18 @@ async function hsNetDealOpen(n, parts, covers) {
     $("hs-search").onclick = run; $("hs-q").onkeydown = e => { if (e.key === "Enter") run(); }; run();
   };
   hsNetSearchUi = searchUi;
+  if (pick) return searchUi();
   hsRender('<p class="text-slate-500">Finding the HubSpot company…</p>');
   const auto = await hsNetFind(n, n.name).catch(() => ({ companies: [] })), same = auto.companies.filter(c => [n.name, tail].some(t => norm(c.name) === norm(t)));
   if (auto.companies.length === 1 || same.length === 1) {
-    const c = same[0] || auto.companies[0]; hsOrgCo.set(n.id, { company_id: c.id });
+    const c = same[0] || auto.companies[0]; await hsNetSaveCo(n, c, "auto");
     hs.netNote = `Using the HubSpot company <b>${esc(c.name)}</b>, matched by name. <button type="button" id="hs-changeco" class="font-semibold underline">Not this company?</button>`;   // a standing note, so a background refresh of the page does not drop it
     return hsNetDealForm({ id: c.id, name: n.name });
   }
   searchUi();
 }
 let hsNetSearchUi = null;   // the company search for the network being worked on, so "Not this company?" can reopen it
-document.addEventListener("click", e => { if (e.target.closest("#hs-changeco") && hsNetSearchUi && hs && hs.net) { hsOrgCo.delete(hs.net.id); hs.hub = null; hs.netNote = null; hsNetSearchUi(); } });
+document.addEventListener("click", e => { if (e.target.closest("#hs-changeco") && hsNetSearchUi && hs && hs.net) { hsNetForgetCo(hs.net); hs.hub = null; hs.netNote = null; hsNetSearchUi(); } });
 // Find a network's HubSpot company: Atlas's name is often longer than HubSpot's ("Fcp Service - Barnsley PCN" against "Barnsley PCN"), so try the name as typed, then the part after " - ",
 // then that without a trailing "PCN"; a PCN's own ODS code is tried as well. The first try that finds anything wins.
 async function hsNetFind(n, typed) {
@@ -83,11 +90,12 @@ function hsNetBar(n, parts, st) {
   const box = $("dr-hs"); if (!box || !$("dr-hsnet") || $("dr-title").textContent !== n.name) return;
   hsNetCur = { n, parts };
   const KIND = { pcn: "PCN", icb: "ICB", group: "Provider group", federation: "Federation" }[n.kind] || "Network", act = label => `<button type="button" id="hs-netdeal" class="shrink-0 rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">${label}</button>`;
+  const coLink = st.company ? hsLink("0-2", st.company.company_id, esc(st.company.company_name || "HubSpot company")) : "", chg = st.company ? '<button type="button" id="hs-netco-change" class="shrink-0 text-xs font-semibold text-slate-500 underline hover:text-slate-800">Change company</button>' : "";   // the company Atlas remembers for this network, shown on the strip
   let dot, text, right;
-  if (st.deals.length) { const d = st.deals[0]; dot = "bg-emerald-500"; text = `${esc(d.deal_name || "Deal")}${st.deals.length > 1 ? ` and ${st.deals.length - 1} more` : ""}: linked`;
-    right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", d.deal_id, "Open deal")}${act("Manage in HubSpot")}</div>`; }   // the same labels as a practice: open the deal, or manage the network in HubSpot (the wizard)
-  else if (st.own ? st.record : (st.found || st.company)) { dot = "bg-amber-400"; text = st.own ? `${KIND} record in HubSpot, no deal linked yet` : `Company in HubSpot, no deal linked yet`; right = act("Set up in HubSpot"); }
+  if (st.deals.length) { const d = st.deals[0]; dot = "bg-emerald-500"; text = `${esc(d.deal_name || "Deal")}${st.deals.length > 1 ? ` and ${st.deals.length - 1} more` : ""}: linked${coLink ? ` · Company: ${coLink}` : ""}`;
+    right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", d.deal_id, "Open deal")}${chg}${act("Manage in HubSpot")}</div>`; }   // the same labels as a practice: open the deal, or manage the network in HubSpot (the wizard)
+  else if (st.company || (st.own ? st.record : st.found)) { dot = "bg-amber-400"; text = st.company ? `Company: ${coLink}, no deal linked yet` : st.own ? `${KIND} record in HubSpot, no deal linked yet` : `Company in HubSpot, no deal linked yet`; right = `<div class="flex shrink-0 items-center gap-3">${chg}${act("Set up in HubSpot")}</div>`; }
   else { dot = "bg-amber-400"; text = `Not in HubSpot yet`; right = act("Add to HubSpot"); }
   box.innerHTML = hsBarShell(dot, text, right); box.classList.remove("hidden");
 }
-document.addEventListener("click", e => { if (e.target.closest("#dr-hs #hs-netdeal") && hsNetCur) hsNetDealOpen(hsNetCur.n, hsNetCur.parts); });
+document.addEventListener("click", e => { if (e.target.closest("#dr-hs #hs-netdeal") && hsNetCur) hsNetDealOpen(hsNetCur.n, hsNetCur.parts); else if (e.target.closest("#dr-hs #hs-netco-change") && hsNetCur) hsNetDealOpen(hsNetCur.n, hsNetCur.parts, undefined, true); });
