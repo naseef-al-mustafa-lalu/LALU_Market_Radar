@@ -20,6 +20,14 @@ def value_for(status, section):
     return "none"
 
 
+def merge_values(old, new):
+    """Two Atlas rows can point at one HubSpot contact (a duplicate). The contact is only as eligible as its least eligible row: "Not eligible" wins, then Other, then Main, so the result never depends on row order."""
+    if old is None:
+        return new
+    rank = {"none": 0, "other": 1, "main": 2}
+    return old if rank[old] <= rank[new] else new
+
+
 def desired(rest):
     """{hubspot contact id: value} for every Atlas contact linked to HubSpot."""
     contacts = rest.select_all("contacts", "contact_urn,hubspot_contact_id", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})
@@ -30,7 +38,7 @@ def desired(rest):
         if not hid:
             continue
         s = status.get(c["contact_urn"]) or {}
-        out[hid] = value_for(s.get("status"), s.get("section"))
+        out[hid] = merge_values(out.get(hid), value_for(s.get("status"), s.get("section")))
     return out
 
 

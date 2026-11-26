@@ -2312,3 +2312,15 @@ def test_hubspot_contacts_atlas_does_not_hold_are_set_to_not_eligible_in_id_orde
     pages[:] = [[{"id": "5"}], []]
     calls.clear()
     assert ce.fill_unlinked(Hub(), set(), apply=False) == (1, 0) and not any(p.endswith("/batch/update") for p, _ in calls)   # a count-only run writes nothing
+
+
+def test_a_hubspot_contact_shared_by_two_atlas_rows_is_only_as_eligible_as_its_least_eligible_row():
+    from src import contact_eligibility as ce
+
+    class Rest:
+        def select_all(self, table, cols, order=None, params=None):
+            if table == "contacts":
+                return [{"contact_urn": 1, "hubspot_contact_id": "9"}, {"contact_urn": 2, "hubspot_contact_id": "9"}, {"contact_urn": 3, "hubspot_contact_id": "8"}, {"contact_urn": 4, "hubspot_contact_id": "8"}]
+            return [{"contact_urn": 1, "status": "eligible", "section": "main"}, {"contact_urn": 2, "status": "suppressed", "section": "main"}, {"contact_urn": 3, "status": "eligible", "section": "other"}, {"contact_urn": 4, "status": "eligible", "section": "main"}]
+
+    assert ce.desired(Rest()) == {"9": "none", "8": "other"}   # the same answer whichever row comes first
