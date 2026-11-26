@@ -57,9 +57,9 @@ function hsNetBar(n, parts, st) {
   const KIND = { pcn: "PCN", icb: "ICB", group: "Provider group", federation: "Federation" }[n.kind] || "Network", act = label => `<button type="button" id="hs-netdeal" class="shrink-0 rounded-md bg-lalu-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-lalu-navy-700">${label}</button>`;
   let dot, text, right;
   if (st.deals.length) { const d = st.deals[0]; dot = "bg-emerald-500"; text = `${esc(d.deal_name || "Deal")}${st.deals.length > 1 ? ` and ${st.deals.length - 1} more` : ""}: linked`;
-    right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", d.deal_id, "Open deal")}${act("New deal")}</div>`; }
-  else if (st.own ? st.record : (st.found || st.company)) { dot = "bg-amber-400"; text = st.own ? `${KIND} record in HubSpot, no deal linked yet` : `Company in HubSpot, no deal linked yet`; right = act("Create deal"); }
-  else { dot = "bg-amber-400"; text = `Not in HubSpot yet`; right = act("Create deal"); }
+    right = `<div class="flex shrink-0 items-center gap-3 text-xs">${hsLink("0-3", d.deal_id, "Open deal")}${act("Manage in HubSpot")}</div>`; }   // the same labels as a practice: open the deal, or manage the network in HubSpot (the wizard)
+  else if (st.own ? st.record : (st.found || st.company)) { dot = "bg-amber-400"; text = st.own ? `${KIND} record in HubSpot, no deal linked yet` : `Company in HubSpot, no deal linked yet`; right = act("Set up in HubSpot"); }
+  else { dot = "bg-amber-400"; text = `Not in HubSpot yet`; right = act("Add to HubSpot"); }
   box.innerHTML = hsBarShell(dot, text, right); box.classList.remove("hidden");
 }
 document.addEventListener("click", e => { if (e.target.closest("#dr-hs #hs-netdeal") && hsNetCur) hsNetDealOpen(hsNetCur.n, hsNetCur.parts); });
