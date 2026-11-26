@@ -10,7 +10,7 @@ const hsTimed = (action, ms, ok) => {
   hsTimings.push({ a: action, ms: Math.round(ms), ok, t: Date.now() }); if (hsTimings.length > 300) hsTimings.splice(0, hsTimings.length - 300);
   try { localStorage.setItem(HS_TIMING_KEY, JSON.stringify(hsTimings)); } catch (e) {}
 };
-const HS_EXTRA = new Set(["lead_pipelines", "create_lead", "add_network_contacts", "discretionary_read", "discretionary_write"]);   // served by the hubspot-extras function; everything else by hubspot-push
+const HS_EXTRA = new Set(["lead_pipelines", "create_lead", "search_contacts", "add_network_contacts", "discretionary_read", "discretionary_write"]);   // served by the hubspot-extras function; everything else by hubspot-push
 const hsCall = async body => {
   const t0 = performance.now(); let ok = false;
   try {
@@ -56,7 +56,7 @@ function hsDesired(p, ov) {   // ov: { referral, member } prices another practic
   const route = p.route || "practice", row = cfgTiers.find(t => t.route === route && t.tier === p.price_tier), monthly = billing === "monthly";   // a group, federation, PCN or ICB deal prices the same way on its own route
   const disc = discountsOn && !monthly;   // list price (no discount) until the salesperson switches size and term discounts on; the speed discount is its own switch
   const size = disc ? Number(row.size_discount) : 0, term = monthly ? 0 : termDiscount(termYrs), speed = speedOn && !monthly ? Number(row.speed_discount) : 0;
-  const discretionaryOn = monthly ? 0 : discretionary, referral = ov ? ov.referral : route === "practice" && HS_REFERRAL_WRITES && !monthly ? referralExtraFor(p) : 0;   // discretionary: the salesperson's extra discount from the price card   // the conditional referral-group discount
+  const referral = ov ? ov.referral : route === "practice" && HS_REFERRAL_WRITES && !monthly ? referralExtraFor(p) : 0, discretionaryOn = monthly ? 0 : Math.min(discretionary, discMax(size, referral, term, speed));   // discretionary: the salesperson's extra discount from the price card, never past the price floor   // the conditional referral-group discount
   return { size, term, speed, referral, discretionary: discretionaryOn, group: !ov && referral > 0 ? referralPayload(p) : null, member: ov ? ov.member : route === "practice" ? refMembership(p) : null, termYears: monthly ? 1 : termYrs, tier: "Tier " + p.price_tier, model: product === "sar" ? "eMR+ SAR Only" : "Subscription", modelLabel: product === "sar" ? "ReportSure - MS - SAR Only" : "ReportSure - MS - All Reports", vpp: "£" + baseRate().toFixed(2), rate: dealRate(size + referral + discretionaryOn, term, speed), list: baseRate(),
     total: size + referral + discretionaryOn + term + speed, line: hsLineWanted(p, monthly, termYrs, dealRate(size + referral + discretionaryOn, term, speed), baseRate()), label: `${product === "sar" ? "SAR only" : "All reports"} · ${monthly ? "monthly plan" : `annual, ${termYrs}-year term`}${speed ? " · speed discount" : ""}` };
 }

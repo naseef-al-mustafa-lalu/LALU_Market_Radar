@@ -1,6 +1,7 @@
 // Dashboard -> HubSpot, the actions added after hubspot-push grew large (kept apart so that function is not touched):
 //   lead_pipelines        the account's lead pipelines and their stages, for the lead form's required Pipeline choice
 //   create_lead           a lead in the pipeline and stage the person chose (never assumed), with the same duplicate warning, company link, note and log as before
+//   search_contacts       HubSpot contacts by name, email or company, so a person already there is linked to a network's company instead of being created again
 //   add_network_contacts  find-or-create contacts by email and link them to a network's company (the practice flow's add_contacts needs a practice ODS code, which a network has not got)
 //   discretionary_read    a deal's Discretionary Discount % (the push preview needs it to show what changes)
 //   discretionary_write   set a deal's Discretionary Discount % (a fraction 0..1) after the pricing push, with a note on the deal
@@ -105,6 +106,13 @@ Deno.serve(async (req) => {
       await log({ actor: who, kind: "create_lead", ods_code: net ? null : ods, target: name, hubspot_type: "lead", hubspot_id: String(l.id),
         summary: `Created lead ${name} on ${co.properties?.name ?? companyId} in ${lpipe.label} (${lstage.label})${open.length ? " (contact already had an open lead)" : ""}`, detail: { companyId, contactId, properties: props, companyLinked, existing: open } });
       return reply({ ok: true, leadId: String(l.id), companyLinked, warnings: leadWarn });
+    }
+
+    if (b.action === "search_contacts") {
+      const q = String(b.query ?? "").trim().slice(0, 80);
+      if (q.length < 2) return reply({ contacts: [] });
+      const r = await hs(`/crm/v3/objects/contacts/search`, { method: "POST", body: JSON.stringify({ query: q, limit: 12, properties: ["firstname", "lastname", "jobtitle", "email", "company"] }) });
+      return reply({ contacts: (r?.results ?? []).map((c: any) => ({ id: String(c.id), name: `${c.properties?.firstname ?? ""} ${c.properties?.lastname ?? ""}`.trim(), jobtitle: c.properties?.jobtitle ?? "", email: String(c.properties?.email ?? "").toLowerCase(), company: c.properties?.company ?? "" })).filter((c: any) => c.email) });
     }
 
     if (b.action === "add_network_contacts") {       // find-or-create each contact by email and link it to the network's company; Atlas's own rows for that address are marked as in HubSpot
