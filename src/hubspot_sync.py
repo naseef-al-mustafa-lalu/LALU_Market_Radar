@@ -920,7 +920,7 @@ def contact_state(props, urn, now, dq=None, lost=None):
         bounces = float(props.get("hs_email_bounce") or 0)
     except ValueError:
         bounces = 0
-    return {"contact_urn": urn, "hs_lifecycle": props.get("lifecyclestage") or None, "hs_in_sequence": flag("hs_sequences_is_enrolled"), "hs_bounced": bounces >= 1,
+    return {"contact_urn": urn, "hs_lifecycle": props.get("lifecyclestage") or None, "hs_in_sequence": flag("hs_sequences_is_enrolled"), "hs_bounced": bounces >= 1, "hs_bounce_count": int(bounces), "hs_lead_unqualified": bool((dq or {}).get("unq")),
             "hs_bounce_reason": props.get("hs_email_hard_bounce_reason_enum") or None, "hs_last_sent": props.get("hs_email_last_send_date") or None,
             "hs_mkt_optout": flag("hs_email_optout_621322507"), "hs_optout_all": flag("hs_email_optout"), "hs_owner": props.get("hubspot_owner_id") or None,
             "hs_neverbounce": props.get("neverbounce_status") or None, "hs_state_at": now,
@@ -930,7 +930,8 @@ def contact_state(props, urn, now, dq=None, lost=None):
             "hs_lost_reason": (lost or {}).get("reason"), "hs_lost_at": (lost or {}).get("at"), "hs_lost_deal": (lost or {}).get("deal"), "hs_lost_kind": (lost or {}).get("kind")}
 
 
-LEAD_DQ_PROPS = ["hs_lead_disqualification_reason", "hs_lead_disqualification_note", "disqualified_lead_reengagement_date", "hs_lastmodifieddate"]
+LEAD_DQ_PROPS = ["hs_lead_disqualification_reason", "hs_lead_disqualification_note", "disqualified_lead_reengagement_date", "hs_lastmodifieddate", "hs_pipeline_stage"]
+UNQUALIFIED_LEAD_STAGES = {"2248591603", "unqualified-stage-id"}   # the lead stages HubSpot list 3428 (Campaign Exclusion) treats as disqualified
 
 
 def disqualified_leads(hub, contact_ids):
@@ -944,10 +945,13 @@ def disqualified_leads(hub, contact_ids):
     out = {}
     for cid, lids in links.items():
         best = sorted(((leads[i].get("hs_lastmodifieddate") or "", leads[i]) for i in lids if i in leads and leads[i].get("hs_lead_disqualification_reason")), key=lambda x: x[0], reverse=True)
+        unq = any(leads[i].get("hs_pipeline_stage") in UNQUALIFIED_LEAD_STAGES for i in lids if i in leads)
         if best:
             at, lead = best[0]
             out[cid] = {"reason": lead.get("hs_lead_disqualification_reason"), "note": (lead.get("hs_lead_disqualification_note") or "")[:300] or None, "at": at or None,
-                        "reengage": _date(lead.get("disqualified_lead_reengagement_date"))}
+                        "reengage": _date(lead.get("disqualified_lead_reengagement_date")), "unq": unq}
+        elif unq:
+            out[cid] = {"unq": True}
     return out
 
 

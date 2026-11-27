@@ -1290,7 +1290,15 @@ def test_disqualified_leads_give_each_contact_its_latest_reason():
                                     {"id": "12", "properties": {"hs_lastmodifieddate": "2026-11-02T00:00:00Z"}}]}
             raise AssertionError(path)
     dq = hsy.disqualified_leads(Hub(), ["1", "2"])
-    assert dq == {"1": {"reason": "No budget", "note": "Next year", "at": "2026-11-01T00:00:00Z", "reengage": None}}      # the newest disqualified lead wins; a contact whose lead has no reason is left out
+    assert dq == {"1": {"reason": "No budget", "note": "Next year", "at": "2026-11-01T00:00:00Z", "reengage": None, "unq": False}}      # the newest disqualified lead wins; a contact whose lead has no reason is left out
+    class Hub2(Hub):
+        def call(self, method, path, **kw):
+            if path.endswith("/leads/batch/read") and not path.endswith("/contacts/leads/batch/read"):
+                return {"results": [{"id": "10", "properties": {"hs_lastmodifieddate": "2026-10-01T00:00:00Z", "hs_pipeline_stage": "unqualified-stage-id"}}, {"id": "12", "properties": {"hs_pipeline_stage": "2248591603"}}]}
+            return super().call(method, path, **kw)
+    unq = hsy.disqualified_leads(Hub2(), ["1", "2"])
+    assert unq == {"1": {"unq": True}, "2": {"unq": True}}      # an Unqualified lead stage holds a contact back, as in HubSpot list 3428, even with no disqualification reason
+    assert hsy.contact_state({"hs_email_bounce": "3"}, 7, "now", unq["1"])["hs_bounce_count"] == 3 and hsy.contact_state({}, 8, "now", unq["1"])["hs_lead_unqualified"] is True
     st = hsy.contact_state({"lifecyclestage": "lead"}, 5, "now", dq["1"])
     assert st["hs_dq_reason"] == "No budget" and st["hs_dq_note"] == "Next year" and hsy.contact_state({}, 6, "now")["hs_dq_reason"] is None
 
