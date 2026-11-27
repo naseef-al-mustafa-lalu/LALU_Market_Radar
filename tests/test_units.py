@@ -2425,5 +2425,6 @@ def test_marketing_optin_sweep_includes_contacts_created_from_the_profiles_and_i
     class Rest:
         def select_all(self, table, columns="*", order="id", params=None, page=1000):
             assert table == "hubspot_activity" and params == {"kind": "eq.add_contacts"}
-            return [{"kind": "add_contacts", "detail": {"contacts": [{"id": "5", "email": "New@x.nhs.net", "existed": False}, {"id": "6", "email": "old@x.nhs.net", "existed": True}]}}, {"kind": "add_contacts", "detail": None}]
-    assert mo.activity_created(Rest()) == {"5": "new@x.nhs.net"}
+            return [{"kind": "add_contacts", "detail": {"contacts": [{"id": "5", "email": "New@x.nhs.net", "existed": False}, {"id": "6", "email": "old@x.nhs.net", "existed": True}]}}, {"kind": "add_contacts", "detail": None},
+                    {"kind": "add_contacts", "detail": {"done": [{"id": "8", "email": "profile@x.nhs.net", "existed": False}], "warnings": []}}]
+    assert mo.activity_created(Rest()) == {"5": "new@x.nhs.net", "8": "profile@x.nhs.net"}

@@ -51,7 +51,8 @@ def activity_created(rest):
     out = {}
     try:
         for r in rest.select_all("hubspot_activity", "kind,detail", order="id", params={"kind": "eq.add_contacts"}):
-            for c in ((r.get("detail") or {}).get("contacts") or []):
+            d = r.get("detail") or {}
+            for c in (d.get("contacts") or d.get("done") or []):   # the network wizard logs "contacts", the practice profile logs "done"
                 if c.get("id") and c.get("email") and c.get("existed") is False:
                     out[str(c["id"])] = str(c["email"]).strip().lower()
     except Exception:  # noqa: BLE001  the sweep still covers the Oscar and Apollo contacts
