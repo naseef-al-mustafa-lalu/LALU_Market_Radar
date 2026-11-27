@@ -10,6 +10,10 @@ on:
         description: 'Which contacts: apollo, or oscar,apollo (Oscar is on hold)'
         required: true
         default: 'apollo'
+      scope:
+        description: 'created = Oscar contacts only if Atlas created them in HubSpot; all = every Oscar contact'
+        required: true
+        default: 'created'
 
 jobs:
   optin:
@@ -28,4 +32,5 @@ jobs:
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
           APPLY: ${{ inputs.apply }}
           OPTIN_SOURCES: ${{ inputs.sources }}
+          OPTIN_SCOPE: ${{ inputs.scope }}
         run: python -m src.marketing_optin
