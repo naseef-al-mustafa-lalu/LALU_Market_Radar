@@ -7,6 +7,7 @@ from collections import Counter
 
 from .common import Rest
 from .diagnose_segment import members
+from .contact_eligibility import REASON_OPTIONS, desired, desired_status
 from .hubspot_sync import Hub, read_objects
 
 EXCLUSION_LISTS = {"campaign_exclusion_3428": "3428", "data_hygiene_4570": "4570", "owner_exclusion_3796": "3796"}
@@ -43,6 +44,27 @@ def atlas_why(rows):
     return sorted(out)
 
 
+LABELS = dict(REASON_OPTIONS)
+
+
+def reconcile(ids, in_other, want, why):
+    """Every segment member in exactly one bucket, from Atlas's own database (so a lagging HubSpot property cannot blur it): Eligible (Main or Other), a usable Shared inbox, Suppressed by a reason, Held back by a reason, or not held in Atlas.
+    Eligible members are split by whether the comparison segment (5017) holds them."""
+    out = Counter()
+    for i in ids:
+        v = want.get(i)
+        if v is None:
+            out["Not held in Atlas"] += 1
+        elif v in ("main", "other"):
+            out[f"Eligible ({v.title()}), " + ("in 5017" if i in in_other else "NOT in 5017")] += 1
+        elif v == "shared":
+            out["Shared inbox, usable"] += 1
+        else:
+            st, r = why.get(i, ("held", ""))
+            out[("Suppressed: " if st == "suppressed" else "Held back: ") + LABELS.get(r, r or "unknown")] += 1
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
 def run(hub, rest, list_id):
     ids = members(hub, list_id)
     props = read_objects(hub, "contacts", ids, PROPS)
@@ -73,7 +95,9 @@ def run(hub, rest, list_id):
         why = atlas_why([r for r in rows if r["status"] != "eligible"]) or ["(no reason: every row eligible)"]
         for w in why:
             (both if flags else atlas_only)[w] += 1
-    return {"segment_members": len(ids), "atlas_eligibility": dict(elig), "ATLAS_ELIGIBLE_BUT_HUBSPOT_WOULD_SUPPRESS": dict(slipping), "slipping_sample_ids": {k: v[:5] for k, v in slip_ids.items()},
+    want, why = desired(rest), desired_status(rest)
+    recon = reconcile(ids, set(members(hub, "5017")), want, why)
+    return {"segment_members": len(ids), "RECONCILIATION": recon, "reconciliation_total": sum(recon.values()), "atlas_eligibility": dict(elig), "ATLAS_ELIGIBLE_BUT_HUBSPOT_WOULD_SUPPRESS": dict(slipping), "slipping_sample_ids": {k: v[:5] for k, v in slip_ids.items()},
             "eligible_property_vs_rows": dict(mismatch), "not_eligible_not_held_in_atlas": not_in_atlas, "not_eligible_reasons_where_hubspot_also_suppresses": dict(both),
             "not_eligible_reasons_atlas_only": dict(atlas_only)}
 
