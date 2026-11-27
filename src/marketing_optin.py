@@ -81,7 +81,7 @@ def rewrite_old(hub, targets, apply=False):
             subscribe(hub, email, src)
             return "rewritten"
         except RuntimeError as e:
-            return "failed: " + str(e)[:100]
+            return "failed: " + str(e).replace(email, "<email>")[:220]
     out = Counter()
     with ThreadPoolExecutor(8) as ex:
         for r in ex.map(one, sorted(targets.items())):
