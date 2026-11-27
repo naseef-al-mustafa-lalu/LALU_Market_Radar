@@ -1,4 +1,4 @@
-"""Opt contacts that Atlas added to HubSpot (from Oscar, or enriched by Apollo) into the Marketing Information subscription, as the team decided.
+"""Opt contacts that Atlas added to HubSpot (enriched by Apollo; Oscar ones only when asked for) into the Marketing Information subscription, as the team decided.
 Left alone: anyone with an opt-out (unsubscribed from all email, or opted out of Marketing Information), and anyone already subscribed. HubSpot-origin contacts are not touched.
 The write is HubSpot's subscribe call with a legal basis and an explanation, so each contact carries the reason. Dry run unless APPLY=1; prints counts only (no names or addresses)."""
 import json
@@ -10,7 +10,7 @@ from .common import Rest
 from .hubspot_sync import Hub, read_objects
 from .subscription_status import MARKETING_INFORMATION, statuses
 
-SOURCES = ("oscar", "apollo")
+SOURCES = ("apollo",)   # Oscar is on hold until the team says go: pass OPTIN_SOURCES=oscar,apollo to include it
 LEGAL_BASIS = "LEGITIMATE_INTEREST_OTHER"
 EXPLANATION = "B2B contact at an NHS practice (from Oscar or enriched by Apollo): opted in to Marketing Information by team decision, Nov 2026. Unsubscribes are honoured."
 
@@ -45,11 +45,11 @@ def subscribe(hub, email):
     hub.call("POST", "/communication-preferences/v3/subscribe", json={"emailAddress": email, "subscriptionId": MARKETING_INFORMATION, "legalBasis": LEGAL_BASIS, "legalBasisExplanation": EXPLANATION})
 
 
-def run(rest, hub, apply=False):
+def run(rest, hub, apply=False, sources=SOURCES):
     rows = rest.select_all("contacts", "contact_urn,email,hubspot_contact_id,source", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})
     people = {}
     for r in rows:
-        if (r.get("source") or "oscar") in SOURCES and (r.get("email") or "").strip():
+        if (r.get("source") or "oscar") in sources and (r.get("email") or "").strip():
             people[str(r["hubspot_contact_id"])] = r["email"].strip().lower()
     props = read_objects(hub, "contacts", list(people), ["email", "hs_email_optout", "hs_email_optout_" + MARKETING_INFORMATION])
     current, errs = statuses(hub, {e for h, e in people.items() if not opted_out(props.get(h, {}))})
@@ -82,7 +82,7 @@ def main():
         if not env.get(k):
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
-    print("RESULT " + json.dumps(run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), Hub(env["HUBSPOT_TOKEN"]), apply=env.get("APPLY", "0") == "1"), default=str))
+    print("RESULT " + json.dumps(run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), Hub(env["HUBSPOT_TOKEN"]), apply=env.get("APPLY", "0") == "1", sources=tuple(x.strip() for x in env.get("OPTIN_SOURCES", "apollo").split(",") if x.strip())), default=str))
 
 
 if __name__ == "__main__":
