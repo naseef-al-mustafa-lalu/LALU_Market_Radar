@@ -123,7 +123,12 @@ Deno.serve(async (req) => {
         try {
           const found = (await hs(`/crm/v3/objects/contacts/search`, { method: "POST", body: JSON.stringify({ properties: ["email"], limit: 1, filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email }] }] }) }))?.results ?? [];
           const [first, ...rest] = String(c.name ?? "").trim().split(/\s+/);
-          const cid = found[0]?.id ?? String((await hs(`/crm/v3/objects/contacts`, { method: "POST", body: JSON.stringify({ properties: { email, firstname: first || undefined, lastname: rest.join(" ") || undefined, phone: c.phone || undefined, jobtitle: c.jobtitle || undefined } }) })).id);
+          let cid: string = found[0]?.id, made = false;
+          if (!cid) { cid = String((await hs(`/crm/v3/objects/contacts`, { method: "POST", body: JSON.stringify({ properties: { email, firstname: first || undefined, lastname: rest.join(" ") || undefined, phone: c.phone || undefined, jobtitle: c.jobtitle || undefined } }) })).id); made = true; }
+          if (made) {   // a contact Atlas creates is opted in to Marketing Information at once (team decision); a failure never undoes the creation
+            try { await hs(`/communication-preferences/v3/subscribe`, { method: "POST", body: JSON.stringify({ emailAddress: email, subscriptionId: "621322507", legalBasis: "LEGITIMATE_INTEREST_OTHER", legalBasisExplanation: "B2B contact at an NHS practice or network, added from Atlas: opted in to Marketing Information by team decision, Nov 2026. Unsubscribes are honoured." }) }); }
+            catch (e) { warnings.push(`Contact ${email}: created, but the Marketing Information opt-in was not written (${(e as Error).message})`); }
+          }
           await hs(`/crm/v4/objects/contacts/${cid}/associations/default/companies/${companyId}`, { method: "PUT" });
           out.push({ email, id: cid, existed: !!found[0], name: String(c.name ?? "").trim() });
         } catch (e) { warnings.push(`Contact ${email}: ${(e as Error).message}`); }

@@ -46,6 +46,19 @@ def subscribe(hub, email):
     hub.call("POST", "/communication-preferences/v3/subscribe", json={"emailAddress": email, "subscriptionId": MARKETING_INFORMATION, "legalBasis": LEGAL_BASIS, "legalBasisExplanation": EXPLANATION})
 
 
+def activity_created(rest):
+    """{hubspot id: email} for contacts people created from a practice or network profile in Atlas (the activity log records each as not existing before), whatever their source."""
+    out = {}
+    try:
+        for r in rest.select_all("hubspot_activity", "kind,detail", order="id", params={"kind": "eq.add_contacts"}):
+            for c in ((r.get("detail") or {}).get("contacts") or []):
+                if c.get("id") and c.get("email") and c.get("existed") is False:
+                    out[str(c["id"])] = str(c["email"]).strip().lower()
+    except Exception:  # noqa: BLE001  the sweep still covers the Oscar and Apollo contacts
+        pass
+    return out
+
+
 def remainder_report(hub, others):
     """What HubSpot holds for the Oscar contacts that were not created by Atlas (left untouched): opted out, subscribed, not subscribed, or no status at all (MISSING)."""
     props = read_objects(hub, "contacts", list(others), ["hs_email_optout", "hs_email_optout_" + MARKETING_INFORMATION])
@@ -62,7 +75,7 @@ def run(rest, hub, apply=False, sources=SOURCES, created_only=True, report=True)
     """Oscar contacts are only the ones Atlas created in HubSpot (checked and pushed through NeverBounce, so no HubSpot record existed before); Apollo contacts are all of them."""
     rows = rest.select_all("contacts", "contact_urn,email,hubspot_contact_id,source", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})
     created = {r["contact_urn"] for r in rest.select_all("contact_nb", "contact_urn,nb_state", order="contact_urn", params={"nb_state": "eq.checked"})}
-    people, others = {}, {}
+    people, others = activity_created(rest) if created_only else {}, {}
     for r in rows:
         src = r.get("source") or "oscar"
         if src not in sources or not (r.get("email") or "").strip():

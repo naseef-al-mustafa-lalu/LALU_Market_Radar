@@ -2417,3 +2417,13 @@ def test_a_contact_atlas_creates_in_hubspot_is_opted_in_at_once_whatever_the_sou
         assert created and cid == "77" and len(sub) == 1 and sub[0][2]["subscriptionId"] == "621322507" and sub[0][2]["emailAddress"] == "new.person@practice.nhs.net", (src, sub)      # created: opted in
     cid, created, sub = run_with(True, "oscar")
     assert not created and cid == "9" and not sub      # an existing HubSpot contact keeps whatever status it has
+
+
+def test_marketing_optin_sweep_includes_contacts_created_from_the_profiles_and_ignores_ones_that_already_existed():
+    from src import marketing_optin as mo
+
+    class Rest:
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            assert table == "hubspot_activity" and params == {"kind": "eq.add_contacts"}
+            return [{"kind": "add_contacts", "detail": {"contacts": [{"id": "5", "email": "New@x.nhs.net", "existed": False}, {"id": "6", "email": "old@x.nhs.net", "existed": True}]}}, {"kind": "add_contacts", "detail": None}]
+    assert mo.activity_created(Rest()) == {"5": "new@x.nhs.net"}
