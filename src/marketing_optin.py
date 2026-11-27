@@ -103,6 +103,23 @@ def activity_created(rest):
     return out
 
 
+def hubspot_apollo(hub):
+    """{hubspot id: email} for every HubSpot contact whose first-touch source is Apollo. Atlas files some of them as HubSpot-origin contacts (it imported them from HubSpot), so its own source field would miss them."""
+    out, after = {}, None
+    while True:
+        body = {"limit": 100, "properties": ["email"], "filterGroups": [{"filters": [{"propertyName": "um_source_detail_1", "operator": "EQ", "value": "Apollo"}]}]}
+        if after:
+            body["after"] = after
+        d = hub.call("POST", "/crm/v3/objects/contacts/search", json=body)
+        for r in d.get("results", []):
+            e = str((r.get("properties") or {}).get("email") or "").strip().lower()
+            if e:
+                out[str(r["id"])] = e
+        after = ((d.get("paging") or {}).get("next") or {}).get("after")
+        if not after:
+            return out
+
+
 def remainder_report(hub, others):
     """What HubSpot holds for the Oscar contacts that were not created by Atlas (left untouched): opted out, subscribed, not subscribed, or no status at all (MISSING)."""
     props = read_objects(hub, "contacts", list(others), ["hs_email_optout", "hs_email_optout_" + MARKETING_INFORMATION])
@@ -129,6 +146,11 @@ def run(rest, hub, apply=False, sources=SOURCES, created_only=True, report=True,
             continue
         people[str(r["hubspot_contact_id"])] = r["email"].strip().lower()
         src_of[r["email"].strip().lower()] = src
+    if "apollo" in sources:   # contacts HubSpot itself credits to Apollo, whichever source Atlas holds for them
+        for hid, email in hubspot_apollo(hub).items():
+            if hid not in people:
+                people[hid] = email
+                src_of[email] = "apollo"
     props = read_objects(hub, "contacts", list(people), ["email", "hs_email_optout", "hs_email_optout_" + MARKETING_INFORMATION])
     current, errs = statuses(hub, {e for h, e in people.items() if not opted_out(props.get(h, {}))})
     todo, out, have, bad = plan(people, props, current)

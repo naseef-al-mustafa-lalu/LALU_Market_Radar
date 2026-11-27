@@ -2482,3 +2482,17 @@ def test_old_consent_wording_is_rewritten_only_where_it_matches_exactly():
     assert mo.rewrite_old(Hub(), targets, apply=False) == {"would_rewrite": 1, "other": 2} and not writes      # a dry run only counts
     assert mo.rewrite_old(Hub(), targets, apply=True) == {"rewritten": 1, "other": 2}
     assert len(writes) == 1 and writes[0]["emailAddress"] == "a@nhs.net" and writes[0]["legalBasisExplanation"] == mo.explanation("oscar")      # only the exact old text, and the new wording carries the source
+
+
+def test_hubspot_apollo_contacts_are_found_by_their_hubspot_source_whatever_atlas_calls_them():
+    from src import marketing_optin as mo
+
+    pages = [{"results": [{"id": 1, "properties": {"email": "A@x.nhs.net"}}, {"id": 2, "properties": {"email": ""}}], "paging": {"next": {"after": "2"}}}, {"results": [{"id": 3, "properties": {"email": "c@x.nhs.net"}}]}]
+    seen = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            seen.append(kw["json"])
+            return pages.pop(0)
+    assert mo.hubspot_apollo(Hub()) == {"1": "a@x.nhs.net", "3": "c@x.nhs.net"} and seen[1]["after"] == "2"
+    assert seen[0]["filterGroups"][0]["filters"][0] == {"propertyName": "um_source_detail_1", "operator": "EQ", "value": "Apollo"}
