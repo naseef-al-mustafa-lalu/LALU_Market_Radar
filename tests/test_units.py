@@ -2496,3 +2496,12 @@ def test_hubspot_apollo_contacts_are_found_by_their_hubspot_source_whatever_atla
             return pages.pop(0)
     assert mo.hubspot_apollo(Hub()) == {"1": "a@x.nhs.net", "3": "c@x.nhs.net"} and seen[1]["after"] == "2"
     assert seen[0]["filterGroups"][0]["filters"][0] == {"propertyName": "um_source_detail_1", "operator": "EQ", "value": "Apollo"}
+
+
+def test_atlas_created_label_fills_only_blank_first_touch_detail_2():
+    from src import atlas_created as ac
+
+    created = {"1": "2026-11-26", "2": "2026-11-26", "3": "2026-11-20", "4": None}
+    current = {"1": "", "2": "Lalu Atlas Import: 2026-11-26", "3": "UNMATCHED-COMPANIES-CONTACTS", "4": None}
+    fill, have, other = ac.plan(created, current)
+    assert fill == {"1": "Lalu Atlas Import: 2026-11-26", "4": "Lalu Atlas Import"} and have == 1 and other == 1      # blanks filled, the label kept, a value of its own never overwritten

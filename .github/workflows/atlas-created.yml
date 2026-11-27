@@ -1,0 +1,26 @@
+name: Label the contacts Atlas created in HubSpot
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Write the label (1) or only count what would change (0)'
+        required: true
+        default: '0'
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency: hubspot-sync
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.12', cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Fill First Touch Source Detail 2 on the contacts Atlas created (blank values only)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+          APPLY: ${{ inputs.apply }}
+        run: python -m src.atlas_created

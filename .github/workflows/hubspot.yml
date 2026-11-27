@@ -37,6 +37,14 @@ jobs:
           OPTIN_SCOPE: 'created'
           OPTIN_REPORT: '0'
         run: python -m src.marketing_optin
+      - name: Keep First Touch Source Detail 2 labelled on the contacts Atlas created (HubSpot's source workflow blanks it on some)
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+          APPLY: '1'
+        run: python -m src.atlas_created
       - name: Push contact eligibility to HubSpot (keeps the HubSpot segments equal to Atlas's Eligible list)
         continue-on-error: true
         env:
