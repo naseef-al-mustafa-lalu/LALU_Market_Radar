@@ -26,11 +26,11 @@ _ORDER = [v for v, _ in REASON_OPTIONS]
 
 
 def status_for(status, excluded, reasons):
-    """(atlas_status, atlas_reason) for one Atlas row. A suppressed row gives its most serious reason; an excluded row says why the address or role was held back; an eligible row has no reason."""
+    """(atlas_status, atlas_reason) for one Atlas row. A suppressed row gives its most serious reason; an excluded row with a suppression reason is Suppressed too; otherwise an excluded row says why the address or role was held back; an eligible row has no reason."""
     if status == "eligible":
         return "eligible", ""
-    if status == "suppressed":
-        rs = [r for r, _ in SUPPRESSED_REASONS if r in (reasons or [])]
+    rs = [r for r, _ in SUPPRESSED_REASONS if r in (reasons or [])]
+    if status == "suppressed" or (status == "excluded" and rs):   # a held contact that also has a person-level block is Suppressed
         return "suppressed", rs[0] if rs else (reasons or [""])[0]
     t = (excluded or "").lower()
     if t.startswith("held back at import"):

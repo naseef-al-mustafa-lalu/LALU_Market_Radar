@@ -1498,6 +1498,7 @@ def test_contact_eligibility_follows_atlas_status_and_writes_only_changes():
     assert ce.desired_status(Rest()) == {"11": ("eligible", ""), "22": ("eligible", ""), "33": ("suppressed", "optout")}      # the most serious reason is the one shown
     assert ce.status_for("excluded", "shared mailbox, not a person", []) == ("held", "shared_mailbox") and ce.status_for("excluded", "held back at import: shared mailbox, not a person", None) == ("held", "shared_mailbox")
     assert ce.status_for("excluded", "role switched off: Marked as dropped", None) == ("held", "role_off") and ce.status_for("excluded", "address does not clearly belong to this person", None) == ("held", "not_this_person")
+    assert ce.status_for("excluded", "shared mailbox, not a person", ["mkt_optout", "bounced"]) == ("suppressed", "mkt_optout")      # held, but also opted out: Suppressed
     assert ce.merge_status(("eligible", ""), ("held", "shared_mailbox")) == ("held", "shared_mailbox") and ce.merge_status(("held", "shared_mailbox"), ("suppressed", "bounced")) == ("suppressed", "bounced")
     assert ce.merge_status(("suppressed", "bounced"), ("suppressed", "optout")) == ("suppressed", "optout")      # same severity: the more serious reason wins
 
