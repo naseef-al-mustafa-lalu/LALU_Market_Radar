@@ -1,5 +1,5 @@
 """Opt-in: copy each person's Marketing Information subscription status from HubSpot onto Atlas's contact (contact_hubspot.hs_mkt_subscription), so Atlas can hold back anyone HubSpot would not send a marketing email to.
-Only people who could be eligible are read: the eligible ones, and the ones held back for this reason alone (so they come back when they opt in). A failed lookup is skipped, never recorded as a status."""
+Only people who could be emailed are read: the eligible ones, usable shared inboxes, and the ones held back for this reason alone (so they come back when they opt in). A failed lookup is skipped, never recorded as a status."""
 from .hubspot_sync import chunks
 from .subscription_status import statuses
 
@@ -7,8 +7,9 @@ KNOWN = ("SUBSCRIBED", "NOT_SUBSCRIBED")
 
 
 def sync_subscription(rest, hub, now):
-    status = rest.select_all("contact_status", "contact_urn,status,reasons", order="contact_urn")
-    cand = {s["contact_urn"] for s in status if s["status"] == "eligible" or (s["status"] == "suppressed" and list(s.get("reasons") or []) == ["not_subscribed"])}
+    status = rest.select_all("contact_status", "contact_urn,status,reasons,excluded", order="contact_urn")
+    cand = {s["contact_urn"] for s in status if s["status"] == "eligible" or (s["status"] == "suppressed" and list(s.get("reasons") or []) == ["not_subscribed"])
+            or (s["status"] == "excluded" and "shared mailbox" in (s.get("excluded") or "").lower())}   # a shared inbox can be included in a segment, so its opt-in matters too
     by_email = {}
     for c in rest.select_all("contacts", "contact_urn,email", order="contact_urn", params={"hubspot_contact_id": "not.is.null"}):
         if c["contact_urn"] in cand and (c.get("email") or "").strip():
