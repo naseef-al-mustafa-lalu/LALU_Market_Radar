@@ -1493,8 +1493,13 @@ def test_contact_eligibility_follows_atlas_status_and_writes_only_changes():
         def select_all(self, table, columns="*", order="id", params=None, page=1000):
             if table == "contacts":
                 return [{"contact_urn": 1, "hubspot_contact_id": "11"}, {"contact_urn": 2, "hubspot_contact_id": "22"}, {"contact_urn": 3, "hubspot_contact_id": "33"}, {"contact_urn": 4, "hubspot_contact_id": None}]
-            return [{"contact_urn": 1, "status": "eligible", "section": "main"}, {"contact_urn": 2, "status": "eligible", "section": "other"}, {"contact_urn": 3, "status": "suppressed", "section": "main"}]
+            return [{"contact_urn": 1, "status": "eligible", "section": "main"}, {"contact_urn": 2, "status": "eligible", "section": "other"}, {"contact_urn": 3, "status": "suppressed", "section": "main", "reasons": ["lifecycle", "optout"]}]
     assert ce.desired(Rest()) == {"11": "main", "22": "other", "33": "none"}      # contacts not linked to HubSpot are skipped
+    assert ce.desired_status(Rest()) == {"11": ("eligible", ""), "22": ("eligible", ""), "33": ("suppressed", "optout")}      # the most serious reason is the one shown
+    assert ce.status_for("excluded", "shared mailbox, not a person", []) == ("held", "shared_mailbox") and ce.status_for("excluded", "held back at import: shared mailbox, not a person", None) == ("held", "shared_mailbox")
+    assert ce.status_for("excluded", "role switched off: Marked as dropped", None) == ("held", "role_off") and ce.status_for("excluded", "address does not clearly belong to this person", None) == ("held", "not_this_person")
+    assert ce.merge_status(("eligible", ""), ("held", "shared_mailbox")) == ("held", "shared_mailbox") and ce.merge_status(("held", "shared_mailbox"), ("suppressed", "bounced")) == ("suppressed", "bounced")
+    assert ce.merge_status(("suppressed", "bounced"), ("suppressed", "optout")) == ("suppressed", "optout")      # same severity: the more serious reason wins
 
     calls = []
 
@@ -1504,12 +1509,12 @@ def test_contact_eligibility_follows_atlas_status_and_writes_only_changes():
             if method == "GET":
                 return {}
             if path.endswith("/batch/read"):
-                return {"results": [{"id": "11", "properties": {ce.PROP: "main"}}, {"id": "22", "properties": {ce.PROP: "main"}}, {"id": "33", "properties": {}}]}
+                return {"results": [{"id": "11", "properties": {ce.PROP: "main", ce.STATUS: "eligible", ce.REASON: ""}}, {"id": "22", "properties": {ce.PROP: "main", ce.STATUS: "eligible"}}, {"id": "33", "properties": {}}]}
             return {}
     out = ce.run(Rest(), Hub())
     updates = [c for c in calls if c[1].endswith("/batch/update")]
-    sent = {i["id"]: i["properties"][ce.PROP] for u in updates for i in u[2]["json"]["inputs"]}
-    assert out["to_update"] == 2 and out["written"] == 2 and sent == {"22": "other", "33": "none"}      # 11 already matches, so only the two that differ are written
+    sent = {i["id"]: i["properties"] for u in updates for i in u[2]["json"]["inputs"] if ce.PROP in i["properties"] and i["id"] in ("11", "22", "33")}
+    assert out["to_update"] == 2 and out["written"] == 2 and sent == {"22": {ce.PROP: "other"}, "33": {ce.PROP: "none", ce.STATUS: "suppressed", ce.REASON: "optout"}}      # 11 already matches, so only the two that differ are written, and only the properties that differ
 
 
 def test_neverbounce_list_parses_lines_and_writes_only_the_status():
@@ -2314,7 +2319,7 @@ def test_hubspot_contacts_atlas_does_not_hold_are_set_to_not_eligible_in_id_orde
 
     seen, written = ce.fill_unlinked(Hub(), {"6"}, apply=True)
     updates = [kw["inputs"] for p, kw in calls if p.endswith("/batch/update")]
-    assert (seen, written) == (2, 2) and updates == [[{"id": "5", "properties": {ce.PROP: "none"}}], [{"id": "9", "properties": {ce.PROP: "none"}}]]   # an id Atlas holds is never touched here
+    assert (seen, written) == (2, 2) and updates == [[{"id": "5", "properties": {ce.PROP: "none", ce.STATUS: "held", ce.REASON: "not_in_atlas"}}], [{"id": "9", "properties": {ce.PROP: "none", ce.STATUS: "held", ce.REASON: "not_in_atlas"}}]]   # an id Atlas holds is never touched here
     searches = [kw for p, kw in calls if p.endswith("/search")]
     assert searches[1]["filterGroups"][0]["filters"][1]["value"] == "6"   # the next page starts after the last id seen
     pages[:] = [[{"id": "5"}], []]

@@ -1,6 +1,7 @@
 """Keep HubSpot in step with Atlas: write each Atlas contact's eligibility to a HubSpot contact property, so a HubSpot segment that filters on it is exactly Atlas's Eligible list.
 Property `atlas_contact_eligibility` (Atlas eligibility): Main / Other / Not eligible. It is written for every contact Atlas has linked to HubSpot, only where it differs, so a daily run is small.
-Atlas decides it from public.contact_status (the same rules as the Contacts tab, standard view); HubSpot only reads it."""
+Atlas decides it from public.contact_status (the same rules as the Contacts tab, standard view); HubSpot only reads it.
+Two more properties say why: `atlas_status` (Eligible / Suppressed / Held back) and `atlas_reason` (the main reason in plain words), so a segment can include or leave out a group, for example shared mailboxes, by filtering on it."""
 import os
 import sys
 import time
@@ -11,6 +12,42 @@ from .hubspot_sync import Hub, chunks, read_objects
 
 PROP = "atlas_contact_eligibility"
 OPTIONS = [("main", "Main"), ("other", "Other"), ("none", "Not eligible")]
+STATUS = "atlas_status"
+STATUS_OPTIONS = [("eligible", "Eligible"), ("suppressed", "Suppressed"), ("held", "Held back")]
+REASON = "atlas_reason"
+SUPPRESSED_REASONS = [("optout", "Unsubscribed from all email"), ("mkt_optout", "Opted out of marketing information"), ("bounced", "Bounced email"), ("neverbounce", "Failed NeverBounce"),
+                      ("disqualified", "Disqualified lead"), ("closed_lost", "Closed lost deal"), ("customer", "Customer practice"), ("closed", "Practice closed"), ("owner", "Excluded contact owner"),
+                      ("sequence", "In a sales sequence"), ("in_audience", "In an Atlas audience"), ("lifecycle", "Lifecycle stage not allowed")]   # most serious first
+HELD_REASONS = [("shared_mailbox", "Shared mailbox, not a person"), ("not_this_person", "Address does not clearly belong to this person"), ("partial_match", "Address only partly matches the name"),
+                ("no_email", "No usable email"), ("role_off", "Role switched off"), ("import_held", "Held back at import, not a direct address"), ("not_in_atlas", "Not held in Atlas")]
+REASON_OPTIONS = SUPPRESSED_REASONS + HELD_REASONS
+_SEVERITY = {"eligible": 0, "held": 1, "suppressed": 2}
+_ORDER = [v for v, _ in REASON_OPTIONS]
+
+
+def status_for(status, excluded, reasons):
+    """(atlas_status, atlas_reason) for one Atlas row. A suppressed row gives its most serious reason; an excluded row says why the address or role was held back; an eligible row has no reason."""
+    if status == "eligible":
+        return "eligible", ""
+    if status == "suppressed":
+        rs = [r for r, _ in SUPPRESSED_REASONS if r in (reasons or [])]
+        return "suppressed", rs[0] if rs else (reasons or [""])[0]
+    t = (excluded or "").lower()
+    if t.startswith("held back at import"):
+        return "held", "shared_mailbox" if "shared mailbox" in t else "import_held"
+    for key, reason in (("shared mailbox", "shared_mailbox"), ("does not clearly belong", "not_this_person"), ("only partly matches", "partial_match"), ("no usable email", "no_email"), ("role switched off", "role_off")):
+        if key in t:
+            return "held", reason
+    return "held", "no_email"
+
+
+def merge_status(old, new):
+    """A HubSpot contact shared by several Atlas rows shows its worst row: Suppressed, then Held back, then Eligible; ties go to the more serious reason."""
+    if old is None:
+        return new
+    ko = (_SEVERITY[old[0]], -_ORDER.index(old[1]) if old[1] in _ORDER else -99)
+    kn = (_SEVERITY[new[0]], -_ORDER.index(new[1]) if new[1] in _ORDER else -99)
+    return new if kn > ko else old
 
 
 def value_for(status, section):
@@ -42,6 +79,20 @@ def desired(rest):
     return out
 
 
+def desired_status(rest):
+    """{hubspot contact id: (atlas_status, atlas_reason)} for every Atlas contact linked to HubSpot."""
+    contacts = rest.select_all("contacts", "contact_urn,hubspot_contact_id", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})
+    status = {s["contact_urn"]: s for s in rest.select_all("contact_status", "contact_urn,status,excluded,reasons", order="contact_urn")}
+    out = {}
+    for c in contacts:
+        hid = str(c.get("hubspot_contact_id") or "").strip()
+        if not hid:
+            continue
+        s = status.get(c["contact_urn"]) or {}
+        out[hid] = merge_status(out.get(hid), status_for(s.get("status"), s.get("excluded"), s.get("reasons")))
+    return out
+
+
 def ensure_property(hub):
     """Create the HubSpot property if it is not there yet (needs the contact property write scope). Returns 'exists' or 'created'."""
     try:
@@ -56,14 +107,32 @@ def ensure_property(hub):
     return "created"
 
 
+def ensure_extra_properties(hub):
+    """Create atlas_status and atlas_reason if they are not there yet. Returns {name: 'exists' | 'created'}."""
+    out = {}
+    for name, label, options, desc in ((STATUS, "Atlas status", STATUS_OPTIONS, "Set by Lalu Atlas each day: Eligible, Suppressed (a person-level block such as an opt-out) or Held back (not a person's own address, or a role switched off). Do not edit by hand."),
+                                       (REASON, "Atlas reason", REASON_OPTIONS, "Set by Lalu Atlas each day: the main reason a contact is Suppressed or Held back. Blank when Eligible. Do not edit by hand.")):
+        try:
+            hub.call("GET", f"/crm/v3/properties/contacts/{name}")
+            out[name] = "exists"
+            continue
+        except RuntimeError as e:
+            if "404" not in str(e):
+                raise
+        hub.call("POST", "/crm/v3/properties/contacts", json={"name": name, "label": label, "groupName": "contactinformation", "type": "enumeration", "fieldType": "select", "description": desc,
+                 "options": [{"label": lb, "value": v, "displayOrder": i, "hidden": False} for i, (v, lb) in enumerate(options)]})
+        out[name] = "created"
+    return out
+
+
 def fill_unlinked(hub, skip, apply=True, budget_seconds=1500, now=time.monotonic):
     """HubSpot contacts Atlas does not hold have no eligibility at all, so HubSpot shows them as Unassigned. Atlas cannot vouch for them, so they get "Not eligible"; if Atlas later holds one, the next
     run above sets its real value. Works through the blank ones in id order, 100 a call, and stops after budget_seconds (the rest go on the next run). Returns (blank found, written)."""
     seen = written = 0
     last, started = "0", now()
     while now() - started < budget_seconds:
-        d = hub.call("POST", "/crm/v3/objects/contacts/search", json={"limit": 100, "properties": [PROP], "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
-                     "filterGroups": [{"filters": [{"propertyName": PROP, "operator": "NOT_HAS_PROPERTY"}, {"propertyName": "hs_object_id", "operator": "GT", "value": last}]}]})
+        d = hub.call("POST", "/crm/v3/objects/contacts/search", json={"limit": 100, "properties": [PROP, STATUS], "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
+                     "filterGroups": [{"filters": [{"propertyName": STATUS, "operator": "NOT_HAS_PROPERTY"}, {"propertyName": "hs_object_id", "operator": "GT", "value": last}]}]})
         page = d.get("results", [])
         if not page:
             break
@@ -71,24 +140,39 @@ def fill_unlinked(hub, skip, apply=True, budget_seconds=1500, now=time.monotonic
         ids = [str(r["id"]) for r in page if str(r["id"]) not in skip]
         seen += len(ids)
         if apply and ids:
-            hub.call("POST", "/crm/v3/objects/contacts/batch/update", json={"inputs": [{"id": i, "properties": {PROP: "none"}} for i in ids]})
+            hub.call("POST", "/crm/v3/objects/contacts/batch/update", json={"inputs": [{"id": i, "properties": {PROP: "none", STATUS: "held", REASON: "not_in_atlas"}} for i in ids]})
             written += len(ids)
     return seen, written
 
 
 def run(rest, hub, apply=True):
     prop = ensure_property(hub)
+    extra = ensure_extra_properties(hub)
     want = desired(rest)
-    have = {i: (p.get(PROP) or "") for i, p in read_objects(hub, "contacts", list(want), [PROP]).items()}
-    todo = [(i, v) for i, v in want.items() if have.get(i, "") != v]
+    why = desired_status(rest)
+    props = [PROP, STATUS, REASON]
+    have = read_objects(hub, "contacts", list(want), props)
+    todo = []
+    for i, v in want.items():
+        target = {PROP: v, STATUS: why.get(i, ("held", "not_in_atlas"))[0], REASON: why.get(i, ("held", "not_in_atlas"))[1]}
+        cur = have.get(i, {})
+        diff = {k: t for k, t in target.items() if (cur.get(k) or "") != t}
+        if diff:
+            todo.append((i, diff))
     written = 0
     if apply:
         for ch in chunks(todo, 100):
-            hub.call("POST", "/crm/v3/objects/contacts/batch/update", json={"inputs": [{"id": i, "properties": {PROP: v}} for i, v in ch]})
+            hub.call("POST", "/crm/v3/objects/contacts/batch/update", json={"inputs": [{"id": i, "properties": d} for i, d in ch]})
             written += len(ch)
     counts = {v: sum(1 for x in want.values() if x == v) for v, _ in OPTIONS}
+    by_status = {v: sum(1 for x in why.values() if x[0] == v) for v, _ in STATUS_OPTIONS}
+    by_reason = {}
+    for st, r in why.values():
+        if r:
+            by_reason[r] = by_reason.get(r, 0) + 1
     blank, filled = fill_unlinked(hub, set(want), apply)
-    return {"property": prop, "linked_contacts": len(want), "now_in_hubspot": counts, "to_update": len(todo), "written": written, "not_in_atlas_blank": blank, "not_in_atlas_set_to_not_eligible": filled}
+    return {"property": prop, "extra_properties": extra, "linked_contacts": len(want), "now_in_hubspot": counts, "status": by_status, "reasons": by_reason, "to_update": len(todo), "written": written,
+            "not_in_atlas_blank": blank, "not_in_atlas_set_to_not_eligible": filled}
 
 
 def save_owners(rest, hub):
