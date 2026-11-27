@@ -15,6 +15,11 @@ on:
         required: true
         default: 'created'
 
+      rewrite:
+        description: 'Also rewrite the old consent wording on contacts Atlas opted in (1 = yes; only exact old text is touched)'
+        required: true
+        default: '0'
+
 jobs:
   optin:
     runs-on: ubuntu-latest
@@ -33,4 +38,5 @@ jobs:
           APPLY: ${{ inputs.apply }}
           OPTIN_SOURCES: ${{ inputs.sources }}
           OPTIN_SCOPE: ${{ inputs.scope }}
+          OPTIN_REWRITE: ${{ inputs.rewrite }}
         run: python -m src.marketing_optin

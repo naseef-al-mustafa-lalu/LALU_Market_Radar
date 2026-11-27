@@ -173,7 +173,7 @@ def hubspot_contact(hub, c, company_id, status, targets=None):
         cid, created = str(hub.call("POST", "/crm/v3/objects/contacts", json={"properties": {k: v for k, v in props.items() if v}})["id"]), True
         try:   # a contact Atlas creates is opted in to Marketing Information at once, whatever its source (team decision); a failure never undoes the creation, the daily sweep retries it
             from .marketing_optin import subscribe
-            subscribe(hub, email)
+            subscribe(hub, email, "apollo" if apollo else "oscar")
         except Exception as e:  # noqa: BLE001
             print(f"Marketing Information opt-in not written for {cid}: {str(e)[:160]}", file=sys.stderr)
     if apollo and not created:   # an existing record keeps its own details, except a blank legal basis and an Oscar first touch (see apollo_existing_props)

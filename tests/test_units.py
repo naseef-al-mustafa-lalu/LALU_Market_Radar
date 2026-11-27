@@ -2391,8 +2391,9 @@ def test_marketing_optin_leaves_opt_outs_and_subscribed_alone_and_subscribes_the
     class Hub:
         def call(self, method, path, **kw):
             sent.append((method, path, kw["json"]))
-    mo.subscribe(Hub(), "d@nhs.net")
-    assert sent == [("POST", "/communication-preferences/v3/subscribe", {"emailAddress": "d@nhs.net", "subscriptionId": "621322507", "legalBasis": "LEGITIMATE_INTEREST_OTHER", "legalBasisExplanation": mo.EXPLANATION})]
+    mo.subscribe(Hub(), "d@nhs.net", "apollo")
+    assert sent == [("POST", "/communication-preferences/v3/subscribe", {"emailAddress": "d@nhs.net", "subscriptionId": "621322507", "legalBasis": "LEGITIMATE_INTEREST_OTHER", "legalBasisExplanation": mo.explanation("apollo")})]
+    assert "team decision" not in mo.explanation("oscar") and "Source: Oscar data." in mo.explanation("oscar") and "Source: Apollo." in mo.explanation("apollo") and "unsubscribe at any time" in mo.explanation()
 
 
 def test_a_contact_atlas_creates_in_hubspot_is_opted_in_at_once_whatever_the_source_and_an_existing_one_is_not_touched():
@@ -2461,3 +2462,23 @@ def test_a_person_waiting_for_a_reveal_is_not_stuck_on_the_address_held_for_them
     out = apollo.run(r, "k", 5, post=post, mode="check")
     assert out["from_apollo_contacts"] == 1 and out["found_free"] == 1, out      # the email revealed in Apollo is pulled free (before this fix the held address was reused and the run stopped at the reveal note)
     assert any(v.get("state") == "found" and v.get("free") is True and v.get("apollo_email") == "ann.lee@x.nhs.net" for v in r.patched), r.patched
+
+
+def test_old_consent_wording_is_rewritten_only_where_it_matches_exactly():
+    from src import marketing_optin as mo
+
+    old = sorted(mo.OLD_EXPLANATIONS)[0]
+    held = {"a@nhs.net": old, "b@nhs.net": "Written by someone else", "c@nhs.net": None}
+    writes = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            if method == "GET":
+                email = path.rsplit("/", 1)[1].replace("%40", "@")
+                return {"subscriptionStatuses": [{"id": "621322507", "status": "SUBSCRIBED", "legalBasisExplanation": held[email]}]}
+            writes.append(kw["json"])
+            return {}
+    targets = {"a@nhs.net": "oscar", "b@nhs.net": "oscar", "c@nhs.net": "apollo"}
+    assert mo.rewrite_old(Hub(), targets, apply=False) == {"would_rewrite": 1, "other": 2} and not writes      # a dry run only counts
+    assert mo.rewrite_old(Hub(), targets, apply=True) == {"rewritten": 1, "other": 2}
+    assert len(writes) == 1 and writes[0]["emailAddress"] == "a@nhs.net" and writes[0]["legalBasisExplanation"] == mo.explanation("oscar")      # only the exact old text, and the new wording carries the source
