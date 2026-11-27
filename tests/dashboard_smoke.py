@@ -737,6 +737,8 @@ with sync_playwright() as p:
     pg.select_option("#ap-pm", "")
     pg.click("button[data-apv='review']"); rv = pg.inner_text("#ct-body"); assert "Reveal in Apollo (1)" in rv and "Bob Berry" in rv and "Ann Apple" not in rv and "email held" in rv.lower(), rv      # the Review tab lists the people waiting for a reveal in Apollo
     assert pg.get_attribute("a.ap-open", "href") == "https://app.apollo.io/#/people/pid2", pg.get_attribute("a.ap-open", "href")      # with a link to open the person in Apollo
+    ln = pg.evaluate("[ctApLink({apollo_person_id: '6aff0b3dc0cf3400011c64a6', full_name: 'A B'}), ctApLink({apollo_person_id: '54a4aa5d7468693209324159', full_name: 'A B'}), ctApLink({apollo_person_id: null, full_name: 'A B'})]")
+    assert ln == ["https://app.apollo.io/#/contacts/6aff0b3dc0cf3400011c64a6", "https://app.apollo.io/#/people/54a4aa5d7468693209324159", "https://app.apollo.io/#/people?qKeywords=A%20B"], ln      # a saved contact opens under /contacts/, an older person record under /people/, and nobody with no id falls back to a search
     pg.click("button.ap-nf"); pg.wait_for_function("(window.__rpc || []).some(r => r[0] === 'apollo_close_not_found' && r[1].p_urn === 2)")      # Not found closes them
     pg.click("button[data-apv='queue']")
     pg.evaluate("setCtSub('contacts')")
