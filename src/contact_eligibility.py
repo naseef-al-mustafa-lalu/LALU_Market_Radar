@@ -11,7 +11,7 @@ from .common import Rest
 from .hubspot_sync import Hub, chunks, read_objects
 
 PROP = "atlas_contact_eligibility"
-OPTIONS = [("main", "Main"), ("other", "Other"), ("none", "Not eligible")]
+OPTIONS = [("main", "Main"), ("other", "Other"), ("shared", "Shared inbox"), ("none", "Not eligible")]
 STATUS = "atlas_status"
 STATUS_OPTIONS = [("eligible", "Eligible"), ("suppressed", "Suppressed"), ("held", "Held back")]
 REASON = "atlas_reason"
@@ -41,6 +41,15 @@ def status_for(status, excluded, reasons):
     return "held", "no_email"
 
 
+def value_for(status, section, excluded=None, reasons=None):
+    """The property value for one contact from its Atlas row. Main or Other when it is eligible; Shared inbox when the address is a shared mailbox (no job title, so no role) with nothing else holding it back; otherwise Not eligible."""
+    if status == "eligible" and section in ("main", "other"):
+        return section
+    if status_for(status, excluded, reasons) == ("held", "shared_mailbox"):
+        return "shared"
+    return "none"
+
+
 def merge_status(old, new):
     """A HubSpot contact shared by several Atlas rows shows its worst row: Suppressed, then Held back, then Eligible; ties go to the more serious reason."""
     if old is None:
@@ -50,32 +59,25 @@ def merge_status(old, new):
     return new if kn > ko else old
 
 
-def value_for(status, section):
-    """The property value for one contact from its Atlas status and section."""
-    if status == "eligible" and section in ("main", "other"):
-        return section
-    return "none"
-
-
 def merge_values(old, new):
-    """Two Atlas rows can point at one HubSpot contact (a duplicate). The contact is only as eligible as its least eligible row: "Not eligible" wins, then Other, then Main, so the result never depends on row order."""
+    """Two Atlas rows can point at one HubSpot contact (a duplicate). The contact is only as eligible as its least eligible row: "Not eligible" wins, then Shared inbox, then Other, then Main, so the result never depends on row order."""
     if old is None:
         return new
-    rank = {"none": 0, "other": 1, "main": 2}
+    rank = {"none": 0, "shared": 1, "other": 2, "main": 3}
     return old if rank[old] <= rank[new] else new
 
 
 def desired(rest):
     """{hubspot contact id: value} for every Atlas contact linked to HubSpot."""
     contacts = rest.select_all("contacts", "contact_urn,hubspot_contact_id", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})
-    status = {s["contact_urn"]: s for s in rest.select_all("contact_status", "contact_urn,status,section", order="contact_urn")}
+    status = {s["contact_urn"]: s for s in rest.select_all("contact_status", "contact_urn,status,section,excluded,reasons", order="contact_urn")}
     out = {}
     for c in contacts:
         hid = str(c.get("hubspot_contact_id") or "").strip()
         if not hid:
             continue
         s = status.get(c["contact_urn"]) or {}
-        out[hid] = merge_values(out.get(hid), value_for(s.get("status"), s.get("section")))
+        out[hid] = merge_values(out.get(hid), value_for(s.get("status"), s.get("section"), s.get("excluded"), s.get("reasons")))
     return out
 
 
@@ -96,13 +98,18 @@ def desired_status(rest):
 def ensure_property(hub):
     """Create the HubSpot property if it is not there yet (needs the contact property write scope). Returns 'exists' or 'created'."""
     try:
-        hub.call("GET", f"/crm/v3/properties/contacts/{PROP}")
+        cur = hub.call("GET", f"/crm/v3/properties/contacts/{PROP}")
+        have = {o.get("value") for o in cur.get("options", [])}
+        missing = [(v, lb) for v, lb in OPTIONS if v not in have]
+        if missing and cur.get("options") is not None:   # an option added since the property was made
+            hub.call("PATCH", f"/crm/v3/properties/contacts/{PROP}", json={"options": cur["options"] + [{"label": lb, "value": v, "displayOrder": len(have) + k, "hidden": False} for k, (v, lb) in enumerate(missing)]})
+            return "options added: " + ", ".join(v for v, _ in missing)
         return "exists"
     except RuntimeError as e:
         if "404" not in str(e):
             raise
     hub.call("POST", "/crm/v3/properties/contacts", json={"name": PROP, "label": "Atlas eligibility", "groupName": "contactinformation", "type": "enumeration", "fieldType": "select",
-             "description": "Set by Lalu Atlas each day: Main or Other when the contact is eligible for campaigns under Atlas's rules, otherwise Not eligible. Do not edit by hand.",
+             "description": "Set by Lalu Atlas each day: Main or Other when the contact is eligible for campaigns under Atlas's rules, Shared inbox for a usable shared mailbox (no job title), otherwise Not eligible. Do not edit by hand.",
              "options": [{"label": label, "value": value, "displayOrder": i, "hidden": False} for i, (value, label) in enumerate(OPTIONS)]})
     return "created"
 

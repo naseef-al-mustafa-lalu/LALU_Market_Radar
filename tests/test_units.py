@@ -1499,6 +1499,9 @@ def test_contact_eligibility_follows_atlas_status_and_writes_only_changes():
     assert ce.status_for("excluded", "shared mailbox, not a person", []) == ("held", "shared_mailbox") and ce.status_for("excluded", "held back at import: shared mailbox, not a person", None) == ("held", "shared_mailbox")
     assert ce.status_for("excluded", "role switched off: Marked as dropped", None) == ("held", "role_off") and ce.status_for("excluded", "address does not clearly belong to this person", None) == ("held", "not_this_person")
     assert ce.status_for("excluded", "shared mailbox, not a person", ["mkt_optout", "bounced"]) == ("suppressed", "mkt_optout")      # held, but also opted out: Suppressed
+    assert ce.value_for("excluded", None, "shared mailbox, not a person", []) == "shared" and ce.value_for("excluded", None, "held back at import: shared mailbox, not a person", None) == "shared"
+    assert ce.value_for("excluded", None, "shared mailbox, not a person", ["optout"]) == "none" and ce.value_for("excluded", None, "role switched off: Marked as dropped", []) == "none"   # opted out, or a role switched off: not a usable shared inbox
+    assert ce.merge_values("main", "shared") == "shared" and ce.merge_values("shared", "none") == "none" and ce.merge_values("other", "shared") == "shared"
     assert ce.merge_status(("eligible", ""), ("held", "shared_mailbox")) == ("held", "shared_mailbox") and ce.merge_status(("held", "shared_mailbox"), ("suppressed", "bounced")) == ("suppressed", "bounced")
     assert ce.merge_status(("suppressed", "bounced"), ("suppressed", "optout")) == ("suppressed", "optout")      # same severity: the more serious reason wins
 
