@@ -21,6 +21,11 @@ SUPPRESSED_REASONS = [("optout", "Unsubscribed from all email"), ("mkt_optout", 
 HELD_REASONS = [("shared_mailbox", "Shared mailbox, not a person"), ("not_this_person", "Address does not clearly belong to this person"), ("partial_match", "Address only partly matches the name"),
                 ("no_email", "No usable email"), ("role_off", "Role switched off"), ("import_held", "Held back at import, not a direct address"), ("not_in_atlas", "Not held in Atlas")]
 REASON_OPTIONS = SUPPRESSED_REASONS + HELD_REASONS
+ROLE = "atlas_role"
+ROLE_OPTIONS = [("pm", "Practice / business / general manager"), ("partner", "GP / senior / managing partner"), ("deputy", "Deputy / assistant manager"), ("ops", "Operations manager"),
+                ("director", "Practice / managing / executive director"), ("pcn", "PCN director or manager"), ("senior", "Senior manager / head of"), ("gp", "GP (not a partner)"),
+                ("services", "Patient services and administration manager"), ("finance", "Finance, HR and business partner"), ("digital", "Digital, IT and transformation"),
+                ("clinical", "Nurse or other clinician"), ("admin", "Reception, secretary or clerk"), ("other", "Other title"), ("none", "No job title"), ("dropped", "Marked as dropped")]
 _SEVERITY = {"eligible": 0, "held": 1, "suppressed": 2}
 _ORDER = [v for v, _ in REASON_OPTIONS]
 
@@ -95,6 +100,22 @@ def desired_status(rest):
     return out
 
 
+def desired_role(rest):
+    """{hubspot contact id: role id} from each Atlas contact's job title, whatever its status (so shared inboxes and held-back contacts have one too). A contact with several Atlas rows takes the role of its eligible row, else its first."""
+    contacts = rest.select_all("contacts", "contact_urn,hubspot_contact_id", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})
+    status = {s["contact_urn"]: s for s in rest.select_all("contact_status", "contact_urn,status,role_id", order="contact_urn")}
+    best = {}
+    for c in contacts:
+        hid = str(c.get("hubspot_contact_id") or "").strip()
+        s = status.get(c["contact_urn"]) or {}
+        if not hid or not s.get("role_id"):
+            continue
+        key = (s.get("status") != "eligible", c["contact_urn"])
+        if hid not in best or key < best[hid][0]:
+            best[hid] = (key, s["role_id"])
+    return {h: v[1] for h, v in best.items()}
+
+
 def ensure_property(hub):
     """Create the HubSpot property if it is not there yet (needs the contact property write scope). Returns 'exists' or 'created'."""
     try:
@@ -118,7 +139,8 @@ def ensure_extra_properties(hub):
     """Create atlas_status and atlas_reason if they are not there yet. Returns {name: 'exists' | 'created'}."""
     out = {}
     for name, label, options, desc in ((STATUS, "Atlas status", STATUS_OPTIONS, "Set by Lalu Atlas each day: Eligible, Suppressed (a person-level block such as an opt-out) or Held back (not a person's own address, or a role switched off). Do not edit by hand."),
-                                       (REASON, "Atlas reason", REASON_OPTIONS, "Set by Lalu Atlas each day: the main reason a contact is Suppressed or Held back. Blank when Eligible. Do not edit by hand.")):
+                                       (REASON, "Atlas reason", REASON_OPTIONS, "Set by Lalu Atlas each day: the main reason a contact is Suppressed or Held back. Blank when Eligible. Do not edit by hand."),
+                                       (ROLE, "Atlas role", ROLE_OPTIONS, "Set by Lalu Atlas each day: the job-title role Atlas gives the contact (from the roles in Atlas Settings), for every contact whatever its status, so a segment can pick roles among shared inboxes too. Do not edit by hand.")):
         try:
             cur = hub.call("GET", f"/crm/v3/properties/contacts/{name}")
             have = {o.get("value") for o in cur.get("options", [])}
@@ -163,11 +185,12 @@ def run(rest, hub, apply=True):
     extra = ensure_extra_properties(hub)
     want = desired(rest)
     why = desired_status(rest)
-    props = [PROP, STATUS, REASON]
+    roles = desired_role(rest)
+    props = [PROP, STATUS, REASON, ROLE]
     have = read_objects(hub, "contacts", list(want), props)
     todo = []
     for i, v in want.items():
-        target = {PROP: v, STATUS: why.get(i, ("held", "not_in_atlas"))[0], REASON: why.get(i, ("held", "not_in_atlas"))[1]}
+        target = {PROP: v, STATUS: why.get(i, ("held", "not_in_atlas"))[0], REASON: why.get(i, ("held", "not_in_atlas"))[1], ROLE: roles.get(i, "")}
         cur = have.get(i, {})
         diff = {k: t for k, t in target.items() if (cur.get(k) or "") != t}
         if diff:
@@ -183,8 +206,11 @@ def run(rest, hub, apply=True):
     for st, r in why.values():
         if r:
             by_reason[r] = by_reason.get(r, 0) + 1
+    by_role = {}
+    for r in roles.values():
+        by_role[r] = by_role.get(r, 0) + 1
     blank, filled = fill_unlinked(hub, set(want), apply)
-    return {"property": prop, "extra_properties": extra, "linked_contacts": len(want), "now_in_hubspot": counts, "status": by_status, "reasons": by_reason, "to_update": len(todo), "written": written,
+    return {"property": prop, "extra_properties": extra, "roles": by_role, "linked_contacts": len(want), "now_in_hubspot": counts, "status": by_status, "reasons": by_reason, "to_update": len(todo), "written": written,
             "not_in_atlas_blank": blank, "not_in_atlas_set_to_not_eligible": filled}
 
 

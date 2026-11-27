@@ -1502,6 +1502,12 @@ def test_contact_eligibility_follows_atlas_status_and_writes_only_changes():
     assert ce.value_for("excluded", None, "shared mailbox, not a person", []) == "shared" and ce.value_for("excluded", None, "held back at import: shared mailbox, not a person", None) == "shared"
     assert ce.value_for("excluded", None, "shared mailbox, not a person", ["optout"]) == "none" and ce.value_for("excluded", None, "role switched off: Marked as dropped", []) == "none"   # opted out, or a role switched off: not a usable shared inbox
     assert ce.merge_values("main", "shared") == "shared" and ce.merge_values("shared", "none") == "none" and ce.merge_values("other", "shared") == "shared"
+    class Rest2:
+        def select_all(self, table, columns="*", order="id", params=None, page=1000):
+            if table == "contacts":
+                return [{"contact_urn": 1, "hubspot_contact_id": "11"}, {"contact_urn": 2, "hubspot_contact_id": "11"}, {"contact_urn": 3, "hubspot_contact_id": "22"}, {"contact_urn": 4, "hubspot_contact_id": "33"}]
+            return [{"contact_urn": 1, "status": "excluded", "role_id": "clinical"}, {"contact_urn": 2, "status": "eligible", "role_id": "pm"}, {"contact_urn": 3, "status": "excluded", "role_id": "partner"}, {"contact_urn": 4, "status": "suppressed", "role_id": None}]
+    assert ce.desired_role(Rest2()) == {"11": "pm", "22": "partner"}      # the eligible row's role wins; a shared inbox keeps its role; no role, none written
     assert ce.merge_status(("eligible", ""), ("held", "shared_mailbox")) == ("held", "shared_mailbox") and ce.merge_status(("held", "shared_mailbox"), ("suppressed", "bounced")) == ("suppressed", "bounced")
     assert ce.merge_status(("suppressed", "bounced"), ("suppressed", "optout")) == ("suppressed", "optout")      # same severity: the more serious reason wins
 
