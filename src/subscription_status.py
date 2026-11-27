@@ -7,7 +7,7 @@ from collections import Counter
 
 from .common import Rest
 from .diagnose_segment import members
-from .hubspot_sync import Hub, chunks
+from .hubspot_sync import Hub
 
 MARKETING_INFORMATION = "621322507"
 
