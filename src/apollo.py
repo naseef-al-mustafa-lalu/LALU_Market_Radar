@@ -425,7 +425,7 @@ def run(rest, key, cap=MAX_PER_RUN, post=requests.post, now=None, mode="enrich",
         time.sleep(pause)
         free, reused, no_person_route = False, False, False
         try:
-            if c.get("apollo_email"):   # found on an earlier run but the contact could not be saved: reuse the email, never look it up (or pay) twice
+            if c.get("apollo_email") and not str(c.get("note") or "").startswith("needs reveal in Apollo"):   # found on an earlier run but the contact could not be saved: reuse the email, never look it up (or pay) twice. A person waiting for a reveal is not reused: the address held for them was not confirmed (a namesake's, or a vendor's guess), so the saved-contact pull below looks for the email you reveal
                 saved, reused = {"email": c["apollo_email"], "status": c.get("apollo_email_status")}, True
             else:
                 try:   # step 0, free: already one of your Apollo contacts, at this practice?

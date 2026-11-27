@@ -2428,3 +2428,36 @@ def test_marketing_optin_sweep_includes_contacts_created_from_the_profiles_and_i
             return [{"kind": "add_contacts", "detail": {"contacts": [{"id": "5", "email": "New@x.nhs.net", "existed": False}, {"id": "6", "email": "old@x.nhs.net", "existed": True}]}}, {"kind": "add_contacts", "detail": None},
                     {"kind": "add_contacts", "detail": {"done": [{"id": "8", "email": "profile@x.nhs.net", "existed": False}], "warnings": []}}]
     assert mo.activity_created(Rest()) == {"5": "new@x.nhs.net", "8": "profile@x.nhs.net"}
+
+
+def test_a_person_waiting_for_a_reveal_is_not_stuck_on_the_address_held_for_them_and_the_revealed_email_is_pulled_free():
+    from src import apollo
+
+    class R:
+        status_code = 200
+        text = ""
+        def __init__(self, j): self.j = j
+        def json(self): return self.j
+        def raise_for_status(self): pass
+
+    def post(url, **kw):
+        assert url.endswith("contacts/search"), "only the free saved-contacts search may be called"
+        return R({"contacts": [{"first_name": "Ann", "last_name": "Lee", "email": "ann.lee@x.nhs.net", "email_status": "verified", "organization_name": "Test Surgery"}]})
+
+    class Rest:
+        def __init__(self): self.inserted, self.patched = [], []
+        def upsert(self, table, rows, key): pass
+        def select_all(self, table, cols="*", order="", params=None):
+            if table == "apollo_queue":   # a held address that was never confirmed (a namesake's), and the reveal note: the revealed email must win
+                return [{"contact_urn": 5, "ods_code": "A1", "full_name": "Ann Lee", "first_name": "Ann", "last_name": "Lee", "job_title": "Practice Manager", "apollo_email": "ann@lawfirm.com", "note": "needs reveal in Apollo: ...", "free": False}]
+            return [{"ods_code": "A1", "practice_name": "Test Surgery", "website": None, "postcode": None, "hubspot_company_id": None}] if table == "gp_practices" else []
+        def insert(self, table, rows, **kw):
+            self.inserted.append(rows)
+            return [{"contact_urn": 7}]
+        def patch(self, table, filters, values): self.patched.append(values)
+        def rpc(self, name, args=None): return [{"title": t, "section": "main"} for t in args["p_titles"]]
+
+    r = Rest()
+    out = apollo.run(r, "k", 5, post=post, mode="check")
+    assert out["from_apollo_contacts"] == 1 and out["found_free"] == 1, out      # the email revealed in Apollo is pulled free (before this fix the held address was reused and the run stopped at the reveal note)
+    assert any(v.get("state") == "found" and v.get("free") is True and v.get("apollo_email") == "ann.lee@x.nhs.net" for v in r.patched), r.patched
