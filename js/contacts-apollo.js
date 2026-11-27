@@ -71,10 +71,10 @@ function ctApolloReviewView() {
   const man = ctApManual().filter(r => (!ctApF.country || ctApCountry(r) === ctApF.country) && (!ctApF.tier || ctApTier(r) === ctApF.tier) && (!ctApF.role || r.role_id === ctApF.role)),
     link = r => r.apollo_person_id ? `https://app.apollo.io/#/people/${encodeURIComponent(r.apollo_person_id)}` : `https://app.apollo.io/#/people?qKeywords=${encodeURIComponent(r.full_name || "")}`;
   return `<div class="flex flex-wrap items-center gap-2">${ctApCountrySelect()}${ctApTierSelect()}${ctApRoleSelect()}</div>
-    <h3 class="text-sm font-bold">Reveal in Apollo (${man.length})</h3><p class="text-xs text-slate-500">Apollo's API could not give an email for these people. <b>Open in Apollo</b>, reveal the email there, then <b>Pull now</b> (it is also pulled in free within the hour). If Apollo has no email, choose <b>Not found</b>.</p>
+    <h3 class="text-sm font-bold">Reveal in Apollo (${man.length})</h3><p class="text-xs text-slate-500">Apollo's API could not give an email for these people. <b>Open in Apollo</b> and reveal the email there: it is pulled in free within the hour and then waits in the NeverBounce tab. If Apollo has no email, choose <b>Not found</b>.</p>
     <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-2 py-2">Contact</th><th class="px-2">Practice</th><th class="px-2"></th></tr></thead><tbody>
     ${man.map(r => `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5">${esc(r.full_name || "")}<div class="text-xs text-slate-500">${esc(r.job_title || "")}</div></td><td class="px-2">${ctApPractice(names, r.ods_code)}</td>
-      <td class="px-2"><a href="${link(r)}" target="_blank" rel="noopener" class="ap-open rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-lalu-navy hover:bg-slate-50">Open in Apollo</a> <button type="button" class="ap-pull rounded-md bg-lalu-navy px-2 py-1 text-xs font-semibold text-white hover:bg-lalu-navy-700">Pull now</button> <button type="button" class="ap-nf rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50" data-u="${r.contact_urn}">Not found</button></td></tr>`).join("") || '<tr><td colspan="3" class="px-3 py-6 text-center text-sm text-slate-500">Nobody is waiting for a reveal.</td></tr>'}
+      <td class="px-2"><a href="${link(r)}" target="_blank" rel="noopener" class="ap-open rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-lalu-navy hover:bg-slate-50">Open in Apollo</a> <button type="button" class="ap-nf rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50" data-u="${r.contact_urn}">Not found</button></td></tr>`).join("") || '<tr><td colspan="3" class="px-3 py-6 text-center text-sm text-slate-500">Nobody is waiting for a reveal.</td></tr>'}
     </tbody></table></div>
     <h3 class="text-sm font-bold">Same person, different email (${rows.length})</h3><p class="text-xs text-slate-500">Apollo returned an email for someone Atlas or HubSpot already holds at this practice under another email. Nothing is created or changed until you choose. <b>Use Apollo's email</b> changes the existing contact to the new email, which then waits for NeverBounce (and HubSpot's record is updated, with a note). <b>Keep existing</b> leaves everything as it is.${ctMsg ? ` <span class="text-slate-600">${esc(ctMsg)}</span>` : ""}</p>
     <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white"><table class="w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th class="px-2 py-2">Contact</th><th class="px-2">Practice</th><th class="px-2">Email already held</th><th class="px-2">Apollo found</th><th class="px-2"></th></tr></thead><tbody>
@@ -105,16 +105,7 @@ async function ctApolloApproveRun(urns, approve) {
     ctMsg = why ? `${urns.length} approved, but the lookup could not be started: ${why}. Start the Apollo lookup action by hand.` : `${urns.length} approved. The Apollo lookup has started and emails are found within a few minutes: they then appear in the NeverBounce tab.`; renderContacts();
   }
 }
-async function ctApPullNow() {
-  if (ctApBusy) return; ctApBusy = true; ctMsg = "Pulling revealed emails from Apollo..."; renderContacts();
-  try {
-    const { data, error } = await db.functions.invoke("apollo-trigger", { body: { cap: Math.max(1, ctApollo.counts.approved || 0) } });
-    let why = data && data.error; if (error && !why) { try { const j = await error.context?.json?.(); why = j?.error; } catch (e) {} why = why || error.message; }
-    ctMsg = why ? `Could not start the pull: ${why}. It also runs by itself within the hour.` : "Started. Revealed emails are pulled in free within a few minutes, then wait in the NeverBounce tab.";
-  } finally { ctApBusy = false; renderContacts(); }
-}
-document.addEventListener("click", e => { const t = e.target.closest ? (e.target.closest(".ap-tab, .ap-use, .ap-keep, .ap-nf, .ap-pull") || e.target) : e.target;
-  if (t.classList && t.classList.contains("ap-pull")) { ctApPullNow(); return; }
+document.addEventListener("click", e => { const t = e.target.closest ? (e.target.closest(".ap-tab, .ap-use, .ap-keep, .ap-nf") || e.target) : e.target;
   if (t.classList && t.classList.contains("ap-nf")) { ctApReviewAct("apollo_close_not_found", { p_urn: Number(t.dataset.u) }, "Closed as not found."); return; }
   if (t.classList && t.classList.contains("ap-tab")) { ctApView = t.dataset.apv; ctMsg = ""; renderContacts(); return; }
   if (t.classList && t.classList.contains("ap-use")) { ctApReviewAct("apollo_resolve_email_review", { p_urn: Number(t.dataset.u), p_use_apollo: true }, "Apollo's email chosen: it is applied on the next Apollo run, then waits for NeverBounce."); return; }
