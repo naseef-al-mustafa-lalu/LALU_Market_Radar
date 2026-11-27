@@ -2376,3 +2376,20 @@ def test_a_big_apollo_run_waits_only_briefly_on_each_waterfall_so_it_finishes_in
 
     email, rid, note = apollo.waterfall_email({"first_name": "A", "last_name": "B", "id_kind": ""}, "P", "https://p.nhs.uk", "k", post=post, get=lambda *a, **k: G(), wait=apollo.WATERFALL_WAIT_BULK, sleep=slept.append)
     assert email is None and len(slept) == 1   # one short poll, then the request id is kept for the free collection
+
+
+def test_marketing_optin_leaves_opt_outs_and_subscribed_alone_and_subscribes_the_rest():
+    from src import marketing_optin as mo
+
+    people = {"1": "a@nhs.net", "2": "b@nhs.net", "3": "c@nhs.net", "4": "d@nhs.net", "5": "e@nhs.net"}
+    props = {"1": {"hs_email_optout": "true"}, "2": {"hs_email_optout_621322507": "true"}, "3": {}, "4": {}, "5": {}}
+    current = {"c@nhs.net": ("SUBSCRIBED", "NON_GDPR"), "d@nhs.net": ("NOT_SUBSCRIBED", ""), "e@nhs.net": ("ERROR", "")}
+    todo, out, have, bad = mo.plan(people, props, current)
+    assert out == ["1", "2"] and have == ["3"] and todo == {"4": "d@nhs.net"} and bad == ["5"]      # either opt-out is left alone; an unreadable status is never written over
+    sent = []
+
+    class Hub:
+        def call(self, method, path, **kw):
+            sent.append((method, path, kw["json"]))
+    mo.subscribe(Hub(), "d@nhs.net")
+    assert sent == [("POST", "/communication-preferences/v3/subscribe", {"emailAddress": "d@nhs.net", "subscriptionId": "621322507", "legalBasis": "LEGITIMATE_INTEREST_OTHER", "legalBasisExplanation": mo.EXPLANATION})]
