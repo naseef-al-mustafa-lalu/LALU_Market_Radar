@@ -15,7 +15,7 @@ OPTIONS = [("main", "Main"), ("other", "Other"), ("none", "Not eligible")]
 STATUS = "atlas_status"
 STATUS_OPTIONS = [("eligible", "Eligible"), ("suppressed", "Suppressed"), ("held", "Held back")]
 REASON = "atlas_reason"
-SUPPRESSED_REASONS = [("optout", "Unsubscribed from all email"), ("mkt_optout", "Opted out of marketing information"), ("bounced", "Bounced email"), ("neverbounce", "Failed NeverBounce"),
+SUPPRESSED_REASONS = [("optout", "Unsubscribed from all email"), ("mkt_optout", "Opted out of marketing information"), ("not_subscribed", "Not subscribed to marketing information"), ("bounced", "Bounced email"), ("neverbounce", "Failed NeverBounce"),
                       ("disqualified", "Disqualified lead"), ("closed_lost", "Closed lost deal"), ("customer", "Customer practice"), ("closed", "Practice closed"), ("owner", "Excluded contact owner"),
                       ("sequence", "In a sales sequence"), ("in_audience", "In an Atlas audience"), ("lifecycle", "Lifecycle stage not allowed")]   # most serious first
 HELD_REASONS = [("shared_mailbox", "Shared mailbox, not a person"), ("not_this_person", "Address does not clearly belong to this person"), ("partial_match", "Address only partly matches the name"),
@@ -113,8 +113,14 @@ def ensure_extra_properties(hub):
     for name, label, options, desc in ((STATUS, "Atlas status", STATUS_OPTIONS, "Set by Lalu Atlas each day: Eligible, Suppressed (a person-level block such as an opt-out) or Held back (not a person's own address, or a role switched off). Do not edit by hand."),
                                        (REASON, "Atlas reason", REASON_OPTIONS, "Set by Lalu Atlas each day: the main reason a contact is Suppressed or Held back. Blank when Eligible. Do not edit by hand.")):
         try:
-            hub.call("GET", f"/crm/v3/properties/contacts/{name}")
-            out[name] = "exists"
+            cur = hub.call("GET", f"/crm/v3/properties/contacts/{name}")
+            have = {o.get("value") for o in cur.get("options", [])}
+            missing = [(v, lb) for v, lb in options if v not in have]
+            if missing and cur.get("options") is not None:   # a reason added since the property was made
+                hub.call("PATCH", f"/crm/v3/properties/contacts/{name}", json={"options": cur["options"] + [{"label": lb, "value": v, "displayOrder": len(have) + k, "hidden": False} for k, (v, lb) in enumerate(missing)]})
+                out[name] = "options added: " + ", ".join(v for v, _ in missing)
+            else:
+                out[name] = "exists"
             continue
         except RuntimeError as e:
             if "404" not in str(e):

@@ -1422,6 +1422,11 @@ def sync(rest, hub, now=None, actor="daily sync"):
         contact_stats = sync_contact_state(rest, hub, now)
     except Exception as e:  # noqa: BLE001
         contact_stats = {"contact_state_error": str(e)[:300]}
+    try:   # opt-in status for the people who could be eligible (needs the communication preferences read scope; a failure leaves the earlier status in place)
+        from .subscription_sync import sync_subscription
+        contact_stats.update(sync_subscription(rest, hub, now))
+    except Exception as e:  # noqa: BLE001
+        contact_stats["subscription_error"] = str(e)[:200]
     try:   # the channels Atlas's Slack bot is in, for the audience alert channel picker (needs a bot token; without one the picker offers only the default)
         if os.environ.get("SLACK_BOT_TOKEN"):
             contact_stats["slack_channels"] = slack.sync_channels(rest)

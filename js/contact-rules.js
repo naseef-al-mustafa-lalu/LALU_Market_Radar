@@ -26,7 +26,8 @@ const CT_ROLE = Object.fromEntries(CT_ROLES.map(r => [r[0], { id: r[0], label: r
 // Hard stops and soft stops. [id, label, what it does, default on]. The first group are facts in the contact's own record; the second need what HubSpot knows (synced daily).
 const CT_RULES = [
   ["optout", "Unsubscribed from all email", "The contact opted out in Oscar or HubSpot.", true],
-  ["mkt_optout", "Opted out of Marketing Information", "Unsubscribed from the Marketing Information emails and has been sent one.", true],
+  ["mkt_optout", "Opted out of Marketing Information", "Unsubscribed from the Marketing Information emails, whether or not one was ever sent.", true],
+  ["not_subscribed", "Not subscribed to Marketing Information", "HubSpot holds no opt-in for the Marketing Information emails (opted out, or never opted in), so a marketing email would not be sent. Read daily from HubSpot.", true],
   ["bounced", "Email bounced", "A hard bounce (unknown user, other, policy), or any bounce after a marketing email was sent.", true],
   ["sequence", "Already in a HubSpot sequence", "Not enrolled in a second campaign while one is running.", true],
   ["in_audience", "Already approved in another Atlas audience", "Held for the audience that has them first.", true],
