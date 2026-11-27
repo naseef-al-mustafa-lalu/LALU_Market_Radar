@@ -735,7 +735,7 @@ with sync_playwright() as p:
     pg.select_option("#ap-status", "apollo"); ap2 = pg.inner_text("#ct-body"); assert "Ann Apple" in ap2 and "Bob Berry" not in ap2 and "Dan Date" not in ap2, ap2      # the Status filter narrows the list
     pg.select_option("#ap-status", ""); pg.select_option("#ap-pm", "nopm"); ap3 = pg.inner_text("#ct-body"); assert "Ann Apple" in ap3 and "Cat Cherry" not in ap3, ap3      # the No PM filter keeps the practices without a practice manager (A10002 has one)
     pg.select_option("#ap-pm", "")
-    pg.click("button[data-apv='review']"); rv = pg.inner_text("#ct-body"); assert "Reveal in Apollo (1)" in rv and "Bob Berry" in rv and "Ann Apple" not in rv, rv      # the Review tab lists the people waiting for a reveal in Apollo
+    pg.click("button[data-apv='review']"); rv = pg.inner_text("#ct-body"); assert "Reveal in Apollo (1)" in rv and "Bob Berry" in rv and "Ann Apple" not in rv and "email held" in rv.lower(), rv      # the Review tab lists the people waiting for a reveal in Apollo
     assert pg.get_attribute("a.ap-open", "href") == "https://app.apollo.io/#/people/pid2", pg.get_attribute("a.ap-open", "href")      # with a link to open the person in Apollo
     pg.click("button.ap-nf"); pg.wait_for_function("(window.__rpc || []).some(r => r[0] === 'apollo_close_not_found' && r[1].p_urn === 2)")      # Not found closes them
     pg.click("button[data-apv='queue']")
