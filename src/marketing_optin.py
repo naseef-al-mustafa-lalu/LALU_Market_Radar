@@ -58,7 +58,7 @@ def remainder_report(hub, others):
     return dict(out)
 
 
-def run(rest, hub, apply=False, sources=SOURCES, created_only=True):
+def run(rest, hub, apply=False, sources=SOURCES, created_only=True, report=True):
     """Oscar contacts are only the ones Atlas created in HubSpot (checked and pushed through NeverBounce, so no HubSpot record existed before); Apollo contacts are all of them."""
     rows = rest.select_all("contacts", "contact_urn,email,hubspot_contact_id,source", order="contact_urn", params={"hubspot_contact_id": "not.is.null"})
     created = {r["contact_urn"] for r in rest.select_all("contact_nb", "contact_urn,nb_state", order="contact_urn", params={"nb_state": "eq.checked"})}
@@ -75,7 +75,7 @@ def run(rest, hub, apply=False, sources=SOURCES, created_only=True):
     current, errs = statuses(hub, {e for h, e in people.items() if not opted_out(props.get(h, {}))})
     todo, out, have, bad = plan(people, props, current)
     result = {"oscar_not_created_by_atlas": len(others), "candidates": len(people), "left_alone_opted_out": len(out), "already_subscribed": len(have), "to_subscribe": len(todo), "unreadable": len(bad), "first_read_errors": errs, "apply": apply}
-    if others:
+    if others and report:
         result["remainder_oscar_status"] = remainder_report(hub, others)
     if apply:
         done, failed, first = 0, 0, []
@@ -104,7 +104,7 @@ def main():
         if not env.get(k):
             print(f"{k} is not set", file=sys.stderr)
             sys.exit(2)
-    print("RESULT " + json.dumps(run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), Hub(env["HUBSPOT_TOKEN"]), apply=env.get("APPLY", "0") == "1", sources=tuple(x.strip() for x in env.get("OPTIN_SOURCES", "apollo").split(",") if x.strip()), created_only=env.get("OPTIN_SCOPE", "created") == "created"), default=str))
+    print("RESULT " + json.dumps(run(Rest(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"]), Hub(env["HUBSPOT_TOKEN"]), apply=env.get("APPLY", "0") == "1", sources=tuple(x.strip() for x in env.get("OPTIN_SOURCES", "apollo").split(",") if x.strip()), created_only=env.get("OPTIN_SCOPE", "created") == "created", report=env.get("OPTIN_REPORT", "1") != "0"), default=str))
 
 
 if __name__ == "__main__":

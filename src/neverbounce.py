@@ -171,6 +171,11 @@ def hubspot_contact(hub, c, company_id, status, targets=None):
         props.update(email=email, firstname=c.get("first_name") or (c.get("full_name") or "").split(" ")[0] or None, lastname=c.get("last_name") or " ".join((c.get("full_name") or "").split(" ")[1:]) or None,
                      jobtitle=c.get("job_title"), phone=c.get("phone"), job_role_standardised=standard_role(c.get("job_title")), **creation_props("Apollo" if apollo else "Oscar API"))
         cid, created = str(hub.call("POST", "/crm/v3/objects/contacts", json={"properties": {k: v for k, v in props.items() if v}})["id"]), True
+        try:   # a contact Atlas creates is opted in to Marketing Information at once, whatever its source (team decision); a failure never undoes the creation, the daily sweep retries it
+            from .marketing_optin import subscribe
+            subscribe(hub, email)
+        except Exception as e:  # noqa: BLE001
+            print(f"Marketing Information opt-in not written for {cid}: {str(e)[:160]}", file=sys.stderr)
     if apollo and not created:   # an existing record keeps its own details, except a blank legal basis and an Oscar first touch (see apollo_existing_props)
         cur = (hub.call("GET", f"/crm/v3/objects/contacts/{cid}", params={"properties": APOLLO_READ}) or {}).get("properties") or {}
         extra = apollo_existing_props(cur)

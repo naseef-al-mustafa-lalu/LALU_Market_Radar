@@ -2393,3 +2393,27 @@ def test_marketing_optin_leaves_opt_outs_and_subscribed_alone_and_subscribes_the
             sent.append((method, path, kw["json"]))
     mo.subscribe(Hub(), "d@nhs.net")
     assert sent == [("POST", "/communication-preferences/v3/subscribe", {"emailAddress": "d@nhs.net", "subscriptionId": "621322507", "legalBasis": "LEGITIMATE_INTEREST_OTHER", "legalBasisExplanation": mo.EXPLANATION})]
+
+
+def test_a_contact_atlas_creates_in_hubspot_is_opted_in_at_once_whatever_the_source_and_an_existing_one_is_not_touched():
+    from src import neverbounce
+
+    def run_with(found, source):
+        calls = []
+
+        class Hub:
+            def call(self, method, path, **kw):
+                calls.append((method, path, kw.get("json")))
+                if path.endswith("/contacts/search"):
+                    return {"results": [{"id": "9"}] if found else []}
+                if method == "POST" and path == "/crm/v3/objects/contacts":
+                    return {"id": "77"}
+                return {}
+        c = {"email": "new.person@practice.nhs.net", "first_name": "New", "last_name": "Person", "job_title": "Practice Manager", "source": source}
+        cid, created = neverbounce.hubspot_contact(Hub(), c, None, "Valid", targets={})
+        return cid, created, [x for x in calls if x[1] == "/communication-preferences/v3/subscribe"]
+    for src in ("oscar", "hubspot"):
+        cid, created, sub = run_with(False, src)
+        assert created and cid == "77" and len(sub) == 1 and sub[0][2]["subscriptionId"] == "621322507" and sub[0][2]["emailAddress"] == "new.person@practice.nhs.net", (src, sub)      # created: opted in
+    cid, created, sub = run_with(True, "oscar")
+    assert not created and cid == "9" and not sub      # an existing HubSpot contact keeps whatever status it has

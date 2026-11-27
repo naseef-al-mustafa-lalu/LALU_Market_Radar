@@ -26,6 +26,17 @@ jobs:
           SLACK_ATLAS_WEBHOOK_URL: ${{ secrets.SLACK_ATLAS_WEBHOOK_URL }}
           SLACK_ATLAS_CHANNEL: ${{ vars.SLACK_ATLAS_CHANNEL }}
         run: python -m src.hubspot_sync
+      - name: Opt in the contacts Atlas created in HubSpot (retries any creation-time opt-in that failed; opt-outs and subscribed contacts are left alone)
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+          APPLY: '1'
+          OPTIN_SOURCES: 'oscar,apollo'
+          OPTIN_SCOPE: 'created'
+          OPTIN_REPORT: '0'
+        run: python -m src.marketing_optin
       - name: Push contact eligibility to HubSpot (keeps the HubSpot segments equal to Atlas's Eligible list)
         continue-on-error: true
         env:
